@@ -2,13 +2,13 @@ import copy
 import hashlib
 import binascii
 import numpy as np
+from collections import OrderedDict
 from numpy import pi
-from numpy import exp, tile, dot
+from numpy import exp, dot
 from numpy.linalg import norm
 from scipy.optimize import check_grad
 from ase.atoms import Atoms
-from collections import OrderedDict
-from ase.pathway.utils import isdct, islst, isstr
+from ase.pathway.utils import isdct, isstr, islst
 
 
 class Model:
@@ -20,13 +20,15 @@ class Model:
         'prefix': {'default': 'None', 'assert': isstr},
         'pbc': {'default': 'None', 'assert': 'True'},
         'potential_unit': {'default': '"eV"', 'assert': isstr},
-        'data_ids': {'default': 'None', 'assert': 'True'}
+        'data_ids': {'default': 'None', 'assert': isdct}
     }
     potential_unit = 'eV'
     name = 'Model'
 
     def __init__(self, results=None, initialized=None, label=None,
                  check_point_number=10, **model_kwargs):
+        OrderedDict
+        # silence!
         self.results = results
         self.initialized = initialized
         self.label = label
@@ -140,11 +142,14 @@ class Model:
                             **kwargs)
 
         for new_property in new_properties:
-            results[new_property] = model.results[new_property]
-        # @@@@@@@@@@@ Temporal attatchment
-        # results['label'] =
-        # @@@@@@@@@@@ Temporal attatchment
-        # Save it for later use
+            new_result = model.results[new_property]
+            if new_property == 'potential' and len(new_result) == 1:
+                results[new_property] = new_result[0]
+            elif new_result.shape[-1] == 1:
+                results[new_property] = new_result[..., 0]
+            else:
+                results[new_property] = new_result
+
         if caching:
             model._cache[coords.tobytes()] = copy.deepcopy(results)
         if len(properties) == 1:
@@ -161,8 +166,11 @@ class Model:
     def get_forces(self, paths, **kwargs):
         return self.get_properties(paths, properties='forces', **kwargs)
 
+    def get_gradient(self, paths, **kwargs):
+        return self.get_properties(paths, properties='gradient', **kwargs)
+
     def get_hessian(self, paths, **kwargs):
-        return self.get_property(paths, properties='hessian', **kwargs)
+        return self.get_properties(paths, properties='hessian', **kwargs)
 
     def generate_unique_hash(self, positions):
         """return string that explains current calculation
@@ -265,46 +273,56 @@ class Model:
                         self.data_ids[table_name].append(i)
         self.optimized = False
 
+    def update_implemented_properties(self, paths):
+        pass
+
 
 class AtomicModel(Model):
 
-    implemented_properties = {'forces', 'potentials', 'potential'}
+    implemented_properties = {'label', 'positions', 'gradient', 'potential',
+                              'forces'}
 
     def calculate(self, paths, coords, properties=['potential'], **kwargs):
-        p2a = {'potential': 'energy', 'potentials': 'energies'}
+        meta = ['label', 'positions', 'gradient']
         images = paths.coords2images(coords)
         labels = self.get_labels(coords)
-        # @@@@@@@@@@@@@@@@ Calculation sequence
-        # Stress -> potentials -> forces -> potential
         properties = list(properties)
-        i = properties.index('potentials')
-        if i != 0:
+        calculation_properties = [v for v in properties if v not in meta]
+        meta_properties = [v for v in properties if v in meta]
+        # ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ #
+        try:
+            # Stress -> potentials -> forces -> potential
+            i = properties.index('potentials')
             properties[0], properties[i] = properties[i], properties[0]
-        # @@@@@@@@@@@@@@@@ Calculation sequence
-        result_list = {}
+        except ValueError:
+            pass
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ #
+        results = {}
         if type(images) == Atoms:
             images = [images]
         for image, label in zip(images, labels):
-            image.calc.set_label(label)
-            for property in properties:
-                if result_list.get(property) is None:
-                    result_list[property] = []
-                prop = p2a.get(property, property)
-                print('Getting %s, %s' % (property, label[:10]))
-                result_list[property].append(image.calc.get_property(prop,
-                                             atoms=image))
-            # @@@@@@@@@@@@@@@@@@@@@@@@@
-            # Special case
-            if result_list.get('positions') is None:
-                result_list['positions'] = []
-                result_list['reduced_forces'] = []
-            pos = image.positions
-            result_list['positions'].append(pos)
-            forces = result_list['forces'][-1]
-            result_list['reduced_forces'].append(paths.prj(pos, forces))
-            # @@@@@@@@@@@@@@@@@@@@@@@@@@
+            image.calc.label = label
+            for property in calculation_properties:
+                results[property] = results.get(property, [])
+                if property == 'potentials':
+                    results[property].append(image.get_potential_energies())
+                elif property == 'potential':
+                    results[property].append(image.get_potential_energy())
+                else:
+                    results[property].append(
+                        image.calc.get_property(property, atoms=image))
+            for property in meta_properties:
+                results[property] = results.get(property, [])
+                if property == 'label':
+                    results['label'].append(label)
+                elif property == 'positions':
+                    results['positions'].append(image.positions)
 
-        self.results = self.concatenate_arr(result_list)
+        self.results = self.concatenate_arr(results)
+        if 'gradient' in meta_properties:
+            positions = self.results['positions']
+            forces = self.results['forces']
+            self.results['gradient'] = paths.prj(positions.T, forces)
 
     def concatenate_arr(self, results_list):
         results = {}
@@ -315,7 +333,14 @@ class AtomicModel(Model):
                 results[key] = np.array(value)
             elif key == 'forces':
                 results[key] = np.array(value).T
+            elif key == 'positions':
+                results[key] = np.array(value)
         return results
+
+    def update_implemented_properties(self, paths):
+        image = paths.coords2images(paths.coords[..., 0])
+        calculatable_properties = image.calc.implemented_properties
+        self.implemented_properties.update(set(calculatable_properties))
 
 
 class AlanineDipeptide(AtomicModel):
@@ -364,7 +389,8 @@ class AlanineDipeptide3D(AtomicModel):
 
 
 class MullerBrown(Model):
-    implemented_properties = {'potential', 'forces', 'hessian'}
+    implemented_properties = {'potential', 'gradient', 'hessian'}
+
     model_parameters = {
         'A': {'default': 'np.array([-200, -100, -170, 15])', 'assert': 'True'},
         'a': {'default': 'np.array([-1, -1, -6.5, 0.7])', 'assert': 'True'},
@@ -384,10 +410,9 @@ class MullerBrown(Model):
     def __init__(self, **kwargs):
         super().model_parameters.update(self.model_parameters)
         self.model_parameters.update(super().model_parameters)
-        for key, value in kwargs.items():
-            setattr(self, key, value)
+        super().__init__(**kwargs)
 
-    def calculate(self, paths=None, coords=None, properties=['potential'],
+    def calculate(self, paths, coords, properties=['potential'],
                   **kwargs):
         """
         x : P shape array
@@ -402,10 +427,10 @@ class MullerBrown(Model):
         if 'potential' in properties:
             potential = Vk.sum(axis=1)
             self.results['potential'] = potential
-        if 'forces' in properties:
+        if 'gradient' in properties:
             Fx = (Vk * (2 * a * x_x0 + b * y_y0)).sum(axis=1)
             Fy = (Vk * (b * x_x0 + 2 * c * y_y0)).sum(axis=1)
-            self.results['forces'] = -np.array([[Fx], [Fy]])
+            self.results['gradient'] = np.array([[Fx], [Fy]])
         if 'hessian' in properties:
             # return 3 x P
             H = np.zeros((2, 1, 2, 1, coords.shape[-1]))
@@ -699,11 +724,11 @@ class PeriodicModel(Model):
 
 
 class PeriodicModel2(Model):
-    implemented_properties = {'potential', 'forces', 'hessian'}
+    implemented_properties = {'potential', 'gradient', 'hessian'}
 
     def calculate(self, paths, coords, properties=['potential'], **kwargs):
         V = -129.7 + 0.1 * np.sin(4 * coords).sum(axis=(0, 1))
-        F = 0.1 * -4 * np.cos(4 * coords)
+        dV = 0.1 * 4 * np.cos(4 * coords)
         coords = np.atleast_3d(coords)
         D, M, P = coords.shape
         _coords = coords.reshape(D * M, P)
@@ -713,9 +738,32 @@ class PeriodicModel2(Model):
         H = np.einsum('i..., ij->ij...', H, np.identity(D * M))
         H = H.reshape((D, M, D, M, P))
 
+        if np.isscalar(V):
+            V = np.array([V])
         self.results['potential'] = V
-        self.results['forces'] = F
+        self.results['gradient'] = dV
         self.results['hessian'] = H
+
+
+class PeriodicModel3(Model):
+    implemented_properties = {'potential', 'gradient', 'hessian'}
+
+    def calculate(self, paths, coords, properties=['potential'], **kwargs):
+        if 'potential' in properties:
+            V = np.cos(4 * coords).sum(axis=(0, 1))
+            self.results['potential'] = V
+        if 'gradient' in properties:
+            dV = -4 * np.sin(4 * coords)
+            self.results['gradient'] = dV
+        if 'hessian' in properties:
+            coords = np.atleast_3d(coords)
+            D, M, P = coords.shape
+            _coords = coords.reshape(D * M, P)
+            H = np.zeros((D * M, P))  # DM x P
+            H = -16 * np.cos(4 * _coords)
+            H = np.einsum('i..., ij->ij...', H, np.identity(D * M))
+            H = H.reshape((D, M, D, M, P))
+            self.results['hessian'] = H
 
 
 class FlatModel(Model):
@@ -728,5 +776,5 @@ class FlatModel(Model):
         H = np.zeros((d, A, d, A, N))
 
         self.results['potential'] = V
-        self.results['forces'] = F
+        self.results['gradient'] = F
         self.results['hessian'] = H

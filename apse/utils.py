@@ -90,7 +90,7 @@ class ImageIndexing:
 
 def paths2dct(paths, necessary_parameters, allowed_properties, class_objects,
               save_calc=False, save_model=False, save_finder=False,
-              save_prj=False, save_atomsdata=False, save_plotter=False):
+              save_prj=False, save_imgdata=False, save_plotter=False):
     dct = OrderedDict()
     P, N = paths.P, paths.N
     for key, value in paths.__dict__.items():
@@ -268,7 +268,7 @@ def dataframe2dct(dataframe, index=None, reader=csvreader):
             continue
         # elif 'finder_res' == key:
         #    continue
-        # elif 'atomsdata_database' == key:
+        # elif 'imgdata_database' == key:
         #    continue
         if key in ['calc']:
             calculators = df(key).lower()
@@ -282,3 +282,14 @@ def dataframe2dct(dataframe, index=None, reader=csvreader):
         else:
             kwargs[key] = df(key)
     return symbols, coords, kwargs
+
+
+def wrap_coords(coords, cell):
+    if len(cell.shape) == 1:
+        origin = -cell[:, np.newaxis, np.newaxis] / 2
+    elif len(cell.shape) == 2:
+        origin = -cell[:, np.newaxis] / 2
+    elif len(cell.shape) == 3:
+        assert coords.shape[-1] == cell.shape[-1]
+        origin = -cell / 2
+    return (coords - origin) % cell + origin

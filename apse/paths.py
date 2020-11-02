@@ -1,6 +1,6 @@
 import os
 import copy
-import time
+import pickle
 import numpy as np
 
 from ase.data import atomic_masses
@@ -10,7 +10,6 @@ from ase.atoms import Atoms
 
 from ase.calculators.calculator import get_calculator_class
 from ase.symbols import Symbols
-from ase.pathway.data import DataOverlapError
 from ase.pathway.utils import Images, ImageIndexing, paths2dct, dct2pd_dct
 
 
@@ -72,6 +71,10 @@ necessary_parameters = {
     'parents': {
         'default': "None",
         'assert': 'isinstance({name:s}, (tuple, str))'
+    },
+    'tag': {
+        'default': "dict()",
+        'assert': 'True'
     }
 }
 
@@ -87,14 +90,15 @@ external_parameters = {
     'parents': {
         'default': "None",
         'assert': 'isinstance({name:s}, (tuple, str))'
-    }
+    },
+
 }
 
 class_objects = {
     'model': {'from': 'ase.pathway.model'},
     'finder': {'from': 'ase.pathway.pathfinder'},
     'prj': {'from': 'ase.pathway.projector'},
-    'atomsdata': {'from': 'ase.pathway.data'},
+    'imgdata': {'from': 'ase.pathway.data'},
     'plotter': {'from': 'ase.pathway.plotter'}
 }
 
@@ -120,8 +124,8 @@ class Paths:
     invariants = {}
 
     def __init__(self, symbols, coords, label=None, Pk=None, model='Model',
-                 finder='NEB', prj='Mask', atomsdata='AtomsData',
-                 plotter='Plotter', **kwargs):
+                 finder='NEB', prj='Mask', imgdata='ImageData',
+                 plotter='Plotter', tag=None, **kwargs):
 
         self.symbols = symbols
         self.coords = coords
@@ -133,8 +137,9 @@ class Paths:
         self.model = model
         self.finder = finder
         self.prj = prj
-        self.atomsdata = atomsdata
+        self.imgdata = imgdata
         self.plotter = plotter
+        self.tag = tag
 
         if 'calc' in kwargs:
             setattr(self, 'calc', kwargs['calc'])
@@ -195,8 +200,8 @@ class Paths:
             setattr(self._finder, key, value)
         elif key in self._prj.prj_parameters:
             setattr(self._prj, key, value)
-        elif key in self._atomsdata.atomsdata_parameters:
-            setattr(self._atomsdata, key, value)
+        elif key in self._imgdata.imgdata_parameters:
+            setattr(self._imgdata, key, value)
         elif key in self._plotter.plotter_parameters:
             setattr(self._plotter, key, value)
         elif 'model_' in key and key[6:]in self._model.model_parameters:
@@ -205,9 +210,9 @@ class Paths:
             setattr(self._finder, key[7:], value)
         elif 'prj_' in key and key[4:] in self._prj.prj_parameters:
             setattr(self._prj, key[4:], value)
-        elif 'atomsdata_' in key and \
-             key[10:] in self._atomsdata.atomsdata_parameters:
-            setattr(self._atomsdata, key[10:], value)
+        elif 'imgdata_' in key and \
+             key[10:] in self._imgdata.imgdata_parameters:
+            setattr(self._imgdata, key[10:], value)
         elif 'plotter_' in key and key[8:] in self._plotter.plotter_parameters:
             setattr(self._plotter, key[8:], value)
 
@@ -227,9 +232,9 @@ class Paths:
             return getattr(self.__dict__['_finder'], key[7:])
         elif 'prj_' in key and key[4:] in self._prj.prj_parameters:
             return self.__dict__['_prj'].__dict__[key[4:]]
-        elif 'atomsdata_' in key and \
-             key[10:] in self._atomsdata.atomsdata_parameters:
-            return self.__dict__['_atomsdata'].__dict__[key[10:]]
+        elif 'imgdata_' in key and \
+             key[10:] in self._imgdata.imgdata_parameters:
+            return self.__dict__['_imgdata'].__dict__[key[10:]]
         elif 'plotter_' in key and key[8:] in self._plotter.plotter_parameters:
             return self.__dict__['_plotter'].__dict__[key[8:]]
         elif key in self.__dict__['_plotter'].plotter_parameters:
@@ -240,8 +245,8 @@ class Paths:
         elif key in self.__dict__['_model'].model_parameters:
             # return getattr(self.__dict__['_model'].__dict__[key], key)
             return getattr(self.__dict__['_model'], key)
-        elif key in self.__dict__['_atomsdata'].atomsdata_parameters:
-            return self.__dict__['_atomsdata'].__dict__[key]
+        elif key in self.__dict__['_imgdata'].imgdata_parameters:
+            return self.__dict__['_imgdata'].__dict__[key]
         elif key in self.__dict__['_prj'].prj_parameters:
             return self.__dict__['_prj'].__dict__[key]
         else:
@@ -390,23 +395,26 @@ class Paths:
     def get_properties(self, **kwargs):
         return self.model.get_properties(self, **kwargs)
 
-    def get_potential_energy(self, **ka):
-        return self.model.get_properties(self, properties=['potential'], **ka)
+    def get_potential_energy(self, **kwargs):
+        return self.model.get_potential_energy(self, **kwargs)
 
-    def get_potential(self, **ka):
-        return self.model.get_properties(self, properties=['potential'], **ka)
+    def get_potential(self, **kwargs):
+        return self.model.get_potential(self, **kwargs)
 
-    def get_potential_energies(self, **ka):
-        return self.model.get_properties(self, properties=['potentials'], **ka)
+    def get_potential_energies(self, **kwargs):
+        return self.model.get_potential_energies(self, **kwargs)
 
-    def get_potentials(self, **ka):
-        return self.model.get_properties(self, properties=['potentials'], **ka)
+    def get_potentials(self, **kwargs):
+        return self.model.get_potentials(self, **kwargs)
 
-    def get_forces(self, **ka):
-        return self.model.get_properties(self, properties=['forces'], **ka)
+    def get_forces(self, **kwargs):
+        return self.model.get_forces(self, **kwargs)
 
-    def get_hessian(self, **ka):
-        return self.model.get_properties(self, properties=['hessian'], **ka)
+    def get_gradient(self, **kwargs):
+        return self.model.get_gradient(self, **kwargs)
+
+    def get_hessian(self, **kwargs):
+        return self.model.get_hessian(self, **kwargs)
 
     def get_total_energy(self, index=np.s_[1:-1]):
         V = self.model.get_potential_energy(self, index=index)
@@ -471,7 +479,7 @@ class Paths:
         if coords is None:
             # Create positional descriptor
             coords = self.coords[..., index]
-        ids = self.atomsdata.add_data(self, coords)
+        ids = self.imgdata.add_data(self, coords, search_similar_image=True)
         if cache_model:
             self.model.add_data_ids(ids)
         return ids
@@ -484,17 +492,15 @@ class Paths:
                 coords[d, m] = np.linspace(*endpoint[d, m], self.P)
         return coords[..., index]
 
-    def fluctuate(self, initialize=True, cutoff_f=70, temperature=0.3):
+    def fluctuate(self, initialize=True, cutoff_f=70, temperature=0.03):
         if initialize:
             self.coords = self.simple_coords()
         fluc = np.zeros(self.Pk)
         fluc[:cutoff_f] = temperature * np.linspace(2 * self.P, 0, cutoff_f)
         self.rcoords += fluc * (np.random.rand(*self.rcoords.shape) - 0.5)
 
-    def search(self, **args):
-        new_paths = self.finder.search(self, **args)
-        self.__dict__.update(new_paths.__dict__)
-        return new_paths
+    def search(self, **kwargs):
+        self.finder.search(self, **kwargs)
 
     @property
     def init_image(self):
@@ -587,23 +593,6 @@ class Paths:
     def masses(self):
         return atomic_masses[self._numbers]
 
-    def change_deep_label(self, label=None, model_label=None, database=None,
-                          mapfile=None):
-        import os
-        cwd = os.getcwd()
-        if label is None:
-            label = cwd + '/' + self.prefix
-        self.label = label
-        if model_label is None:
-            model_label = cwd + '/' + self.model.prefix
-        self.model.label = model_label
-        if database is None:
-            database = cwd + '/' + self.prefix + '_atoms.db'
-        self.atomsdata.database = database
-        if mapfile is None:
-            mapfile = cwd + '/' + 'plotter_map.pkl'
-        self.plotter.mapfile = mapfile
-
     def plot(self, filename=None, savefig=False, gaussian=False, **kwargs):
         self.plotter.plot(self, filename=filename, savefig=savefig,
                           gaussian=gaussian, **kwargs)
@@ -622,6 +611,18 @@ class Paths:
             return images[0]
         return images
 
+    def reset_cache(self):
+        self.model._cache = {}
+        self.real_model._cache = {}
+        self.imgdata._cache = {}
+        self.prj._cache = {}
+
+    def reset_results(self):
+        self.model.results = {}
+        self.real_model.results = {}
+        self.finder.results = {}
+        self.real_finder.results = {}
+
     def to_traj(self, format='.traj'):
         from ase.io import Trajectory
         tr = Trajectory(self.label + '.traj', mode='w')
@@ -630,7 +631,7 @@ class Paths:
 
     def to_csv(self, filename=None, save=True, save_calc=False,
                save_model=False, save_finder=False, save_prj=False,
-               save_atomsdata=False, save_plotter=False, format='csv',
+               save_imgdata=False, save_plotter=False, format='csv',
                mode='w', header=True, index=None):
         """
         Every instance not starts with '_' will be saved.
@@ -647,18 +648,18 @@ class Paths:
             save_model = True
             save_finder = True
             save_prj = True
-            save_atomsdata = True
+            save_imgdata = True
             save_plotter = True
         _ = paths2dct(self, necessary_parameters, allowed_properties,
                       class_objects, save_calc=save_calc, save_model=save_model,
                       save_finder=save_finder, save_prj=save_prj,
-                      save_atomsdata=save_atomsdata, save_plotter=save_plotter)
+                      save_imgdata=save_imgdata, save_plotter=save_plotter)
 
-        symbols, paths, dct = _
+        symbols, coords, dct = _
         pd_dct = dct2pd_dct(dct)
 
         df = pd.DataFrame({'symbols': str(symbols),
-                           'paths': [paths.tolist()], **pd_dct}, index=index)
+                           'coords': [coords.tolist()], **pd_dct}, index=index)
         old_label = filename
         self.label = filename
         if not os.path.exists(self.directory):
@@ -682,17 +683,23 @@ class Paths:
             NotImplementedError('Format %s not support' % format)
         return df
 
+    def to_pickle(self, filename=None, simple=True):
+        if simple:
+            filename = filename or self.label + '.pkl'
+            with open(filename, 'wb') as f:
+                pickle.dump(f, self)
+
     def copy(self, save_calc=True, save_model=True, save_finder=True,
-             save_prj=True, save_atomsdata=True, save_plotter=True,
+             save_prj=True, save_imgdata=True, save_plotter=True,
              return_dict=False):
         """Return a copy."""
         return copy.deepcopy(self)
         _ = paths2dct(self, necessary_parameters, allowed_properties,
                       class_objects, save_calc=save_calc, save_model=save_model,
                       save_finder=save_finder, save_prj=save_prj,
-                      save_atomsdata=save_atomsdata, save_plotter=save_plotter)
+                      save_imgdata=save_imgdata, save_plotter=save_plotter)
         if return_dict:
             return _
-        symbols, paths, dct = _
+        symbols, coords, dct = _
         # return self.__class__(symbols, paths, **dct)
-        return Paths(symbols, paths, **dct)
+        return Paths(symbols, coords, **dct)

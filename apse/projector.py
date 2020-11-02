@@ -634,14 +634,14 @@ class AlanineProjector(Projector):
         if self.mass_type == 'invariant':
             return np.array([[110], [70]])
         #   return masses
-        k, atomsdata = paths.model.kernel, paths.atomsdata
+        k, imgdata = paths.model.kernel, paths.imgdata
         hyperparameters = {'sigma_f': 0.1,
                            'sigma_n^f': 1e-3,
                            'sigma_n^e': 1e-4,
                            'l^2': 0.01}
-        if self.found_new_data(atomsdata):
+        if self.found_new_data(imgdata):
 
-            for row in atomsdata._c.select('id>%d' % self._cache['count']):
+            for row in imgdata._c.select('id>%d' % self._cache['count']):
                 I_phi, I_psi = self.get_inertia(row.positions, masses)
                 self._cache['I_phi'].append(I_phi)
                 self._cache['I_psi'].append(I_psi)
@@ -666,8 +666,8 @@ class AlanineProjector(Projector):
         return np.array([[I_phi, I_psi]])   # inertia; I_theta, phi
         # return 100
 
-    def found_new_data(self, atomsdata):
-        count = atomsdata._c.count()
+    def found_new_data(self, imgdata):
+        count = imgdata._c.count()
         if count == 0:
             raise NotImplementedError('No data found')
         is_count_changed = self._cache['count'] != count
