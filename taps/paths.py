@@ -10,7 +10,7 @@ from ase.atoms import Atoms
 
 from ase.calculators.calculator import get_calculator_class
 from ase.symbols import Symbols
-from ase.pathway.utils import Images, ImageIndexing, paths2dct, dct2pd_dct
+from taps.utils import Images, ImageIndexing, paths2dct, dct2pd_dct
 
 
 allowed_properties = {
@@ -95,11 +95,11 @@ external_parameters = {
 }
 
 class_objects = {
-    'model': {'from': 'ase.pathway.model'},
-    'finder': {'from': 'ase.pathway.pathfinder'},
-    'prj': {'from': 'ase.pathway.projector'},
-    'imgdata': {'from': 'ase.pathway.data'},
-    'plotter': {'from': 'ase.pathway.plotter'}
+    'model': {'from': 'taps.model'},
+    'finder': {'from': 'taps.pathfinder'},
+    'prj': {'from': 'taps.projector'},
+    'imgdata': {'from': 'taps.data'},
+    'plotter': {'from': 'taps.plotter'}
 }
 
 
@@ -190,7 +190,7 @@ class Paths:
             if type(value) == str:
                 from_ = class_objects[key]['from']
                 if 'Gaussian' in value:
-                    from_ = 'ase.pathway.gaussian'
+                    from_ = 'taps.gaussian'
                 module = __import__(from_, {}, None, [value])
                 value = getattr(module, value)()
             super().__setattr__('_' + key, value)
@@ -226,7 +226,7 @@ class Paths:
             return self.__dict__['_' + key]
         elif key in self.__dict__:
             return self.__dict__[key]
-        elif 'model_' in key and key[6:]in self._model.model_parameters:
+        elif 'model_' in key and key[6:] in self._model.model_parameters:
             return getattr(self.__dict__['_model'], key[6:])
         elif 'finder_' in key and key[7:] in self._finder.finder_parameters:
             return getattr(self.__dict__['_finder'], key[7:])

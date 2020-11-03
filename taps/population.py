@@ -2,11 +2,11 @@ import os
 import time
 import numpy as np
 from random import randrange, random
-from ase.pathway.paths import Paths
-from ase.pathway.data import PathsData
-from ase.pathway.build import read_csv
-from ase.pathway.utils import ImageIndexing
-from ase.pathway.distances import FrechetDistance
+from taps.paths import Paths
+from taps.data import PathsData
+from taps.build import read_csv
+from taps.utils import ImageIndexing
+from taps.distances import FrechetDistance
 
 
 class OneDict(dict):

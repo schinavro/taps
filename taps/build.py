@@ -3,8 +3,8 @@ import numpy as np
 from numpy import array, outer, linspace, random, dot
 from ase.atoms import Atoms
 from ase.io.trajectory import Trajectory
-from ase.pathway.paths import Paths, allowed_properties, necessary_parameters
-from ase.pathway.utils import pandas2dct
+from taps.paths import Paths, allowed_properties, necessary_parameters
+from taps.utils import pandas2dct
 from ase.ga.utilities import closest_distances_generator
 from scipy.spatial import cKDTree as KDTree
 from scipy.fftpack import dst, idst

@@ -7,9 +7,9 @@ from ase.data.colors import jmol_colors
 from matplotlib import pyplot as plt
 import matplotlib.colors as mc
 from mpl_toolkits.mplot3d import Axes3D
-from ase.pathway.utils import isStr, isstr, istpl, isBool, isInt, isint, isSclr
-from ase.pathway.utils import isflt, islst, isArr, isTpl, issclr
-from ase.pathway.utils import isarr, asst, dflt
+from taps.utils import isStr, isstr, istpl, isBool, isInt, isint, isSclr
+from taps.utils import isflt, islst, isArr, isTpl, issclr
+from taps.utils import isarr, asst, dflt
 
 
 class PlotterProjector:
@@ -180,7 +180,7 @@ class Plotter:
     def __setattr__(self, key, value):
         if key == 'plotter_prj':
             if type(value) == str:
-                from_ = 'ase.pathway.plotter'
+                from_ = 'taps.plotter'
                 module = __import__(from_, {}, None, [value])
                 value = getattr(module, value)()
             super().__setattr__(key, value)

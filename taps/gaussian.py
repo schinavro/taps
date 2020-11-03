@@ -6,10 +6,10 @@ from numpy import newaxis as nax
 from numpy import vstack, log, cos, sin, sum, diagonal, atleast_3d
 from numpy.linalg import inv, cholesky, solve
 from scipy.optimize import minimize
-from ase.pathway.model import Model
-from ase.pathway.data import PathsData
-from ase.pathway.pathfinder import PathFinder
-from ase.pathway.utils import dflt, isstr, isbool, isDct, asst, isLst
+from taps.model import Model
+from taps.data import PathsData
+from taps.pathfinder import PathFinder
+from taps.utils import dflt, isstr, isbool, isDct, asst, isLst
 
 
 class Kernel:
@@ -159,7 +159,7 @@ class AtomicDistanceKernel(Kernel):
 
 
 class DescriptorKernel(Kernel):
-    from ase.pathway.descriptor import SphericalHarmonicDescriptor
+    from taps.descriptor import SphericalHarmonicDescriptor
     """
     period : NxD array
     """
@@ -412,11 +412,11 @@ class Gaussian(Model):
     implemented_properties = {'covariance', 'potential', 'forces', 'hessian'}
     model_parameters = {
         'real_model': {'default': "'Model'", 'assert': 'True',
-                       'class': True, 'from': 'ase.pathway.model'},
+                       'class': True, 'from': 'taps.model'},
         'kernel': {'default': "'Kernel'", 'assert': 'True',
-                   'class': True, 'from': 'ase.pathway.gaussian'},
+                   'class': True, 'from': 'taps.gaussian'},
         'mean': {'default': "'Mean'", 'assert': 'True',
-                 'class': True, 'from': 'ase.pathway.gaussian'},
+                 'class': True, 'from': 'taps.gaussian'},
         'mean_type': {'default': "'average'", 'assert': isstr},
         'kernel_type': {'default': "'Total'", 'assert': isstr},
         'optimized': {'default': 'None', 'assert': isbool},
@@ -460,7 +460,7 @@ class Gaussian(Model):
             super().__setattr__(key, value)
         elif key in ['real_model']:
             if type(value) == str:
-                from_ = 'ase.pathway.model'
+                from_ = 'taps.model'
                 module = __import__(from_, {}, None, [value])
                 value = getattr(module, value)()
             super().__setattr__(key, value)
@@ -854,7 +854,7 @@ class GaussianSearch(PathFinder):
             if value is None:
                 value = eval(self.finder_parameters['real_finder']['default'])
             if isinstance(value, str):
-                from_ = 'ase.pathway.pathfinder'
+                from_ = 'taps.pathfinder'
                 module = __import__(from_, {}, None, [value])
                 value = getattr(module, value)()
             super().__setattr__(key, value)

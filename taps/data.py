@@ -10,8 +10,8 @@ from scipy.spatial import KDTree
 import ase.io.jsonio
 from ase.db.core import bytes_to_object, object_to_bytes
 
-from ase.pathway.utils import isStr, isbool
-from ase.pathway.descriptor import SphericalHarmonicDescriptor
+from taps.utils import isStr, isbool
+from taps.descriptor import SphericalHarmonicDescriptor
 
 
 def encode(obj, binary=False):

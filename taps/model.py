@@ -8,7 +8,7 @@ from numpy import exp, dot
 from numpy.linalg import norm
 from scipy.optimize import check_grad
 from ase.atoms import Atoms
-from ase.pathway.utils import isdct, isstr, islst
+from taps.utils import isdct, isstr, islst
 
 
 class Model:
@@ -44,7 +44,7 @@ class Model:
                 super().__setattr__(key, self)
             else:
                 super().__setattr__(key, value)
-            #     from_ = 'ase.pathway.model'
+            #     from_ = 'taps.model'
             #     module = __import__(from_, {}, None, [value])
             #     value = getattr(module, value)()
         elif key in self.model_parameters:
