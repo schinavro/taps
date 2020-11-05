@@ -1,2 +1,2 @@
 # taps
-Totall Accurate Pathway Simulator
+Totally Accurate Pathway Simulator
