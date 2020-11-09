@@ -1,2 +1,2 @@
-# apse
-Atomic pathway simulation environment
+# taps
+Totally Accurate Pathway Simulator
