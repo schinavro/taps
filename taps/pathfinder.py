@@ -23,13 +23,13 @@ class PathFinder:
     display_map_parameters = OrderedDict()
     display_graph_parameters = OrderedDict()
     display_graph_title_parameters = OrderedDict()
-    results = dict({})
     relaxed = False
 
-    def __init__(self, results=None, relaxed=None, label=None, **kwargs):
+    def __init__(self, results={}, relaxed=None, label=None, **kwargs):
         self.results = results
         self.relaxed = relaxed
         self.label = label
+        self._cache = {}
         for key, value in kwargs.items():
             setattr(self, key, value)
 
@@ -398,7 +398,10 @@ class NEB(PathFinder):
         return paths.copy()
 
 
-class ADMD(PathFinder):
+class DAO(PathFinder):
+    """
+    Direct action optimizer (DAO)
+    """
     finder_parameters = {
         'action_name': {'default': "'Onsager Machlup'", 'assert': 'True'},
         'muE': {'default': '0.', 'assert': 'np.isscalar({name:s})'},
@@ -597,8 +600,8 @@ class ADMD(PathFinder):
 
         @handler
         def classic():
-            Fp = paths.get_kinetic_energy_gradient(np.s_[:])  # D x M x P
-            F = paths.get_forces(np.s_[:])                    # D x M x P
+            Fp = paths.get_kinetic_energy_gradient(index=np.s_[:])  # D x M x P
+            F = -paths.get_gradients(index=np.s_[:])                # D x M x P
             dS = (Fp + F) * dt   # grad action
             # action - reaction
             dS[..., 1] -= dS[..., 0]
@@ -607,7 +610,7 @@ class ADMD(PathFinder):
 
         @handler
         def onsager_machlup():
-            F = paths.get_forces(index=np.s_[:]).reshape((D * M, P))
+            F = -paths.get_gradients(index=np.s_[:]).reshape((D * M, P))
             dV = -np.hstack([F[:, 0, np.newaxis], F, F[:, -1, np.newaxis]])
             # dV = -np.hstack([np.zeros((D * M, 1)), F, np.zeros((D * M, 1))])
             H = paths.get_hessian(index=np.s_[:]).reshape((D * M, D * M, P))
@@ -628,7 +631,7 @@ class ADMD(PathFinder):
 
         @handler
         def energy_conservation():
-            F = paths.get_forces(index=np.s_[:])
+            F = -paths.get_gradients(index=np.s_[:])
             p = paths.get_momentum(index=np.s_[:])                 # D x M x P
             K = paths.get_kinetic_energy(index=np.s_[:])           # P
             V = paths.get_potential_energy(index=np.s_[:])         # P
@@ -643,7 +646,7 @@ class ADMD(PathFinder):
         @handler
         def hamiltonian():
             Fp = paths.get_kinetic_energy_gradient(index=np.s_[1:-1])
-            F = paths.get_forces(index=np.s_[1:-1])
+            F = -paths.get_gradients(index=np.s_[1:-1])
             return Fp - F
 
         local = locals()

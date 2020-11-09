@@ -25,7 +25,7 @@ class Model:
     potential_unit = 'eV'
     name = 'Model'
 
-    def __init__(self, results=None, initialized=None, label=None,
+    def __init__(self, results={}, initialized=None, label=None,
                  check_point_number=10, **model_kwargs):
         OrderedDict
         # silence!
@@ -157,6 +157,12 @@ class Model:
             return results[property]
         return results
 
+    def get_potential(self, paths, **kwargs):
+        return self.get_properties(paths, properties='potential', **kwargs)
+
+    def get_potentials(self, paths, **kwargs):
+        return self.get_properties(paths, properties='potentials', **kwargs)
+
     def get_potential_energy(self, paths, **kwargs):
         return self.get_properties(paths, properties='potential', **kwargs)
 
@@ -167,7 +173,10 @@ class Model:
         return self.get_properties(paths, properties='forces', **kwargs)
 
     def get_gradient(self, paths, **kwargs):
-        return self.get_properties(paths, properties='gradient', **kwargs)
+        return self.get_properties(paths, properties='gradients', **kwargs)
+
+    def get_gradients(self, paths, **kwargs):
+        return self.get_properties(paths, properties='gradients', **kwargs)
 
     def get_hessian(self, paths, **kwargs):
         return self.get_properties(paths, properties='hessian', **kwargs)
@@ -279,11 +288,11 @@ class Model:
 
 class AtomicModel(Model):
 
-    implemented_properties = {'label', 'positions', 'gradient', 'potential',
+    implemented_properties = {'label', 'positions', 'gradients', 'potential',
                               'forces'}
 
     def calculate(self, paths, coords, properties=['potential'], **kwargs):
-        meta = ['label', 'positions', 'gradient']
+        meta = ['label', 'positions', 'gradients']
         images = paths.coords2images(coords)
         labels = self.get_labels(coords)
         properties = list(properties)
@@ -319,10 +328,10 @@ class AtomicModel(Model):
                     results['positions'].append(image.positions)
 
         self.results = self.concatenate_arr(results)
-        if 'gradient' in meta_properties:
+        if 'gradients' in meta_properties:
             positions = self.results['positions']
             forces = self.results['forces']
-            self.results['gradient'] = paths.prj(positions.T, forces)
+            self.results['gradients'] = paths.prj(positions.T, forces)
 
     def concatenate_arr(self, results_list):
         results = {}
@@ -389,7 +398,7 @@ class AlanineDipeptide3D(AtomicModel):
 
 
 class MullerBrown(Model):
-    implemented_properties = {'potential', 'gradient', 'hessian'}
+    implemented_properties = {'potential', 'gradients', 'hessian', 'forces'}
 
     model_parameters = {
         'A': {'default': 'np.array([-200, -100, -170, 15])', 'assert': 'True'},
@@ -427,10 +436,13 @@ class MullerBrown(Model):
         if 'potential' in properties:
             potential = Vk.sum(axis=1)
             self.results['potential'] = potential
-        if 'gradient' in properties:
+        if 'gradients' in properties or 'forces' in properties:
             Fx = (Vk * (2 * a * x_x0 + b * y_y0)).sum(axis=1)
             Fy = (Vk * (b * x_x0 + 2 * c * y_y0)).sum(axis=1)
-            self.results['gradient'] = np.array([[Fx], [Fy]])
+            if 'gradients' in properties:
+                self.results['gradients'] = np.array([[Fx], [Fy]])
+            if 'forces' in properties:
+                self.results['forces'] = -np.array([[Fx], [Fy]])
         if 'hessian' in properties:
             # return 3 x P
             H = np.zeros((2, 1, 2, 1, coords.shape[-1]))
@@ -724,7 +736,7 @@ class PeriodicModel(Model):
 
 
 class PeriodicModel2(Model):
-    implemented_properties = {'potential', 'gradient', 'hessian'}
+    implemented_properties = {'potential', 'gradients', 'hessian'}
 
     def calculate(self, paths, coords, properties=['potential'], **kwargs):
         V = -129.7 + 0.1 * np.sin(4 * coords).sum(axis=(0, 1))
@@ -741,20 +753,20 @@ class PeriodicModel2(Model):
         if np.isscalar(V):
             V = np.array([V])
         self.results['potential'] = V
-        self.results['gradient'] = dV
+        self.results['gradients'] = dV
         self.results['hessian'] = H
 
 
 class PeriodicModel3(Model):
-    implemented_properties = {'potential', 'gradient', 'hessian'}
+    implemented_properties = {'potential', 'gradients', 'hessian'}
 
     def calculate(self, paths, coords, properties=['potential'], **kwargs):
         if 'potential' in properties:
             V = np.cos(4 * coords).sum(axis=(0, 1))
             self.results['potential'] = V
-        if 'gradient' in properties:
+        if 'gradients' in properties:
             dV = -4 * np.sin(4 * coords)
-            self.results['gradient'] = dV
+            self.results['gradients'] = dV
         if 'hessian' in properties:
             coords = np.atleast_3d(coords)
             D, M, P = coords.shape
@@ -776,5 +788,5 @@ class FlatModel(Model):
         H = np.zeros((d, A, d, A, N))
 
         self.results['potential'] = V
-        self.results['gradient'] = F
+        self.results['gradients'] = F
         self.results['hessian'] = H

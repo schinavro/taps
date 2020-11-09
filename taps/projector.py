@@ -4,8 +4,8 @@ from numpy import newaxis as nax
 from numpy import atleast_3d
 from numpy.linalg import norm
 from ase.data import atomic_masses
-from ase.wyckoff.wyckoff import Wyckoff
-from ase.wyckoff.xtal2 import parse_wyckoff_site
+# from ase.wyckoff.wyckoff import Wyckoff
+# from ase.wyckoff.xtal2 import parse_wyckoff_site
 
 
 class Projector:

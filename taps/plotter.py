@@ -276,12 +276,11 @@ class Plotter:
         else:
             Z = np.zeros((self.rngX2d, self.rngY2d))
 
-        cax = fig.add_axes()
         CS = ax.contourf(X, Y, self.display_map(Z, map_type='contour'),
                          cmap=self.cmp2d, levels=self.lvls2d,
                          corner_mask=True)
 
-        fig.colorbar(CS, cax=cax)
+        fig.colorbar(CS)
 
         self.plot_trajectory(paths, plt, ax)
         self.plot_information(paths, plt, ax, information='finder')
@@ -315,7 +314,7 @@ class Plotter:
         self._cov_map = cov_map
 
         X, Y = self.get_meshgrid(grid_type='contour')
-        cax = fig.add_axes()
+        # cax = fig.add_axes()
         CS = ax.contourf(X, Y, self.display_map(ave_map, map_type='contour'),
                          cmap=self.cmpGMu, levels=self.lvlsGMu)
         # ax.clabel(CS, inline=self.inlnGMu, fontsize=self.ftszGMu,
@@ -323,7 +322,7 @@ class Plotter:
         # im = ax.pcolormesh(X, Y, self.display_map(ave_map), cmap=self.cma2,
         #                    vmin=-150, vmax=100)
         # fig.colorbar(im, cax=cax)
-        cbar = fig.colorbar(CS, cax=cax)
+        cbar = fig.colorbar(CS)
         ticklabs = cbar.ax.get_yticklabels()
         cbar.ax.set_yticklabels(ticklabs, fontsize=self.ftszGMuClrbr)
         # cbar.ax.tick_params(labelsize=self.ftszGMuClrbr)
@@ -351,13 +350,12 @@ class Plotter:
         # ax.set_xlabel(self.xlblGCov, fontsize=self.ftszGCovXlbl)
         # ax.set_ylabel(self.ylblGCov, fontsize=self.ftszGCovYlbl)
 
-        cax = fig.add_axes()
         im = ax.contourf(X, Y, self.display_map(cov_map, map_type='contour'),
                          cmap=self.cmpGCov, levels=self.lvlsGCov)
         # im = ax.pcolormesh(X, Y, self.display_map(cov_map), vmax=2, vmin=0,
         #                    cmap=self.cma3)
         # fig.colorbar(im, cax=cax)
-        cbar2 = fig.colorbar(im, cax=cax)
+        cbar2 = fig.colorbar(im)
         ticklabs2 = cbar2.ax.get_yticklabels()
         cbar2.ax.set_yticklabels(ticklabs2, fontsize=self.ftszGCovClrbr)
         # cbar2.ax.tick_params(labelsize=self.ftszGCovClrbr)
@@ -584,7 +582,7 @@ class Plotter:
                        ha="left", va="top",
                        bbox=dict(boxstyle="round", ec=ec, fc=fc, alpha=0.5))
         plt.gcf().canvas.draw()
-        box = ax2.get_window_extent().inverse_transformed(plt.gca().transData)
+        box = ax2.get_window_extent().transformed(plt.gca().transData.inverted())
         x1 = xlim[-1] - (xlim[-1] - xlim[0]) / 40
         y0 = ylim[-1] - (ylim[-1] - ylim[0]) / 20
         x0 = x1 - box.width

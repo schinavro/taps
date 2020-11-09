@@ -124,7 +124,7 @@ class Paths:
     invariants = {}
 
     def __init__(self, symbols, coords, label=None, Pk=None, model='Model',
-                 finder='NEB', prj='Mask', imgdata='ImageData',
+                 finder='PathFinder', prj='Projector', imgdata='ImageData',
                  plotter='Plotter', tag=None, **kwargs):
 
         self.symbols = symbols
@@ -204,7 +204,7 @@ class Paths:
             setattr(self._imgdata, key, value)
         elif key in self._plotter.plotter_parameters:
             setattr(self._plotter, key, value)
-        elif 'model_' in key and key[6:]in self._model.model_parameters:
+        elif 'model_' in key and key[6:] in self._model.model_parameters:
             setattr(self._model, key[6:], value)
         elif 'finder_' in key and key[7:] in self._finder.finder_parameters:
             setattr(self._finder, key[7:], value)
@@ -215,7 +215,6 @@ class Paths:
             setattr(self._imgdata, key[10:], value)
         elif 'plotter_' in key and key[8:] in self._plotter.plotter_parameters:
             setattr(self._plotter, key[8:], value)
-
         else:
             raise AttributeError('Can not set key `%s`' % key)
 
@@ -412,6 +411,9 @@ class Paths:
 
     def get_gradient(self, **kwargs):
         return self.model.get_gradient(self, **kwargs)
+
+    def get_gradients(self, **kwargs):
+        return self.model.get_gradients(self, **kwargs)
 
     def get_hessian(self, **kwargs):
         return self.model.get_hessian(self, **kwargs)

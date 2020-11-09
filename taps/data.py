@@ -11,7 +11,7 @@ import ase.io.jsonio
 from ase.db.core import bytes_to_object, object_to_bytes
 
 from taps.utils import isStr, isbool
-from taps.descriptor import SphericalHarmonicDescriptor
+# from taps.descriptor import SphericalHarmonicDescriptor
 
 
 def encode(obj, binary=False):
@@ -330,19 +330,22 @@ class ImageData:
     search_table_list = ['image']
     calculation_table_list = ['image']
 
-    def __init__(self, filename='descriptor.db', tables=None,
+    def __init__(self, filename=None, tables=None,
                  search_table_list=None, calculation_table_list=None,
                  static_table_list=None, **kwargs):
-        self.filename = filename
         self.tables = tables or self.tables
         self.static_table_list = static_table_list or self.static_table_list
         self.search_table_list = search_table_list or self.search_table_list
         self.calculation_table_list = calculation_table_list or \
             self.calculation_table_list
-        self.create_tables()
-        self.static_tables()
-        if 'sbdesc' in self.calculation_table_list:
-            self.sbdesc_settings(**kwargs)
+        if filename is not None:
+            self.filename = filename
+            self.create_tables()
+            self.static_tables()
+            if 'sbdesc' in self.calculation_table_list:
+                self.sbdesc_settings(**kwargs)
+        else:
+            self.filename = 'imagedata.db'
 
         self._cache = {}
 
