@@ -8,13 +8,13 @@ from sqlite3 import OperationalError
 import numpy as np
 from ase.utils import Lock
 from collections import OrderedDict
-from ase.pathway.utils import dct2pd_dct, dfseries2dct
-from ase.pathway.utils import isStr, isbool
+from taps.utils import dct2pd_dct, dfseries2dct
+from taps.utils import isStr, isbool
 
 import ase.io.jsonio
 from ase.db.core import (connect, bytes_to_object, object_to_bytes)
 
-from ase.pathway.descriptor import SphericalHarmonicDescriptor
+from taps.descriptor import SphericalHarmonicDescriptor
 
 
 def concatenate_atoms_data(filename, d1, d2, delunary_triangle=False):

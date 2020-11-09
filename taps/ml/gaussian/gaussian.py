@@ -9,12 +9,12 @@ from numpy import newaxis as nax
 from numpy import vstack, hstack, log, cos, sin, sum, diagonal, atleast_3d
 from numpy.linalg import inv, cholesky, solve, norm
 from scipy.optimize import minimize
-from ase.pathway.model import Model
-from ase.pathway.pathfinder import PathFinder
-from ase.pathway.utils import dataframe2dct, dflt
-from ase.pathway.build import row2paths, read_csv
-from ase.pathway.utils import isstr, isint, isflt, isbool, isDct, asst, isLst
-from ase.pathway.distances import frechet_distance
+from taps.model import Model
+from taps.pathfinder import PathFinder
+from taps.utils import dataframe2dct, dflt
+from taps.build import row2paths, read_csv
+from taps.utils import isstr, isint, isflt, isbool, isDct, asst, isLst
+from taps.distances import frechet_distance
 from scipy.signal import butter, lfilter
 
 
@@ -165,7 +165,7 @@ class AtomicDistanceKernel(Kernel):
 
 
 class DescriptorKernel(Kernel):
-    from ase.pathway.descriptor import SphericalHarmonicDescriptor
+    from taps.descriptor import SphericalHarmonicDescriptor
     """
     period : NxD array
     """
@@ -418,11 +418,11 @@ class Gaussian(Model):
     implemented_properties = {'covariance', 'potential', 'forces', 'hessian'}
     model_parameters = {
         'real_model': {'default': "'Model'", 'assert': 'True',
-                       'class': True, 'from': 'ase.pathway.model'},
+                       'class': True, 'from': 'taps.model'},
         'kernel': {'default': "'Kernel'", 'assert': 'True',
-                   'class': True, 'from': 'ase.pathway.gaussian'},
+                   'class': True, 'from': 'taps.gaussian'},
         'mean': {'default': "'Mean'", 'assert': 'True',
-                 'class': True, 'from': 'ase.pathway.gaussian'},
+                 'class': True, 'from': 'taps.gaussian'},
         'mean_type': {'default': "'average'", 'assert': isstr},
         'kernel_type': {'default': "'Total'", 'assert': isstr},
         'optimized': {'default': 'None', 'assert': isbool},
@@ -466,7 +466,7 @@ class Gaussian(Model):
             super().__setattr__(key, value)
         elif key in ['real_model']:
             if type(value) == str:
-                from_ = 'ase.pathway.model'
+                from_ = 'taps.model'
                 module = __import__(from_, {}, None, [value])
                 value = getattr(module, value)()
             super().__setattr__(key, value)
@@ -869,7 +869,7 @@ class GaussianSearch(PathFinder):
             if value is None:
                 value = eval(self.finder_parameters['real_finder']['default'])
             if isinstance(value, str):
-                from_ = 'ase.pathway.pathfinder'
+                from_ = 'taps.pathfinder'
                 module = __import__(from_, {}, None, [value])
                 value = getattr(module, value)()
             super().__setattr__(key, value)
@@ -1206,7 +1206,7 @@ class GaussianSearch(PathFinder):
         filename = paths.label + 'io'
         paths.to_csv(filename, save='all')
         with open(filename + '.py', 'w') as f:
-            f.write("from ase.pathway.build import read_csv\n")
+            f.write("from taps.build import read_csv\n")
             f.write("paths = read_csv('%s')\n" % filename)
             f.write("paths.search()\n")
             f.write("paths.to_csv('%s', save='all')\n" % (filename + '_result'))
