@@ -25,17 +25,18 @@ class Model:
     potential_unit = 'eV'
     name = 'Model'
 
-    def __init__(self, results={}, initialized=None, label=None,
-                 check_point_number=10, **model_kwargs):
+    def __init__(self, results={}, initialized=None, label=None, prj=None,
+                 prjf=None, **model_kwargs):
         OrderedDict
         # silence!
         self.results = results
         self.initialized = initialized
         self.label = label
+        self.prj = prj
+        self.prjf = prjf
         self._cache = {}
-        self._check_point = check_point_number
 
-        for key, value in model_kwargs:
+        for key, value in model_kwargs.items():
             setattr(self, key, value)
 
     def __setattr__(self, key, value):
@@ -47,6 +48,16 @@ class Model:
             #     from_ = 'taps.model'
             #     module = __import__(from_, {}, None, [value])
             #     value = getattr(module, value)()
+        elif key == 'prj':
+            if value is None:
+                def value(x):
+                    return x
+            super().__setattr__(key, value)
+        elif key == 'prjf':
+            if value is None:
+                def value(f, x):
+                    return f
+            super().__setattr__(key, value)
         elif key in self.model_parameters:
             attribute = self.model_parameters[key]
             default = attribute['default']
@@ -64,7 +75,7 @@ class Model:
         elif isinstance(getattr(type(self), key, None), property):
             super().__setattr__(key, value)
         else:
-            AttributeError('No key name %s allowed' % key)
+            raise AttributeError('No key name %s allowed' % key)
 
     def __getattr__(self, key):
         if key == 'real_model':
@@ -115,8 +126,8 @@ class Model:
             if property not in model.implemented_properties:
                 raise NotImplementedError('Can not calaculate %s' % property)
         if coords is None:
-            idx = np.arange(paths.P)[index].reshape(-1)
-            coords = paths.coords[..., idx]
+            idx = np.arange(paths.N)[index]
+            coords = model.prj(paths.coords[..., idx])
         new_coords = None
         new_properties = []
         results = {}
@@ -150,11 +161,55 @@ class Model:
             else:
                 results[new_property] = new_result
 
+            if new_property == 'forces':
+                positionss = model.results.get('positions', None)
+                results['gradients'] = model.prjf(new_result, positionss)
+
         if caching:
             model._cache[coords.tobytes()] = copy.deepcopy(results)
         if len(properties) == 1:
             property = list(results.keys())[0]
             return results[property]
+        return results
+
+    def get_kinetics(self, paths, properties=['kinetic_energy'],
+                     index=np.s_[1:-1], coords=None, caching=False,
+                     real_model=False, **kwargs):
+        if type(properties) == str:
+            properties = [properties]
+        # For machine learning purpose we put real_model in model
+        if real_model:
+            model = self.real_model
+        else:
+            model = self
+
+        if coords is None:
+            idx = np.arange(paths.N)[index]
+            coords = model.prj(paths.coords[..., idx])
+        required = {}
+        if required.get('mass'):
+            m = model.get_effective_mass(paths, coords=coords)
+        if required.get('velocity'):
+            v = coords.get_velocity()
+        if required.get('acceleration'):
+            a = coords.get_acceleration()
+        if required.get('displacements'):
+            d = coords.get_displacements()
+
+        results = {}
+        if 'velocity' in properties:
+            results['velocity'] = v
+        if 'acceleration' in properties:
+            results['a'] = v
+        if 'displacement' in properties:
+            results['displacements'] = d
+        if 'kinetic_energy' in properties:
+            axis = tuple(np.arange(len(v.shape) - 1))         # 0     or (0, 1)
+            results['kinetic_energy'] = np.sum(0.5 * m * v * v, axis=axis)
+        if 'momentum' in properties:
+            results['momentum'] = m * v
+        if 'kinetic_grad' in properties:
+            results['kinetic_energy_gradient'] = m * a
         return results
 
     def get_potential(self, paths, **kwargs):
@@ -181,6 +236,15 @@ class Model:
     def get_hessian(self, paths, **kwargs):
         return self.get_properties(paths, properties='hessian', **kwargs)
 
+    def get_momentum(self, paths, **kwargs):
+        return self.get_kinetics(paths, properties='momentum', **kwargs)
+
+    def get_kinetic_energy(self, paths, **kwargs):
+        return self.get_kinetics(paths, properties='kinetic_energy', **kwargs)
+
+    def get_kinetic_energy_gradient(self, paths, **kwargs):
+        return self.get_kinetics(paths, properties='kinetic_grad', **kwargs)
+
     def generate_unique_hash(self, positions):
         """return string that explains current calculation
         """
@@ -190,8 +254,8 @@ class Model:
 
     def get_labels(self, coords=None):
         labels = []
-        directory = self.directory
-        prefix = self.prefix
+        directory = self.directory or ''
+        prefix = self.prefix or ''
 
         for positions in coords.T:
             unique_hash = self.generate_unique_hash(positions)
@@ -282,14 +346,203 @@ class Model:
                         self.data_ids[table_name].append(i)
         self.optimized = False
 
-    def update_implemented_properties(self, paths):
-        pass
-
 
 class AtomicModel(Model):
+    from ase.atoms import Atoms
+    from ase.data import atomic_masses
+    from ase.calculators.calculator import get_calculator_class
+    from ase.symbols import Symbols
+
+    variables = {}
+    invariants = {}
+
+    atomic_properties = {
+        'cell': {
+            'call': '{atoms:s}.cell',
+            'isvariable': "isinstance(value, list) and len(value) > 3",
+            'isNone': 'np.all({atoms:s}.cell == [0, 0, 0])'
+        },
+        'momenta': {
+            'call': "{atoms:s}.arrays['momenta']",
+            'isvariable': "len(value.shape) > 2",
+            'isNone': "'momenta' not in {atoms:s}.arrays"
+        },
+        'charges': {
+            'call': "{atoms:s}.arrays['initial_charges']",
+            'isvariable': "len(value.shape) > 1",
+            'isNone': "'initial_charges' not in {atoms:s}.arrays"
+        },
+        'magmoms': {
+            'call': "{atoms:s}.arrays['initial_magmoms']",
+            'isvariable': "value.shape[-1] == len(self.paths[0, 0, :])",
+            'isNone': "'initial_magmoms' not in {atoms:s}.arrays"
+        },
+        'calc': {
+            'call': '{atoms:s}.calc',
+            'isvariable': "type(value) == list",
+            'isNone': '{atoms:s}.calc is None'
+        },
+        'pbc': {
+            'call': '{atoms:s}.pbc',
+            'isvariable': "False",
+            'isNone': "np.all({atoms:s}.pbc == [False] * 3)"
+        },
+        'constraints': {
+            'call': '{atoms:s}._constraints',
+            'isvariable': "False",
+            'isNone': '{atoms:s}._constraints == []'
+        },
+        'info': {
+            'call': '{atoms:s}.info',
+            'isvariable': "False",
+            'isNone': "{atoms:s}.info == {{}}"
+        }
+    }
 
     implemented_properties = {'label', 'positions', 'gradients', 'potential',
                               'forces'}
+    model_parameters = {
+        'projector': {'default': 'None', 'assert': 'True'},
+        'enable_label': {'default': 'None', 'assert': 'True'},
+        'calc': {'default': 'None', 'assert': 'True'}
+    }
+
+    def __init__(self, symbols=None, projector=None, enable_label=True,
+                 **kwargs):
+        super().model_parameters.update(self.model_parameters)
+        self.model_parameters.update(super().model_parameters)
+        self.symbols = symbols
+        self.projector = projector
+        self.enable_label = enable_label
+
+        super().__init__(**kwargs)
+
+    def __setattr__(self, key, value):
+        if key in self.atomic_properties.keys():
+            if eval(self.atomic_properties[key]['isvariable']):
+                if key == 'calc' and isinstance(value[0], str):
+                    calc = []
+                    for val in value:
+                        calc.append(self.get_calculator_class(value.lower())())
+                    value = calc
+                self.variables.update({key: value})
+                super().__setattr__(key, value)
+            else:
+                if key == 'calc' and isinstance(value, str):
+                    value = self.get_calculator_class(value.lower())()
+                self.invariants[key] = value
+                call = self.atomic_properties[key]['call']
+                for i in range(self.P):
+                    target = call.format(atoms='self._images[%d]' % i)
+                    exec(target + ' = ' + 'copy.deepcopy(value)')
+        else:
+            super().__setattr__(key, value)
+
+    @property
+    def symbols(self):
+        """Get chemical symbols as a :class:`ase.symbols.Symbols` object.
+
+        The object works like ``atoms.numbers`` except its values
+        are strings.  It supports in-place editing."""
+        return Symbols(self._numbers)
+
+    @symbols.setter
+    def symbols(self, value):
+        self._numbers = Symbols.fromsymbols(value).numbers
+
+    @ImageIndexing
+    def images(self, index):
+        """
+        try to use only for the potential calculation.
+        """
+        idx = np.arange(self.P)[index]
+        full_coords = self.prj.inv(self.coords[:, :, idx])
+        # coords inserting
+        for i, ii in enumerate(idx):
+            self._images[ii].positions = full_coords[:, :, i].T
+
+        # Other variable inserting
+        for key in self.variables:
+            call = allowed_properties[key]['call']
+            for i in idx:
+                target = call.format(atoms='self._images[%d]' % i)
+                exec(target + ' = ' + 'getattr(self, key)[%d]' % i)
+        if len(idx) == 1:
+            return self._images[idx[0]]
+        return [self._images[i] for i in idx]
+
+    @images.setter
+    def images(self, index, images):
+        idx = np.arange(self.P)[index].reshape(-1)
+        full_coords = np.zeros((3, self.N, self.P))
+
+        if isinstance(images, Atoms):
+            images = [images]
+
+        # coords setting
+        for i, ii in enumerate(idx):
+            self._images[ii].positions = images[i].positions
+            full_coords[:, :, i] = images[i].positions.T
+
+        self.coords[:, :, idx] = self.prj(full_coords)
+
+        # other properties setting
+        for key in self.variables:
+            call = allowed_properties[key]['call']
+            for i, ii in enumerate(idx):
+                target = 'self.' + key + '[%d]' % ii
+                value = call.format(atoms='images[%d]' % i)
+                exec(target + ' = ' + value)
+
+    @property
+    def calc_parameters(self):
+        if 'calc' in self.variables:
+            return [calc.parameters for calc in self.calc]
+        elif 'calc' in self.invariants:
+            return self.invariants['calc'].parameters
+        else:
+            raise AttributeError('`calc` is not defined yet')
+
+    @calc_parameters.setter
+    def calc_parameters(self, value):
+        if 'calc' in self.variables:
+            for calc, parameters in zip(self.calc, value):
+                calc.parameters = parameters
+                calc.__init__(**parameters)
+        elif 'calc' in self.invariants:
+            self.invariants['calc'].parameters = value
+            # Because Vasp need initialize the parameters we force to do it
+            self.invariants['calc'].__init__(**value)
+            for image in self._images:
+                image.calc.parameters = value
+                image.calc.__init__(**value)
+        else:
+            raise AttributeError('`calc` is not defined yet')
+
+    @property
+    def calc_results(self):
+        if 'calc' in self.variables or self.invaraints:
+            return [image.calc.results for image in self._images]
+        else:
+            raise AttributeError('`calc` is not defined yet')
+
+    @calc_results.setter
+    def calc_results(self, value):
+        if 'calc' in self.variables:
+            for calc, results in zip(self.calc, value):
+                calc.results = results
+        elif 'calc' in self.invariants:
+            for image in self._images:
+                image.calc.results = value
+        else:
+            raise AttributeError('`calc` is not defined yet')
+
+    def to_traj(self, format='.traj'):
+        from ase.io import Trajectory
+        tr = Trajectory(self.label + '.traj', mode='w')
+        for atoms in self.images[:]:
+            tr.write(atoms)
+
 
     def calculate(self, paths, coords, properties=['potential'], **kwargs):
         meta = ['label', 'positions', 'gradients']
@@ -310,7 +563,8 @@ class AtomicModel(Model):
         if type(images) == Atoms:
             images = [images]
         for image, label in zip(images, labels):
-            image.calc.label = label
+            if self.enable_label:
+                image.calc.label = label
             for property in calculation_properties:
                 results[property] = results.get(property, [])
                 if property == 'potentials':
@@ -324,9 +578,15 @@ class AtomicModel(Model):
                 results[property] = results.get(property, [])
                 if property == 'label':
                     results['label'].append(label)
+                elif property == 'gradients':
+                    results['forces'] = results.get('forces', [])
+                    results['forces'].append(image.get_forces())
                 elif property == 'positions':
-                    results['positions'].append(image.positions)
-
+                    results[property].append(image.positions)
+            if 'positions' not in calculation_properties and \
+                    'positions' not in meta_properties:
+                results['positions'] = results.get('positions', [])
+                results['positions'].append(image.positions)
         self.results = self.concatenate_arr(results)
         if 'gradients' in meta_properties:
             positions = self.results['positions']
@@ -350,6 +610,44 @@ class AtomicModel(Model):
         image = paths.coords2images(paths.coords[..., 0])
         calculatable_properties = image.calc.implemented_properties
         self.implemented_properties.update(set(calculatable_properties))
+
+    def get_atoms_sample(self, index=None, coords=None):
+        if index is None:
+            index = [0]
+        idx = np.arange(self.P)[index].reshape(-1)
+        # Initialize
+        atoms_sample = [Atoms(self.symbols) for i in range(len(idx))]
+
+        # coords inserting
+        if coords is None:
+            coords = self.prj.inv(self.coords[:, :, idx])
+        for i in range(len(idx)):
+            atoms_sample[i].positions = coords[:, :, i].T
+
+        # Other variable inserting
+        for key in self.variables:
+            call = allowed_properties[key]['call']
+            for i in idx:
+                target = call.format(atoms='atoms_sample[%d]' % i)
+                exec(target + ' = ' + 'getattr(self, key)[%d]' % i)
+
+        if len(idx) == 1:
+            return atoms_sample[0]
+        return atoms_sample
+
+    def coords2images(self, coords):
+        image = self._images[0].copy()
+        calc = self._images[1].calc
+        full_coords = self.prj.inv(coords=coords)
+        images = []
+        for positions in full_coords.T:
+            image.positions = positions
+            _image = image.copy()
+            _image.calc = copy.deepcopy(calc)
+            images.append(_image)
+        if len(full_coords.T) == 1:
+            return images[0]
+        return images
 
 
 class AlanineDipeptide(AtomicModel):
@@ -758,15 +1056,19 @@ class PeriodicModel2(Model):
 
 
 class PeriodicModel3(Model):
-    implemented_properties = {'potential', 'gradients', 'hessian'}
+    implemented_properties = {'potential', 'gradients', 'forces', 'hessian'}
 
     def calculate(self, paths, coords, properties=['potential'], **kwargs):
         if 'potential' in properties:
             V = np.cos(4 * coords).sum(axis=(0, 1))
             self.results['potential'] = V
-        if 'gradients' in properties:
-            dV = -4 * np.sin(4 * coords)
-            self.results['gradients'] = dV
+        if 'gradients' in properties or 'forces' in properties:
+            F = 4 * np.sin(4 * coords)
+            if 'gradients' in properties:
+                self.results['gradients'] = -F
+            if 'forces' in properties:
+                self.results['forces'] = F
+
         if 'hessian' in properties:
             coords = np.atleast_3d(coords)
             D, M, P = coords.shape

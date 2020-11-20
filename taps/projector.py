@@ -264,7 +264,7 @@ class Projector:
         return None
 
     def get_effective_mass(self, paths, index=None):
-        return atomic_masses[paths._numbers]
+        return atomic_masses[paths._numbers][:, np.newaxis]
 
     def get_momentum(self, paths, index=None):
         m = self.get_effective_mass(paths, index=index)

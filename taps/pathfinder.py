@@ -533,7 +533,7 @@ class DAO(PathFinder):
             2qj 2qj21 2qj11 2D2
             """
             # Vi, Vf = paths.get_potential_energy(index=[0, -1])
-            F = paths.get_forces(index=np.s_[:])
+            F = -paths.get_gradients(index=np.s_[:])
             dV = -np.concatenate([F, F[..., -1, np.newaxis]], axis=2)
             v = paths.get_velocity(np.s_[:])
             m = paths.get_effective_mass(np.s_[:])
