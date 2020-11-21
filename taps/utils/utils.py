@@ -4,35 +4,6 @@ from collections import OrderedDict
 from ase.calculators.calculator import get_calculator_class, Parameters
 
 
-name = '{name:s}'
-isins = 'isinstance(' + name + ', '
-isStr = 'isinstance({name:s}, str)'
-isstr = isStr + ' or {name:s} is None'
-isTpl = 'isinstance({name:s}, tuple)'
-istpl = isTpl + ' or {name:s} is None'
-isBool = 'isinstance({name:s}, (bool, np.bool_))'
-isbool = isBool + ' or {name:s} is None'
-isInt = 'isinstance({name:s}, (int, np.int64))'
-isint = isInt + ' or {name:s} is None'
-isNat = 'isinstance({name:s}, (int, np.int64)) and {name:s} > 0'
-isnat = isNat + ' or {name:s} is None'
-isFlt = 'isinstance({name:s}, float)'
-isflt = isFlt + ' or {name:s} is None'
-isLst = 'isinstance({name:s}, (list, np.ndarray))'
-islst = isLst + ' or {name:s} is None'
-isArr = 'isinstance({name:s}, (tuple, list, np.ndarray))'
-isarr = isArr + ' or {name:s} is None'
-isDct = 'isinstance({name:s}, (dict, OrderedDict))'
-isdct = isDct + ' or {name:s} is None'
-isSclr = 'isinstance({name:s}, (int, float, np.int64))'
-issclr = isInt + ' or ' + isFlt + ' or {name:s} is None'
-isSclrStr = 'isinstance({name:s}, (int, float, np.int64, str))'
-issclrstr = isSclrStr + ' or {name:s} is None'
-
-dflt = 'default'
-asst = 'assert'
-
-
 class Images:
     def __init__(self, obj):
         self.obj = obj

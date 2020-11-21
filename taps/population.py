@@ -3,9 +3,9 @@ import time
 import numpy as np
 from random import randrange, random
 from taps.paths import Paths
-from taps.data import PathsData
+from taps.db.data import PathsData
 from taps.build import read_csv
-from taps.utils import ImageIndexing
+from taps.utils.utils import ImageIndexing
 from taps.distances import FrechetDistance
 
 

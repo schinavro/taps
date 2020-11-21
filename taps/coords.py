@@ -1,7 +1,7 @@
 import numpy as np
 from numpy import concatenate
 from numpy import newaxis as nax
-from numpy.fftpack import dst, idst
+from scipy.fftpack import dst, idst
 from taps.utils.arraywrapper import arraylike
 
 
@@ -10,11 +10,17 @@ class Coords:
     """
     Default - descretized coordinate representation.
     """
-    def __init__(self, coords, epoch=3, Pk=None):
+    def __init__(self, coords, epoch=3, Pk=None, unit=None):
         coords = np.asarray(coords, dtype=float)
         self.coords = coords
         self.epoch = epoch
         self.Pk = Pk
+        self.unit = unit
+
+    def __call__(self, index=np.s_[:]):
+        coords = self.coords[..., index]
+        del self.__dict__['coords']
+        return self.__class__(coords, **self.__dict__)
 
     @classmethod
     def ascoords(cls, coords):
@@ -53,7 +59,7 @@ class Coords:
         return bool(self.any())  # need to convert from np.bool_
 
     def __repr__(self):
-        return 'Coords({})'.format(self.coords.shape)
+        return 'Coords{}'.format(self.coords.shape)
 
     @property
     def N(self):
@@ -62,8 +68,10 @@ class Coords:
         """
         return self.coords.shape[-1]
 
-    def get_displacements(self, paths, index=np.s_[:], coords=None):
-        p = coords or self.coords.copy()
+    def get_displacements(self, coords=None, epoch=None, index=np.s_[:]):
+        p = coords or self.coords
+        if len(p.shape) == 2:
+            return concatenate([[0], np.linalg.norm(np.diff(p), axis=0)])
         d = np.linalg.norm(np.diff(p), axis=0).sum(axis=0)
         d = concatenate([[0], d])
         return np.add.accumulate(d)[index]
@@ -106,41 +114,6 @@ class Coords:
         if i[-1] == N - 1:
             p = concatenate([p, p[..., -1, nax]], axis=2)
         return (2 * p[..., i] - p[..., i - 1] - p[..., i + 1]) / ddt
-
-    def get_model_representation(self, index=np.s_[:]):
-        """
-        """
-        if index == np.s_[:]:
-            return self.coords
-        idx = np.arange(self.N)[index]
-        return self.coords[..., idx]
-
-    def get_real_model_representation(self, index=np.s_[:]):
-        if index == np.s_[:]:
-            return self.coords
-        idx = np.arange(self.N)[index]
-        return self.coords[..., idx]
-
-    def get_finder_representation(self):
-        """
-        Return for plotting coordinate
-        """
-        return self.rcoords
-
-    def set_finder_representation(self, rcoords):
-        """
-        It should be simplest as possible
-        """
-        self.rcoords = rcoords
-
-    def get_plotter_representation(self, index=np.s_[:]):
-        """
-        Return for plotting coordinate
-        """
-        if index == np.s_[:]:
-            return self.coords
-        idx = np.arange(self.N)[index]
-        return self.coords[..., idx]
 
     @property
     def rcoords(self):
@@ -219,5 +192,3 @@ class AlanineDipeptideCoords(Coords):
         phi = self.get_dihedral(positions, 4, 6, 8, 14)  # 1 x P
         psi = self.get_dihedral(positions, 6, 8, 14, 16)  # 1 x P
         return np.vstack([phi, psi])[np.newaxis, :]
-
-    def force_projector()

@@ -1,21 +1,20 @@
 import copy
 import pickle
 import numpy as np
-from scipy.fftpack import dst, idst
 from taps.coords import Coords
 
 # Parameters that will be saved
 paths_parameters = {
-    'Pk': {'default': '{P:d}', 'assert': '{name:s} > 0'},
+    'Pk': {'default': '{N:d}', 'assert': '{name:s} > 0'},
     'prefix': {'default': "'paths'", 'assert': 'len({name:s}) > 0'},
     'directory': {'default': "'.'", 'assert': 'len({name:s}) > 0'},
     'tag': {'default': "dict()", 'assert': 'True'}
 }
 
 class_objects = {
-    'model': {'from': 'taps.model'},
+    'model': {'from': 'taps.model.model'},
     'finder': {'from': 'taps.pathfinder'},
-    'imgdata': {'from': 'taps.data'}
+    'imgdata': {'from': 'taps.db.data'}
 }
 
 
@@ -31,12 +30,11 @@ class Paths:
 
     """
 
-    def __init__(self, coords, epoch=None, label=None, model='Model',
+    def __init__(self, coords=None, label=None, model='Model',
                  finder='PathFinder', imgdata='ImageData',
                  plotter='Plotter', tag=None, **kwargs):
 
         self.coords = coords
-        self.epoch = epoch
         self.label = label
 
         self.model = model
@@ -49,6 +47,8 @@ class Paths:
 
     def __setattr__(self, key, value):
         if key in ['coords']:
+            if value is None:
+                value = np.zeros((0, 0))
             if 'Coords' in value.__class__.__name__:
                 super().__setattr__(key, value)
             else:
@@ -62,7 +62,7 @@ class Paths:
             default = paths_parameters[key]['default']
             assertion = paths_parameters[key]['assert']
             if value is None:
-                value = eval(default.format(P=self.P, N=self.N))
+                value = eval(default.format(N=self.N))
             assert eval(assertion.format(name='value')), (key, assertion)
             super().__setattr__(key, value)
         elif key in class_objects:
@@ -77,23 +77,15 @@ class Paths:
             setattr(self._model, key, value)
         elif key in self._finder.finder_parameters:
             setattr(self._finder, key, value)
-        elif key in self._prj.prj_parameters:
-            setattr(self._prj, key, value)
         elif key in self._imgdata.imgdata_parameters:
             setattr(self._imgdata, key, value)
-        elif key in self._plotter.plotter_parameters:
-            setattr(self._plotter, key, value)
         elif 'model_' in key and key[6:] in self._model.model_parameters:
             setattr(self._model, key[6:], value)
         elif 'finder_' in key and key[7:] in self._finder.finder_parameters:
             setattr(self._finder, key[7:], value)
-        elif 'prj_' in key and key[4:] in self._prj.prj_parameters:
-            setattr(self._prj, key[4:], value)
         elif 'imgdata_' in key and \
              key[10:] in self._imgdata.imgdata_parameters:
             setattr(self._imgdata, key[10:], value)
-        elif 'plotter_' in key and key[8:] in self._plotter.plotter_parameters:
-            setattr(self._plotter, key[8:], value)
         else:
             raise AttributeError('Can not set key `%s`' % key)
 
@@ -108,25 +100,16 @@ class Paths:
             return getattr(self.__dict__['_model'], key[6:])
         elif 'finder_' in key and key[7:] in self._finder.finder_parameters:
             return getattr(self.__dict__['_finder'], key[7:])
-        elif 'prj_' in key and key[4:] in self._prj.prj_parameters:
-            return self.__dict__['_prj'].__dict__[key[4:]]
         elif 'imgdata_' in key and \
              key[10:] in self._imgdata.imgdata_parameters:
             return self.__dict__['_imgdata'].__dict__[key[10:]]
-        elif 'plotter_' in key and key[8:] in self._plotter.plotter_parameters:
-            return self.__dict__['_plotter'].__dict__[key[8:]]
-        elif key in self.__dict__['_plotter'].plotter_parameters:
-            return self.__dict__['_plotter'].__dict__[key]
         # Short hand notation
         elif key in self.__dict__['_finder'].finder_parameters:
             return getattr(self.__dict__['_finder'], key)
         elif key in self.__dict__['_model'].model_parameters:
-            # return getattr(self.__dict__['_model'].__dict__[key], key)
             return getattr(self.__dict__['_model'], key)
         elif key in self.__dict__['_imgdata'].imgdata_parameters:
             return self.__dict__['_imgdata'].__dict__[key]
-        elif key in self.__dict__['_prj'].prj_parameters:
-            return self.__dict__['_prj'].__dict__[key]
         else:
             raise AttributeError("Key called `%s` not exist" % key)
 
@@ -214,7 +197,7 @@ class Paths:
 
     def get_covariance(self, index=np.s_[1:-1]):
         cov_coords = self.model.get_covariance(self, index=np.s_[1:-1])
-        cov_coords = np.diag(cov_coords).copy()
+        cov_coords = np.diag(cov_coords)
         cov_coords[cov_coords < 0] = 0
         sigma_f = self.model.hyperparameters.get('sigma_f', 1)
         return 1.96 * np.sqrt(cov_coords) / 2 / sigma_f
@@ -256,14 +239,14 @@ class Paths:
         endpoint = self.coords[..., [0, -1]]
         for d in range(self.D):
             for m in range(self.M):
-                coords[d, m] = np.linspace(*endpoint[d, m], self.P)
+                coords[d, m] = np.linspace(*endpoint[d, m], self.N)
         return coords[..., index]
 
     def fluctuate(self, initialize=True, cutoff_f=70, temperature=0.03):
         if initialize:
             self.coords = self.simple_coords()
         fluc = np.zeros(self.Pk)
-        fluc[:cutoff_f] = temperature * np.linspace(2 * self.P, 0, cutoff_f)
+        fluc[:cutoff_f] = temperature * np.linspace(2 * self.N, 0, cutoff_f)
         self.rcoords += fluc * (np.random.rand(*self.rcoords.shape) - 0.5)
 
     def search(self, **kwargs):

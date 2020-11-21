@@ -9,7 +9,7 @@ from numpy.linalg import norm
 from scipy.fftpack import dst
 from scipy.optimize import minimize, check_grad
 from collections import OrderedDict
-from taps.utils import isbool, isdct, isstr, isflt, issclr
+from taps.utils.shortcut import isbool, isdct, isstr, isflt, issclr
 
 
 class PathFinder:

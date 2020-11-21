@@ -1,199 +1,14 @@
 import os
 import time
-import random
-import copy
 import pickle
 import sqlite3
-from sqlite3 import OperationalError
 import numpy as np
-from ase.utils import Lock
+from sqlite3 import OperationalError
 from collections import OrderedDict
-from taps.utils import dct2pd_dct, dfseries2dct
-from taps.utils import isStr, isbool
+from scipy.spatial import KDTree
 
-import ase.io.jsonio
-from ase.db.core import (connect, bytes_to_object, object_to_bytes)
-
-from taps.descriptor import SphericalHarmonicDescriptor
-
-
-def concatenate_atoms_data(filename, d1, d2, delunary_triangle=False):
-    """
-    concatenate two atoms_data and make new one.
-    """
-
-    def _random(idx, partition):
-        idx = np.random.choice(idx, len(idx) // 2, replace=False)
-        idx[idx < partition], idx[idx >= partition]
-        return idx[idx < partition], idx[idx >= partition] - partition
-
-    def _uniform(x, idx, partition):
-        raise NotImplementedError('Not')
-
-    d3 = connect(filename)
-    id_d1, x_d1 = [], []
-    id_d2, x_d2 = [], []
-    for row1 in d1.select('id!=-1', columns=['id'], include_data=True):
-        id_d1.append(row1.id)
-        x_d1.append(row1.data.X)
-    partition = len(id_d1)
-    for row2 in d2.select('id!=-1', columns=['id'], include_data=True):
-        id_d2.append(row2.id)
-        x_d2.append(row2.data.X)
-
-    try:
-        d1_calculator = True
-        # attach_calculator=True, add_additional_information=True
-        row1.toatoms(d1_calculator, True)
-    except AttributeError:
-        d1_calculator = False
-    try:
-        d2_calculator = True
-        row2.toatoms(d2_calculator, True)
-    except AttributeError:
-        d2_calculator = False
-
-    x_12 = np.array(x_d1 + x_d2)
-    x, idx = np.unique(np.array(x_12), return_index=True, axis=0)
-    if delunary_triangle:
-        idx_1, idx_2 = _uniform(x, idx, partition)
-    else:
-        idx_1, idx_2 = _random(idx, partition)
-
-    id_d1_heritage = np.array(id_d1)[idx_1]
-    id_d2_heritage = np.array(id_d2)[idx_2]
-
-    with d3 as db:
-        for id1 in id_d1_heritage:
-            for row in d1.select('id=%d' % id1, limit=2):
-                atoms = row.toatoms(d1_calculator, True)
-                data = row.data
-                kvp = row.key_value_pairs
-                db.write(atoms, key_value_pairs=kvp, data=data)
-        for id2 in id_d2_heritage:
-            for row in d2.select('id=%d' % id2, limit=2):
-                atoms = row.toatoms(d2_calculator, True)
-                data = row.data
-                kvp = row.key_value_pairs
-                db.write(atoms, key_value_pairs=kvp, data=data)
-    d3.metadata = d1.metadata
-    return d3
-
-
-class DataOverlapError(Exception):
-    pass
-
-
-class DataNotExistsError(Exception):
-    pass
-
-
-class PathsData:
-    import pandas as pd
-
-    def __init__(self, filename):
-        self.filename = filename
-        self.df = self.read(self.filename)
-
-    @property
-    def filename(self):
-        return self.label + '.' + self.format
-
-    @filename.setter
-    def filename(self, filename):
-        try:
-            label, format = filename.rsplit('.', 1)
-        except ValueError:
-            label = filename
-            format = 'csv'
-        formats = ['csv', 'pkl']
-        if format not in formats:
-            label = filename
-            format = 'csv'
-        self.label, self.format = ''.join(label), format
-
-    def write(self, candidates, mode='w', index=True, header=True,
-              **additional_kwargs):
-        """paths_dct = paths.__dict__
-        df = pd.DataFrame({'coords': [A.flatten()]})
-        coords = df.loc[[0]]['coords'].values[0]
-        dct = {}
-        for key in property:
-            dcf[key] = paths_dct[key]"""
-        if candidates.__class__.__name__ == 'Paths':
-            candidates = [candidates]
-            mode == 'a'
-        ids, dfs = [], []
-        count = len(self.df.index)
-        for i, paths in enumerate(candidates):
-            if mode == 'a':
-                i += count
-            s, c, dct = paths.copy(return_dict=True)
-            pd_dct = dct2pd_dct(dct)
-            pd_dct.update({'id': i})
-            pd_dct.update(additional_kwargs)
-            ids.append(i)
-            dfs.append(self.pd.DataFrame({'symbols': str(s),
-                                         'coords': [c.tolist()], **pd_dct},
-                                         index=[i]))
-        if mode == 'w':
-            self.df = self.pd.concat(dfs)
-            self.save(df=self.df, mode='w', index=True, header='True')
-        elif mode == 'a':
-            dataframe = self.pd.concat(dfs)
-            # self.df = self.pd.concat([self.df, dataframe], ignore_index=True)
-            # self.save(df=dataframe, index=index, mode='a', header='False',
-            #           **additional_kwargs)
-            dataframe.to_csv(self.filename, mode='a', index=True, header=False)
-        return ids
-
-    def update(self, candidates, update_variables=['coords']):
-        """
-        Update method does not support partial writting. If data is too big,
-        frequent update may decrease the performance.
-
-        """
-        if candidates.__class__.__name__ == 'Paths':
-            candidates = [candidates]
-        for variable in update_variables:
-            for paths in candidates:
-                id = paths.id
-                self.df.at[id, variable] = [getattr(paths, variable).tolist()]
-        self.save()
-
-    def select(self, index=None, all=True, query=None, **additional_kwargs):
-        if index is not None:
-            for i, row in self.df.iloc[index]:
-                yield dfseries2dct(row)
-        elif query is not None:
-            qdf = self.df.query(query)
-            for i, row in qdf.iterrows():
-                yield dfseries2dct(row)
-        elif all is True:
-            for i, row in self.df.iterrows(**additional_kwargs):
-                yield dfseries2dct(row)
-
-    def refresh(self):
-        self.df = self.read(self.filename)
-
-    def save(self, df=None, **pd_kwargs):
-        if df is None:
-            df = self.df
-        df.to_csv(self.filename, **pd_kwargs)
-
-    def read(self, filename, format='pkl'):
-        """ pleas install `pandas` """
-
-        if not os.path.isfile(filename):
-            return self.pd.DataFrame()
-        if self.format == 'pkl':
-            df = self.pd.read_pickle(self.filename)
-        elif self.format == 'csv':
-            df = self.pd.read_csv(self.filename, error_bad_lines=False)
-        else:
-            raise NotImplementedError('Format %s not supported, '
-                                      'use `.csv` or `.pkl`' % format)
-        return df
+from taps.utils.shortcut import isStr, isbool
+# from taps.descriptor import SphericalHarmonicDescriptor
 
 
 def blob(array):
@@ -226,28 +41,234 @@ def deblob(buf, dtype=float, shape=None):
     return array
 
 
-def encode(obj, binary=False):
-    if binary:
-        return object_to_bytes(obj)
-    return ase.io.jsonio.encode(obj)
-
-
-def decode(txt, lazy=False):
-    if lazy:
-        return txt
-    if isinstance(txt, str):
-        return ase.io.jsonio.decode(txt)
-    return bytes_to_object(txt)
-
-
-class AtomsData:
+class PathsData:
     """
-    First write atoms and return of that ID
-    write descriptor, write the source_ID
-
+    Current
+      Save : Paths ->  pickle serialize -> sqlite
+      load : Sqlite -> pickle serialize -> Paths
+    Future plan
+      Save : Paths -> Pathsrow(ver ctrl) -> dct -> json serialize -> sqlite
+      load : Sqlite -> json serialize -> dct -> Pathsrow(ver ctrl) -> Paths
     """
-    atomsdata_parameters = {
-        'filename': {'default': "'atoms.db'", 'assert': isStr},
+    metadata = {
+        'ctime': 'real'
+    }
+    invariants = {
+        'symbols': 'text',
+    }
+    variables = dict(
+        paths='blob',
+        **dict(zip(['rel%d' % i for i in range(5)], ['real'] * 5)),
+        **dict(zip(['txt%d' % i for i in range(5)], ['text'] * 5)),
+        **dict(zip(['blb%d' % i for i in range(5)], ['blob'] * 5)),
+        **dict(zip(['shp%d' % i for i in range(5)], ['blob'] * 5)),
+        **dict(zip(['int%d' % i for i in range(5)], ['int'] * 5))
+    )
+    key_mapper = {'blb0': 'coords', 'coords': 'blb0'}
+
+    create_table_list = ['metadata', 'invariants', 'variables']
+    target_variables = ['symbols', 'coords']
+
+    def __init__(self, filename='pathsdata.db', metadata=None, invariants=None,
+                 variables=None, key_mapper=None, **kwargs):
+        self.filename = filename
+        self.metadata = metadata or self.metadata
+        self.invariants = invariants or self.invariants
+        self.variables = variables or self.variables
+        self.key_mapper = key_mapper or self.key_mapper
+        self.create_tables(**kwargs)
+
+    def create_tables(self, create_table_list=None):
+        create_table_list = create_table_list or self.create_table_list
+        directory, prefix = os.path.split(self.filename)
+        if directory == '':
+            directory = '.'
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        conn = sqlite3.connect(self.filename)
+        c = conn.cursor()
+        for table_name in create_table_list:
+            create_statement = 'CREATE TABLE IF NOT EXISTS ' + table_name
+            entry_statement = 'ID INTEGER PRIMARY KEY AUTOINCREMENT, '
+            entries = getattr(self, table_name)
+            for key, dtype in entries.items():
+                entry_statement += '%s %s, ' % (key, dtype)
+            create_statement += ' ({})'.format(entry_statement[:-2])
+            c.execute(create_statement)
+        conn.commit()
+        conn.close()
+
+    def recreate_tables(self):
+        """
+        Drop table
+        """
+        pass
+
+    def read(self, ids=None, query=None, columns=None, key_mapper=None,
+             where=" WHERE ", table_name='variables'):
+        """
+        ids : list of int
+        query : 'rowid=1' or 'rowid IN (1, 2, 3, 4)' ...
+        columns = list of str, ['init', 'fin', ... ]
+        return [paths1, paths2, ...]
+        """
+        if query is None and ids is None:
+            return None
+        key_mapper = key_mapper or self.key_mapper
+        columns = columns or ['paths']
+        columns = [key_mapper.get(column, column) for column in columns]
+        if query is not None:
+            for mapper in key_mapper.items():
+                query = query.replace(*mapper)
+        if ids is not None:
+            query = 'rowid IN ({})'.format(', '.join([str(id) for id in ids]))
+
+        conn = sqlite3.connect(self.filename)
+        c = conn.cursor()
+
+        select_statement = "SELECT " + ', '.join(columns) + " FROM "
+        select_statement += table_name + where + query
+        c.execute(select_statement)
+        data = c.fetchall()
+        conn.commit()
+        conn.close()
+        return self.decode(data, columns, key_mapper=key_mapper)
+
+    def write(self, data=None, key_mapper=None, table_name='variables'):
+        """
+        data = [{'coords': arr, 'paths': Paths()}, ]
+        """
+        if data is None or data == []:
+            return None
+        key_mapper = key_mapper or self.key_mapper
+        data = self.encode(data)
+
+        conn = sqlite3.connect(self.filename)
+        c = conn.cursor()
+        ids = []
+        for datum in data:
+            columns, dat = zip(*datum.items())
+            columns = [key_mapper.get(c, c) for c in columns]
+            insert_statement = 'INSERT INTO ' + table_name
+            insert_statement += ' ({})'.format(', '.join(columns))
+            insert_statement += ' VALUES '
+            insert_statement += '({})'.format(', '.join(['?'] * len(columns)))
+            c.execute(insert_statement, dat)
+            ids.append(c.lastrowid)
+        conn.commit()
+        conn.close()
+        return ids
+
+    def update(self, ids, data=None, key_mapper=None, table_name='variables'):
+        """
+        ids : list of int; [1, 2, 8, ...]
+        data = list of dict; [{'init': arr, 'paths': Paths()}, ...]
+        """
+        if data is None or data == []:
+            return None
+        key_mapper = key_mapper or self.key_mapper
+        data = self.encode(data)
+        # self.delete(ids)
+
+        conn = sqlite3.connect(self.filename)
+        c = conn.cursor()
+        for datum, id in zip(data, ids):
+            columns, dat = zip(*datum.items())
+            columns = [key_mapper.get(c, c) for c in columns]
+            update_statement = 'UPDATE ' + table_name + ' SET '
+            update_statement += '=?, '.join(columns) + '=? '
+            update_statement += 'WHERE rowid=?'
+            c.execute(update_statement, (*dat, id))
+        conn.commit()
+        conn.close()
+
+    def delete(self, ids):
+        # Currently only supports deleting all informations of specific id
+        """
+        ids : dict
+            ids = [1, 2, 3]
+        """
+        table_name = 'variables'
+        conn = sqlite3.connect(self.filename)
+        c = conn.cursor()
+        delete_statement = 'DELETE FROM ' + table_name + ' WHERE id in '
+        delete_id_list = ', '.join(ids)
+        delete_statement += '({})'.format(delete_id_list)
+        c.execute(delete_statement)
+        conn.commit()
+        conn.close()
+
+    def lock(self, timeout=100):
+        t = time.time()
+        lock = self.filename + '.lock'
+        while True:
+            if os.path.exists(lock):
+                time.sleep(5)
+            elif t - time.time() > timeout:
+                raise TimeoutError('%s is not reponding' % lock)
+            else:
+                break
+
+    def release(self):
+        if os.path.exists(self.filename + '.lock'):
+            os.remove(self.filename + '.lock')
+
+    def count(self, query=None, key_mapper=None):
+        if query is None:
+            return None
+        table_name = 'variables'
+        key_mapper = key_mapper or self.key_mapper
+        for mapper in key_mapper.items():
+            query = query.replace(*mapper)
+
+        conn = sqlite3.connect(self.filename)
+        c = conn.cursor()
+
+        select_statement = "SELECT COUNT(*) FROM "
+        select_statement += table_name + " WHERE " + query
+        c.execute(select_statement)
+        count = c.fetchone()
+        conn.commit()
+        conn.close()
+        return count[0]
+
+    def decode(self, data, columns, key_mapper=None):
+        """
+        columns = ['blb0', 'txt2', 'paths']
+        """
+        key_mapper = key_mapper or self.key_mapper
+        columns = [key_mapper.get(column, column) for column in columns]
+        data = [dict(zip(columns, datum)) for datum in data]
+        for i, datum in enumerate(data):
+            for column in columns:
+                if column == 'paths':
+                    data[i][column] = pickle.loads(data[i][column])
+                elif 'blb' in key_mapper.get(column, column):
+                    data[i][column] = deblob(data[i][column], shape=None)
+                else:
+                    pass
+        return data
+
+    def encode(self, data):
+        for i, datum in enumerate(data):
+            for name, dat in datum.items():
+                class_name = dat.__class__.__name__
+                if dat is None:
+                    pass
+                elif class_name == 'Paths':
+                    data[i][name] = memoryview(pickle.dumps(dat))
+                elif class_name in ['list', 'tuple', 'ndarray']:
+                    data[i][name] = blob(np.array(dat))
+                elif class_name in ['str', 'int', 'int64', 'float', 'float64']:
+                    pass
+                else:
+                    raise NotImplementedError("Can't encode %s" % class_name)
+        return data
+
+
+class ImageData:
+    imgdata_parameters = {
+        'filename': {'default': "'image.db'", 'assert': isStr},
         'tables': {'default': 'None', 'assert': 'True'},
         'static_table_list': {'default': 'None', 'assert': 'True'},
         'search_table_list': {'default': 'None', 'assert': 'True'},
@@ -262,19 +283,21 @@ class AtomsData:
         ),
         invariants=OrderedDict(
             symbols='text',
-            atoms_number='integer',
+            image_number='integer',
             cell='blob',
             shape='blob'
         ),
-        atoms=OrderedDict(
-            positions='blob',
+        image=OrderedDict(
+            coord='blob',
             label='text',
             status='text',
             start_time='real',
             potential='real',
             potentials='blob',
-            forces='blob',
-            finish_time='real'
+            gradient='blob',
+            finish_time='real',
+            positions='blob',
+            forces='blob'
         ),
         sbdesc=OrderedDict(
             symbol='text',
@@ -285,37 +308,29 @@ class AtomsData:
             potential='real',
             force='blob'
         ),
-        prjdesc=OrderedDict(
-            coord='blob',
-            label='text',
-            status='text',
-            start_time='real',
-            potential='real',
-            grad='blob',
-            finish_time='real',
-            positions='blob',
-            forces='blob',
-        ),
     )
     static_table_list = ['meta', 'invariants']
-    search_table_list = ['atoms']
-    calculation_table_list = ['atoms']
+    search_table_list = ['image']
+    calculation_table_list = ['image']
 
-    def __init__(self, filename='descriptor.db', tables=None,
+    def __init__(self, filename=None, tables=None,
                  search_table_list=None, calculation_table_list=None,
                  static_table_list=None, **kwargs):
-        self.filename = filename
         self.tables = tables or self.tables
         self.static_table_list = static_table_list or self.static_table_list
         self.search_table_list = search_table_list or self.search_table_list
         self.calculation_table_list = calculation_table_list or \
             self.calculation_table_list
-        self.create_tables()
-        self.static_tables()
-        if 'sbdesc' in self.calculation_table_list:
-            self.sbdesc_settings(**kwargs)
-        if 'prjdesc' in self.calculation_table_list:
-            self.prjdesc_settings(**kwargs)
+        if filename is not None:
+            self.filename = filename
+            self.create_tables()
+            self.static_tables()
+            if 'sbdesc' in self.calculation_table_list:
+                self.sbdesc_settings(**kwargs)
+        else:
+            self.filename = 'imagedata.db'
+
+        self._cache = {}
 
     def create_tables(self, tables=None):
         tables = tables or self.tables
@@ -352,23 +367,20 @@ class AtomsData:
         # c = conn.cursor()
         # conn.commit()
         # conn.close()
-        self.atomsdata_parameters['ctimeout'] = {'default': 'None',
-                                                 'assert': 'True'}
+        self.imgdata_parameters['ctimeout'] = {'default': 'None',
+                                               'assert': 'True'}
         self.ctimeout = 3600.
-        self.atomsdata_parameters['positions_shape'] = {'default': 'None',
-                                                        'assert': 'True'}
+        self.imgdata_parameters['positions_shape'] = {'default': 'None',
+                                                      'assert': 'True'}
         # self.positions_shape = (22, 3)
 
     def sbdesc_settings(self, **kwargs):
         self.sbdesc = SphericalHarmonicDescriptor()
 
-    def prjdesc_settings(self, prjdesc=None, **kwargs):
-        self.prjdesc = prjdesc
-
-    def read(self, ids, tables=None, columns=None):
+    def read(self, ids, tables=None, columns={}, **kwargs):
         """
-        ids: {atoms: [1, 2, 3, ..], descriptor: [2, 3, ..], ...}
-        return {atoms: [(data[0], ..., ), ()]}
+        ids: {image: [1, 2, 3, ..], descriptor: [2, 3, ..], ...}
+        return {image: [(data[0], ..., ), ()]}
         """
         tables = tables or self.tables
         conn = sqlite3.connect(self.filename)
@@ -379,7 +391,7 @@ class AtomsData:
             if id is None:
                 continue
             data[table_name] = []
-            column = entries.keys()
+            column = columns.get(table_name) or entries.keys()
             select_statement = "SELECT " + ', '.join(column) + " FROM "
             select_statement += table_name + " WHERE rowid="
             for i in id:
@@ -389,7 +401,22 @@ class AtomsData:
         conn.close()
         return self.czvf(data, xzvf=True)
 
-    def write(self, data, ids=None, tables=None):
+    def read_all(self, tables=None, query='', **kwargs):
+        tables = tables or self.tables
+        conn = sqlite3.connect(self.filename)
+        c = conn.cursor()
+        data = {}
+        for table_name, entries in tables.items():
+            data[table_name] = []
+            select_statement = "SELECT " + ', '.join(entries.keys()) + " FROM "
+            select_statement += table_name + query
+            c.execute(select_statement)
+            data[table_name].append(c.fetchall())
+        conn.commit()
+        conn.close()
+        return self.czvf(data, xzvf=True, tables=tables)
+
+    def write(self, data, ids=None, tables=None, **kwargs):
         tables = tables or self.tables
         data = self.czvf(data, tables=tables)
 
@@ -415,7 +442,7 @@ class AtomsData:
         conn.close()
         return ids
 
-    def update(self, ids, data, tables=None):
+    def update(self, ids, data, tables=None, **kwargs):
         """
         Basically
         """
@@ -438,11 +465,11 @@ class AtomsData:
         conn.commit()
         conn.close()
 
-    def delete(self, ids, tables=None):
+    def delete(self, ids, tables=None, **kwargs):
         # Currently only supports deleting all informations of specific id
         """
         ids : dict
-            ids = {'atoms': [3, 4, 5], 'sbdesc': [2, 3, 4, 5]}
+            ids = {'image': [3, 4, 5], 'sbdesc': [2, 3, 4, 5]}
         """
         tables = tables or self.tables
         conn = sqlite3.connect(self.filename)
@@ -473,43 +500,93 @@ class AtomsData:
             kwargs['source_id'] = ids
         return ids
 
-    def _search_atoms(self, paths, positions_list, pack_null=False, **kwargs):
+    def _search_image(self, paths, coords, pack_null=False,
+                      search_similar_image=True, similar_image_tol=0.1,
+                      **kwargs):
         """
-        Only search atoms table positions_arr exists.
-        positions_arr : M x N x 3 array where M is the number of data and N is
-                        the number of atoms
+        Only search image table positions_arr exists.
+        coords: 3 x N x M array where M is the number of data and N is
+                        the number of image
         If pack null given, fill up the void into slot where no data found.
         Search perfect match exist,
         if not, check similar structure, or lower distance calculate
         """
         conn = sqlite3.connect(self.filename)
         c = conn.cursor()
-        if type(positions_list) != list:
-            positions_list = [positions_list]
-        # coords = np.atleast_3d(coords)
+        coords = np.atleast_3d(coords)
+        M = coords.shape[-1]
         ids = []
-        for positions in positions_list:
+        for m in range(M):
+            coord = coords[..., m]
             # Check Perfect match
-            select_statement = "SELECT rowid FROM atoms WHERE "
-            select_statement += "positions=?"
-            c.execute(select_statement, [blob(positions)])
+            select_statement = "SELECT rowid FROM image WHERE "
+            select_statement += "coord=?"
+            c.execute(select_statement, [blob(coord)])
             id = c.fetchone()
             # Check Similar match
-            if id is None:
-                pass
+            if id is None and search_similar_image:
+                last_id = max(self._cache.get('coords_ids')) or 0
+                tol = similar_image_tol
+                read_tables = {'image': OrderedDict(coord='blob', rawid='int')}
+                new_data = self.read_all(tables=read_tables, last_id=last_id,
+                                         query=' WHERE rowid>%d' % last_id
+                                         )['image']
+                if new_data is None or new_data == []:
+                    pass
+                else:
+                    dim, A, N = *new_data[0].shape, len(new_data)
+                    zarr = np.zeros((dim, A, N))
+                    new_coords = zarr.copy()
+                    new_ids = []
+                    for i in range(N):
+                        new_coords[..., i] = new_data[i][0]
+                        new_ids.append(new_data[i][1])
+                    coords_data = self._cache.get('coords_data', zarr.copy())
+                    coords_ids = self._cache.get('coords_ids', [])
+                    coords_data = np.concatenate([coords_data, new_coords],
+                                                 axis=2)
+                    coords_ids.extend(new_ids)
+                    self._cache['coords_data'] = coords_data
+                    self._cache['coords_ids'] = coords_ids
+                    distances = np.linalg.norm(coords_data - coord, axis=2)
+                    checker = distances < tol
+                    # Check similar results exists
+                    if np.any(checker):
+                        sim_ids = np.array(coords_ids)[checker]
+                        n_similar = len(sim_ids)
+                        # Check searched id is already exist in model data ids
+                        similar_yet_fresh_ids = []
+                        for i in range(n_similar):
+                            if sim_ids[i] not in paths.model.data_ids['image']:
+                                similar_yet_fresh_ids.append(sim_ids[i])
+                        # Emergency mode
+                        if similar_yet_fresh_ids == []:
+                            similar_coords = np.array(coords_data)[..., checker]
+                            # Create new coord
+                            center = similar_coords.sum(axis=2) / n_similar
+                            ce = coord - center
+                            e_ce = ce / np.linalg.norm(ce)
+                            coord = coord + tol * e_ce
+                        else:
+                            # pick among fresh ids
+                            id = np.random.choice(similar_yet_fresh_ids)
+                    else:
+                        pass
             # PAD empty slots
             if id is None and pack_null:
                 data = {}
-                data['atoms'] = self._create_atoms_data(paths, [positions],
+                data['image'] = self._create_image_data(paths, coord,
                                                         pack_null=True,
                                                         **kwargs)
-                id = self.write(data)['atoms']
+                id = self.write(data)['image']
             ids.extend(id)
         conn.commit()
         conn.close()
         return ids
 
-    def _search_sbdesc(self, paths, sbdesc_list, pack_null=False, **kwargs):
+    def _search_sbdesc(self, paths, sbdesc_list, pack_null=False,
+                       search_similar_sbdesc=True, similar_sbdesc_tol=0.1,
+                       **kwargs):
         """
         Only search for descriptor table in symbol for descriptor exists.
         sbdesc_list : list of tuples contain ('symbol', 'descriptor',
@@ -521,69 +598,105 @@ class AtomsData:
         c = conn.cursor()
         ids = []
         for sbdesc in sbdesc_list:
-            symbol, d = sbdesc[:2]
+            symbol, desc = sbdesc[:2]
+            sym, d = symbol, desc
             # Check Perfect match
             select_statement = "SELECT rowid FROM sbdesc WHERE "
             select_statement += "symbol=? AND desc=?"
             # select_statement += ", ({0}, {1})".format(symbol, blob(d))
-            c.execute(select_statement, (symbol, blob(d)))
+            c.execute(select_statement, (sym, blob(d)))
             id = c.fetchone()
             # Check Similar match
-            if id is None:
-                pass
-            # PAD empty slots
+            if id is None and search_similar_sbdesc:
+                self._cache['sbdesc'] = self._cache.get('sbdesc', {})
+                self._cache['sbdesc'][sym] = self._cache['sbdesc'].get(sym, {})
+                last_id = 0
+                for key, value in self._cache.get('sbdesc', {}).items():
+                    _ids = value.get('ids')
+                    if _ids is None:
+                        continue
+                    last_id = max(max(_ids), last_id)
+                tol = similar_sbdesc_tol
+                read_tables = {'sbdesc': OrderedDict(rawid='int', desc='blob',
+                               positions='blob', idx='int', source_id='int')}
+                new_data = self.read_all(tables=read_tables, last_id=last_id,
+                                         query=' WHERE symbol=%s rowid>%d' %
+                                         (symbol, last_id))['sbdesc']
+                if new_data is None or new_data == []:
+                    cache = self._cache['sbdesc'][symbol]
+                    kdtree = cache.get('kdtree')
+                    if kdtree is None:
+                        exist_similar = False
+                    else:
+                        dist, _ = kdtree.query_ball_point(d, tol)
+                        if _ is None:
+                            exist_similar = False
+                        else:
+                            exist_similar = True
+                            similar_ids = cache.get('ids')[_]
+                else:
+                    N = len(new_data)
+                    new_desc = []
+                    new_pos, new_ids, new_sid, new_idx = [], [], [], []
+                    cell = paths.__dict__.get('cell')
+                    for i in range(N):
+                        id, desc, pos, idx, sid = new_data[i]
+                        new_ids.append(id)
+                        new_desc.append(desc)
+                        new_pos.append(pos)
+                        new_idx.append(idx)
+                        new_sid.append(sid)
+                        if cell is not None:
+                            pos -= pos[idx]
+                            basis = np.linalg.solve(cell.T, pos.T).T
+                            basis = (basis + 0.5) % 1. - 0.5
+                            pos = basis @ cell
+
+                    cache = self._cache['sbdesc'][symbol]
+                    cache['ids'] = cache.get('ids', []).extend(new_ids)
+                    cache['pos'] = cache.get('pos', []).extend(new_pos)
+                    cache['idx'] = cache.get('idx', []).extend(new_idx)
+                    cache['sid'] = cache.get('sid', []).extend(new_sid)
+                    cache['desc'] = cache.get('desc', []).extend(new_desc)
+
+                    kdtree = KDTree(cache['desc'])
+                    _ = kdtree.query(d, tol)
+                    if similar_ids is None:
+                        exist_similar = False
+                    else:
+                        exist_similar = True
+                        similar_ids = cache.get('ids')[_]
+
+                # Check similar results exists
+                if exist_similar:
+                    sim_ids = similar_ids
+                    n_similar = len(similar_ids)
+                    # Check searched id is already exist in model data ids
+                    similar_yet_fresh_ids = []
+                    for i in range(n_similar):
+                        if sim_ids[i] not in paths.model.data_ids['sbdesc']:
+                            similar_yet_fresh_ids.append(sim_ids[i])
+                    # Emergency mode
+                    if similar_yet_fresh_ids == []:
+                        pos, idx, sid = sbdesc[2:]
+                        sim_pos = np.array(cache['pos'])[_]
+                        # Create new coord
+                        center = sim_pos.sum(axis=0) / n_similar
+                        ce = d - center
+                        e_ce = ce / np.linalg.norm(ce)
+                        pos = pos + tol * e_ce
+                        ##################
+                        desc = self.sbdesc(paths, pos.T)
+                        sbdesc = (symbol, desc, pos, idx, sid)
+                    else:
+                        # pick among fresh ids
+                        id = np.random.choice(similar_yet_fresh_ids)
             if id is None and pack_null:
                 data = {}
                 data['sbdesc'] = self._create_sbdesc_data(
                     paths, [sbdesc], pack_null=True, **kwargs)
                 id = self.write(data)['sbdesc']
 
-            ids.extend(id)
-        conn.commit()
-        conn.close()
-        return ids
-
-    def _search_prjdesc(self, paths, coords, pack_null=False,
-                        prjdesc_search_similar=False, prjdesc_similar_tol=None,
-                        **kwargs):
-        """
-        Only search atoms table positions_arr exists.
-        coords : dim x A x N array where N is the number of data and A is
-                        the number of atoms
-        If pack null given, fill up the void into slot where no data found.
-        Search perfect match exist,
-        if not, check similar structure, or lower distance calculate
-        """
-        tol = prjdesc_similar_tol
-        conn = sqlite3.connect(self.filename)
-        c = conn.cursor()
-        coords = np.atleast_3d(coords)
-        # coords = np.atleast_3d(coords)
-        N = coords.shape[-1]
-        ids = []
-        for i in range(N):
-            coord = coords[..., i]
-            # Check Perfect match
-            select_statement = "SELECT rowid FROM atoms WHERE "
-            select_statement += "coord=?"
-            c.execute(select_statement, [blob(coord)])
-            id = c.fetchone()
-            # Check Similar match
-            if id is None and prjdesc_search_similar:
-                if i == 0:
-                    data_prj = self.read_all_data(tables=['prjdesc'])['prjdesc']
-                    coords_data = np.array([d[1] for d in data_prj]).T
-                distances = np.dot(coord, coords_data)
-                if np.abs(distances.min() - np.linalg.norm(coord)) < tol:
-                    id = data_prj[np.argmin(distances)]['rawid']
-
-            # PAD empty slots
-            if id is None and pack_null:
-                data = {}
-                data['prjdesc'] = self._create_prjdesc_data(paths, [coord],
-                                                            pack_null=True,
-                                                            **kwargs)
-                id = self.write(data)['prjdesc']
             ids.extend(id)
         conn.commit()
         conn.close()
@@ -602,23 +715,23 @@ class AtomsData:
         id : list of int or None, where it is
         M : Number of data
         arr_dict : dict contains pathways to be calculated
-              arr_dict['atoms'] = [np.array([...]), ..., np.array([...])]
+              arr_dict['image'] = [np.array([...]), ..., np.array([...])]
               arr_dict['descriptor']
                   = { 'H': [np.array([...]), ..., np.array([...])],
                       'C': [...],
                       ...}
         """
-        # @@@@@@@@@@@@@@@@ Temporal Code >>>
-        self.positions_shape = (paths.M, paths.D)
+        # ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ #
+        self.coord_shape = (paths.D, paths.M)
+        self.gradient_shape = (paths.D, paths.M)
         self.potentials_shape = (paths.A)
-        self.forces_shape = (paths.M, paths.D)
         self.desc_shape = (15)
-        self.force_shape = (paths.D)
-        # ############### Temproal end <<<
+        self.positions_shape = (paths.A, 3)
+        self.forces_shape = (paths.A, 3)
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ #
 
         coords = np.atleast_3d(coords)
         ids = self.search(paths, coords, pack_null=True, **kwargs)
-        print(ids)
         while True:
             # Not existing data + Failed data
             ids_ntbc = self.get_ids_need_to_be_calculated(ids)
@@ -646,7 +759,7 @@ class AtomsData:
         """
         This function only creates the data based on the given `arr_dict`
         arr_dict : dict contains pathways to be calculated
-              arr_dict['atoms'] = [np.array([...]), ..., np.array([...])]
+              arr_dict['image'] = [np.array([...]), ..., np.array([...])]
               arr_dict['sbdesc'] = [(symbol, desc, positions, idx, source_id),
                                      ..., ]
         Datum : tuple {descriptor, atom_idx, E, F}
@@ -682,62 +795,52 @@ class AtomsData:
         metadata = OrderedDict(ctimeout=ctimeout)
         return metadata
 
-    def _create_atoms_data(self, paths, positions_list, pack_null=False,
+    def _create_image_data(self, paths, coords, pack_null=False,
                            ids=None, update_status=False, **kwargs):
         """
-        positions_list : list of arrays
+        coords : dim x A x M or dim x A array
         update_status : list of ids
         return : list of tuples containing
-              (positions, label, status, start_time,
-                          potential, potentials, forces, finish_time)
+              (coord, label, status, start_time, potential, potentials,
+               gradient, finish_time, positions, forces)
         """
-        # @@@@@@@@@@@@ Temp, itshould generate automatically
-        props = kwargs.get('properties') or \
-                    paths.real_model.implemented_properties
-        # @@@@@@@@@@@@ Temp
+        n2i = self.name2idx['image']
+        properties = n2i.keys()
+        paths.real_model.update_implemented_properties(paths)
+        model_properties = paths.real_model.implemented_properties
+        props = [p for p in properties if p in model_properties]
+        M = coords.shape[-1]
         if ids is not None:
-            ids_atoms = ids['atoms']
+            ids_image = ids['image']
         else:
-            ids_atoms = [None] * len(positions_list)
-        if type(positions_list) != list:
-            positions_list = list(positions_list)
-        atoms_data = []
-        for id, positions in zip(ids_atoms, positions_list):
-            label = None
-            status = None
-            start_time = None
-            potential = None
-            forces = None
-            potentials = None
-            finish_time = None
+            ids_image = [None] * M
+        image_data = []
+        for m in range(M):
+            datum = OrderedDict(zip(properties, [None] * len(properties)))
+            coord = coords[..., m]
+            datum['coord'] = coord
             if pack_null:
                 pass
             else:
-                positions_T = positions.T  # N x 3 -> 3xN
-                coords = np.atleast_3d(positions_T)  # 3xNx1
-                start_time = time.time()
-                status = 'Running'
+                datum['start_time'] = time.time()
+                datum['status'] = 'Running'
                 if update_status:
-                    datum = (positions, label, status, start_time,
-                             potential, potentials, forces, finish_time)
+                    id = ids_image[m]
+                    datum_tuple = tuple([val for val in datum.values()])
                     if id is None:
                         raise NotImplementedError('To update status, need ids')
-                    self.update({'atoms': [id]}, {'atoms': [datum]})
+                    self.update({'image': [id]}, {'image': [datum_tuple]})
 
-                results = paths.get_properties(coords=coords, properties=props,
+                results = paths.get_properties(coords=coord, properties=props,
                                                real_model=True, caching=True)
-                finish_time = time.time()
-                # @@@@@@@ It should handle property dynamically
-                label = results.get('label')
-                positions = results.get('positions') or positions
-                potentials = results.get('potentials')
-                forces = results['forces']
-                potential = results['potential'][0]
-                # @@@@@@@ It should handle proeprty dynamically
-                status = 'Finished'
-            atoms_data.append((positions, label, status, start_time,
-                               potential, potentials, forces, finish_time))
-        return atoms_data
+                datum['finish_time'] = time.time()
+
+                for key, val in results.items():
+                    datum[key] = val
+
+                datum['status'] = 'Finished'
+            image_data.append(tuple([val for val in datum.values()]))
+        return image_data
 
     def _create_sbdesc_data(self, paths, sbdesc_list, pack_null=False,
                             source_id=None, **kwargs):
@@ -749,13 +852,13 @@ class AtomsData:
           ('symbol', 'desc', 'positions', 'idx', 'source_id', 'potential')
         """
         s2i = {}
-        data_atoms = {}
+        data_image = {}
         for sbdesc in sbdesc_list:
             symbol, desc, positions, idx, source_id = sbdesc
             if s2i.get(source_id) is None:
                 s2i[source_id] = []
             s2i[source_id].append(idx)
-        n2i = self.name2idx['atoms']
+        n2i = self.name2idx['image']
         sbdesc_data = []
         for sbdesc in sbdesc_list:
             symbol, desc, positions, idx, source_id = sbdesc
@@ -767,9 +870,9 @@ class AtomsData:
                 # Search source ID that potentials exists.
                 # If not, calculate directly
 
-                data_atoms = self.read({'atoms': [source_id]})['atoms']
-                potentials = data_atoms[0][n2i['potentials']]
-                forces = data_atoms[0][n2i['forces']]
+                data_image = self.read({'image': [source_id]})['image']
+                potentials = data_image[0][n2i['potentials']]
+                forces = data_image[0][n2i['forces']]
                 if potentials is None:
                     raise AttributeError("No potentials found %d" % source_id)
                 potential = potentials[idx]
@@ -779,91 +882,24 @@ class AtomsData:
                                 potential, force))
         return sbdesc_data
 
-    def _create_prjdesc_data(self, paths, coords, pack_null=False,
-                             ids=None, update_status=False, **kwargs):
-        """
-        positions_list : list of arrays
-        update_status : list of ids
-        return : list of tuples containing
-              (positions, label, status, start_time,
-                          potential, potentials, forces, finish_time)
-        prjdesc=OrderedDict(
-            coord='blob',
-            label='text',
-            status='text',
-            start_time='real',
-            potential='real',
-            grad='blob',
-            finish_time='real',
-            positions='blob',
-            forces='blob',
-        ),
-        """
-        # @@@@@@@@@@@@ Temp, itshould generate automatically
-        props = kwargs.get('properties') or \
-                        paths.real_model.implemented_properties
-        # @@@@@@@@@@@@ Temp
-        coords = np.atleast_3d(coords)
-        N = coords.shape[-1]
-        if ids is not None:
-            ids_prjdesc = ids.get('prjdesc')
-        else:
-            ids_prjdesc = [None] * N
-
-        prjdesc_data = []
-        for i, id in enumerate(ids_prjdesc):
-            coord = coords[..., i, np.newaxis]
-            label = None
-            status = None
-            start_time = None
-            potential = None
-            grad = None
-            finish_time = None
-            forces = None
-            if pack_null:
-                pass
-            else:
-                start_time = time.time()
-                status = 'Running'
-                if update_status:
-                    datum = (coord, label, status, start_time,
-                             potential, grad, forces, finish_time)
-                    if id is None:
-                        raise NotImplementedError('To update status, need ids')
-                    self.update({'atoms': [id]}, {'atoms': [datum]})
-
-                results = paths.get_properties(coords=coord, properties=props,
-                                               real_model=True, caching=True)
-                finish_time = time.time()
-                # @@@@@@@ It should handle property dynamically
-                label = results.get('label')
-                positions = results.get('positions') or positions
-                potentials = results.get('potentials')
-                forces = results['forces']
-                potential = results['potential'][0]
-                # @@@@@@@ It should handle proeprty dynamically
-                status = 'Finished'
-            prjdesc_data.append((positions, label, status, start_time,
-                                 potential, potentials, forces, finish_time))
-        return prjdesc_data
-
     def get_input_dict(self, paths, coords, search_table_list=None,
                        **kwargs):
         """
         Using coords, construct suitable input format for search table
-         'atoms' -> positions_list : M x N
+         'image' -> positions_list : M x N
          'descriptor' -> list of tuples contain
           ('symbol', 'descriptor', 'positions', 'idx', 'source_id')
         """
         stl = search_table_list or self.search_table_list
         input_dict = {}
-        if 'atoms' in stl:
-            positions_arr = np.atleast_3d(coords).T
-            input_dict['atoms'] = [positions for positions in positions_arr]
+        if 'image' in stl:
+            coords = np.atleast_3d(coords)
+            input_dict['image'] = coords
         if 'sbdesc' in stl:
+            coords = np.atleast_3d(coords)
             positions_arr = np.atleast_3d(coords).T
             source_id = kwargs.get('source_id', {})
-            source_id = source_id.get('atoms', [None] * len(positions_arr))
+            source_id = source_id.get('image', [None] * len(positions_arr))
             symbols = paths.symbols
             sbdescriptors = self.sbdesc(paths, coords)
             input_dict['sbdesc'] = []
@@ -883,13 +919,13 @@ class AtomsData:
         arr_ntbc = OrderedDict()
         # For readable code, indexing with string. Not number
         name2idx = self.name2idx
-        if 'atoms' in ctl:
-            arr_ntbc['atoms'] = []
-            data_atoms = self.read({'atoms': ids['atoms']})['atoms']
-            n2i = name2idx['atoms']
-            for data in data_atoms:
-                positions = data[n2i['positions']]
-                arr_ntbc['atoms'].append(positions)
+        if 'image' in ctl:
+            coord_T_list = []
+            data_image = self.read({'image': ids['image']})['image']
+            n2i = name2idx['image']
+            for data in data_image:
+                coord_T_list.append(data[n2i['coord']].T)
+            arr_ntbc['image'] = np.array(coord_T_list).T
         if 'sbdesc' in ctl:
             arr_ntbc['sbdesc'] = []
             data_sbdesc = self.read({'sbdesc': ids['sbdesc']})['sbdesc']
@@ -906,29 +942,29 @@ class AtomsData:
         if it is true
         First, check the status is None
         ids : dictionary of lists that contains id
-               {'atoms': [1, 2, ..], 'sbdesc': [1, 2, ..], ...}
+               {'image': [1, 2, ..], 'sbdesc': [1, 2, ..], ...}
 
         """
         ctl = calculation_table_list or self.calculation_table_list
         # For readable code, indexing with string. Not number
         name2idx = self.name2idx
         ids_ntbc = OrderedDict()
-        if 'atoms' in ctl:
-            n2i = name2idx['atoms']
-            ids_ntbc['atoms'] = []
-            atoms_data = self.read({'atoms': ids['atoms']})['atoms']
+        if 'image' in ctl:
+            n2i = name2idx['image']
+            ids_ntbc['image'] = []
+            image_data = self.read({'image': ids['image']})['image']
             # data : list, datum : tuple
-            for id, datum in zip(ids['atoms'], atoms_data):
+            for id, datum in zip(ids['image'], image_data):
                 status = datum[n2i['status']]
                 if status is None or status == 'Failed':
-                    ids_ntbc['atoms'].append(id)
+                    ids_ntbc['image'].append(id)
                 elif status == 'Finished':
                     continue
                 elif status == 'Running':
                     ctimeout = self.ctimeout
                     # Time out
                     if time.time() - datum[n2i['start_time']] > ctimeout:
-                        ids_ntbc['atoms'].append(id)
+                        ids_ntbc['image'].append(id)
                     else:
                         continue
                 else:
@@ -946,10 +982,10 @@ class AtomsData:
                 if source_ids.get(source_id) is None:
                     source_ids[source_id] = []
                 source_ids[source_id].append(id)
-            ids_atoms = source_ids.keys()
-            data_atoms = self.read({'atoms': ids_atoms})['atoms']
-            n2i = name2idx['atoms']
-            for id, data in zip(ids_atoms, data_atoms):
+            ids_image = source_ids.keys()
+            data_image = self.read({'image': ids_image})['image']
+            n2i = name2idx['image']
+            for id, data in zip(ids_image, data_image):
                 status = data[n2i['status']]
                 if status is None or status == 'Failed':
                     ids_ntbc['sbdesc'].extend(source_ids[id])
@@ -969,21 +1005,30 @@ class AtomsData:
 
     def queue(self, ids, arr_dict, calculation_table_list=None,
               status='Running', **kwargs):
+        """
+        arr_dict {'image': dim x A x N arr}
+        """
+
         ctl = calculation_table_list or self.calculation_table_list
-        if 'atoms' in ctl:
-            ids_atoms = ids['atoms']
-            positions_list = arr_dict['atoms']
-            for id, positions in zip(ids_atoms, positions_list):
+        if 'image' in ctl:
+            ids_image = ids['image']
+            coords = arr_dict['image']
+            M = coords.shape[-1]
+            for m in range(M):
+                coord = coords[..., m]
                 label = None
                 status = status
-                potential = None
-                forces = None
-                potentials = None
-                finish_time = None
                 start_time = time.time()
-                datum = (positions, label, status, start_time,
-                         potential, potentials, forces, finish_time)
-                self.update({'atoms': [id]}, {'atoms': [datum]})
+                potential = None
+                potentials = None
+                gradient = None
+                finish_time = None
+                positions = None
+                forces = None
+                datum = (coord, label, status, start_time, potential,
+                         potentials, gradient, finish_time, positions, forces)
+                id = ids_image[m]
+                self.update({'image': [id]}, {'image': [datum]})
 
     def You_and_I_have_unfinished_business(self, ids,
                                            calculation_table_list=None):
@@ -994,10 +1039,10 @@ class AtomsData:
         ctl = calculation_table_list or self.calculation_table_list
         name2idx = self.name2idx
         intrim_report = []
-        if 'atoms' in ctl:
-            n2i = name2idx['atoms']
-            atoms_data = self.read({'atoms': ids['atoms']})['atoms']
-            statuses = np.array([datum[n2i['status']] for datum in atoms_data])
+        if 'image' in ctl:
+            n2i = name2idx['image']
+            image_data = self.read({'image': ids['image']})['image']
+            statuses = np.array([datum[n2i['status']] for datum in image_data])
             if np.all(statuses == 'Finished'):
                 intrim_report.append(False)
             else:
@@ -1007,29 +1052,30 @@ class AtomsData:
             n2i = name2idx['sbdesc']
             # source_ids = [id for id in ids['sbdesc']]
             data = self.read({'sbdesc': ids['sbdesc']})['sbdesc']
-            ids_atoms = []
+            ids_image = []
             for datum in data:
                 source_id = datum[n2i['source_id']]
-                if source_id in ids_atoms:
+                if source_id in ids_image:
                     continue
-                ids_atoms.append(source_id)
-            n2i = name2idx['atoms']
-            atoms_data = self.read({'atoms': ids_atoms})['atoms']
-            statuses = np.array([datum[n2i['status']] for datum in atoms_data])
+                ids_image.append(source_id)
+            n2i = name2idx['image']
+            image_data = self.read({'image': ids_image})['image']
+            statuses = np.array([datum[n2i['status']] for datum in image_data])
             if np.all(statuses == 'Finished'):
                 intrim_report.append(False)
             else:
                 return True
         return np.any(intrim_report)
 
-    def czvf(self, data, tables=None, xzvf=False):
+    def czvf(self, data, tables=None, xzvf=False, name2idx=None):
         """
         data : dict(list of tuples)
         return : data_dict(list of tuples)
         """
         tables = tables or self.tables
         data_dict = OrderedDict()
-        name2idx = self.name2idx
+        # name2idx = name2idx or self.name2idx
+        name2idx = self.get_new_name2idx(tables)
         for table_name, entries in tables.items():
             if data.get(table_name) is None:
                 continue
@@ -1122,96 +1168,11 @@ class AtomsData:
         self._idx2name = idx2name
         return self._idx2name
 
-
-class PickledData:
-    invar_list = ['symbols', 'dct']
-    meta_list = ['dcut', 'population_size', 'iteration']
-    var_list = ['coords', 'finder_results', 'parents', 'id',
-                'atomsdata_database']
-
-    def __init__(self, filename):
-        self.filename = filename
-        self.lock = Lock(filename + '.lock')
-        self.lock.timeout = 5
-        self.meta_data = {}
-        self.invariants = {}
-        self.variables = {}
-        dir = os.path.dirname(self.filename)
-        if dir == '':
-            dir = '.'
-        if not os.path.exists(dir):
-            os.mkdir(dir)
-        if not os.path.exists(self.filename):
-            self.save()
-        else:
-            self.time_stamp = time.time()
-            self.refresh()
-            self.load_invariants()
-
-    def __getitem__(self, key):
-        self.refresh()
-        symbols = self.invariants['symbols']
-        dct = self.invariants['dct']
-        coords = self.variables['coords'][key]
-        dct['results'] = self.variables['results'][key].copy()
-        dct['id'] = self.variables['id'][key]
-        dct['parents'] = self.variables['parents'][key]
-        return symbols, coords, dct
-
-    def __getattr__(self, key):
-        if key in ['filename', 'meta_data', 'invariants', 'variables',
-                   'time_stamp', 'lock']:
-            return super().__getattribute__(key)
-        self.refresh()
-        return self.meta_data[key]
-
-    def __setattr__(self, key, value):
-        if key in ['filename', 'meta_data', 'time_stamp',
-                   'invariants', 'variables', 'lock']:
-            super().__setattr__(key, value)
-        else:
-            self.meta_data.update({key: value})
-            self.save()
-
-    @property
-    def iteration(self):
-        return self.meta_data.get('iteration', 0)
-
-    @iteration.setter
-    def iteration(self, iteration):
-        self.lock.acquire()
-        self.meta_data['iteration'] = iteration
-        self.save()
-        self.lock.release()
-
-    def replace(self, paths=None, id=None):
-        for variable in self.var_list:
-            value = getattr(paths, variable)
-            self.variables[variable][id] = value
-
-    def refresh(self):
-        f = open(self.filename, 'rb')
-        if self.time_stamp == pickle.load(f):
-            pass
-        else:
-            self.meta_data = pickle.load(f)
-            self.variables = pickle.load(f)
-            if self.variables.get('parents') is not None:
-                parents = self.variables.get('parents')
-                self.variables['parents'] = parents.astype(object)
-        f.close()
-
-    def load_invariants(self):
-        with open(self.filename, 'rb') as f:
-            pickle.load(f)
-            pickle.load(f)
-            pickle.load(f)
-            self.invariants = pickle.load(f)
-
-    def save(self):
-        self.time_stamp = time.time()
-        with open(self.filename, 'wb') as f:
-            pickle.dump(self.time_stamp, f)
-            pickle.dump(self.meta_data, f)
-            pickle.dump(self.variables, f)
-            pickle.dump(self.invariants, f)
+    def get_new_name2idx(self, tables=None):
+        tables = tables or self.tables
+        name2idx = {}
+        for table_name, entries in tables.items():
+            name2idx[table_name] = OrderedDict()
+            for idx, name in enumerate(entries.keys()):
+                name2idx[table_name][name] = idx
+        return name2idx

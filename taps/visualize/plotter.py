@@ -7,9 +7,9 @@ from ase.data.colors import jmol_colors
 from matplotlib import pyplot as plt
 import matplotlib.colors as mc
 from mpl_toolkits.mplot3d import Axes3D
-from taps.utils import isStr, isstr, istpl, isBool, isInt, isint, isSclr
-from taps.utils import isflt, islst, isArr, isTpl, issclr
-from taps.utils import isarr, asst, dflt
+from taps.utils.shortcut import isStr, isstr, istpl, isBool, isInt, isint, isSclr
+from taps.utils.shortcut import isflt, islst, isArr, isTpl, issclr
+from taps.utils.shortcut import isarr, asst, dflt
 
 
 class PlotterProjector:
@@ -82,7 +82,7 @@ class Plotter:
         'lgd_ftsz': {'default': "None", 'assert': isint},
         'tick_size': {'default': "None", 'assert': isint},
         'plot_along_distance': {'default': 'True', 'assert': isBool},
-        'plotter_prj': {'default': "None", 'assert': 'True'},
+        'prj': {'default': "None", 'assert': 'True'},
 
         'ttl2d': {'default': "'Potential Energy Surface'", 'assert': isstr},
         'fgsz2d': {'default': "(7.5, 6)", 'assert': istpl},
@@ -165,10 +165,11 @@ class Plotter:
         'zlim3d': {'default': "np.array([0, 1])", 'assert': 'True'},
     }
 
-    def __init__(self, filename=None, plotter_prj=PlotterProjector(),
+    def __init__(self, filename=None, prj=None, prjf=None,
                  **kwargs):
         self.filename = filename
-        self.plotter_prj = plotter_prj
+        self.prj = prj
+        self.prjf = prjf
         for key in self.plotter_parameters.keys():
             if key in kwargs:
                 setattr(self, key, kwargs[key])
@@ -178,11 +179,15 @@ class Plotter:
                 setattr(self, key, None)
 
     def __setattr__(self, key, value):
-        if key == 'plotter_prj':
-            if type(value) == str:
-                from_ = 'taps.plotter'
-                module = __import__(from_, {}, None, [value])
-                value = getattr(module, value)()
+        if key == 'prj':
+            if value is None:
+                def value(x):
+                    return x
+            super().__setattr__(key, value)
+        elif key == 'prjf':
+            if value is None:
+                def value(f, x):
+                    return f
             super().__setattr__(key, value)
         elif key in self.plotter_parameters:
             default = self.plotter_parameters[key]['default']
@@ -207,20 +212,15 @@ class Plotter:
             dir = '.'
         if not os.path.exists(dir):
             os.makedirs(dir)
-        D, M = self.plotter_prj(paths.coords).shape[:2]
-        DM = D * M
-        if DM == 1:
+        D, M = self.get_shape(self.prj(paths.coords))
+        if D == 1:
             raise NotImplementedError('No 1D plot')
-        elif DM == 2:
-            self.plot_2D(paths, savefig, filename)
-        elif DM == 3:
-            self.plot_3D(paths, savefig, filename)
         elif D == 2:
             self.plot_2D(paths, savefig, filename)
         elif D == 3:
             self.plot_3D(paths, savefig, filename)
         else:
-            raise NotImplementedError("Can't plot (%d, %d) dimension" % (D, M))
+            raise NotImplementedError("Can't plot ")
         if gaussian:
             self.plot_gaussian(paths, savefig, filename, gaussian)
         if energy_paths:
@@ -375,8 +375,7 @@ class Plotter:
         Vunit, Kunit = '', ''
         if paths.real_model.potential_unit != 'unitless':
             Vunit = '$(%s)$' % paths.model.potential_unit
-        if paths.prj.kinetic_unit != 'unitless':
-            Kunit = '$(%s)$' % paths.prj.kinetic_unit
+        Kunit = '$(%s)$' % (paths.coords.unit or 'unitless')
 
         fig, ax = plt.subplots(figsize=self.fgszE)
         ax.tick_params(axis='both', which='major', labelsize=self.tick_size)
@@ -501,8 +500,8 @@ class Plotter:
 
     def plot_trajectory(self, paths, plt, ax, xlim=None, ylim=None, zlim=None,
                         forces=None):
-        plotter_coords = self.plotter_prj(paths.coords)
-        D, M = plotter_coords.shape[:-1]
+        plotter_coords = self.prj(paths.coords)
+        D, M = self.get_shape(plotter_coords)
         if D * M < 4:
             M, D = 1, M * D
             coords = plotter_coords.reshape(D, 1, -1)
@@ -651,7 +650,7 @@ class Plotter:
         coord_pad[:, ::3] = coord_ - patch
         coord_pad[:, 2::3] = _coord + patch
         periodic_coord = np.insert(coord, np.repeat(idx + 1, 3), coord_pad,
-                                  axis=1)
+                                   axis=1)
         return np.ma.MaskedArray(periodic_coord, periodic_mask)
 
     def display_window(self, xlim=None, ylim=None, zlim=None, dimension=3):
@@ -717,7 +716,7 @@ class Plotter:
         return conformation * (lim + translation)
 
     def display_coord(self, coord, xlim=None, ylim=None, zlim=None,
-                     conformation=None, pbc=None):
+                      conformation=None, pbc=None):
         """
         coord : D x P
         """
@@ -735,6 +734,15 @@ class Plotter:
             else:
                 p[d] = coord[d]
         return conformation * p
+
+    def get_shape(self, coords):
+        if len(coords.shape) == 2:
+            return coords.shape[0], 1
+        elif coords.shape == 3:
+            return coords.shape[:2]
+        else:
+            shape = ','.join([str(d) for d in coords.shape])
+            raise NotImplementedError('invalid shape (' + shape + ')')
 
     def get_meshgrid(self, grid_type='coords', xlim=None, ylim=None,
                      range_x=None, range_y=None):
@@ -771,14 +779,14 @@ class Plotter:
             range_x = self.rngX2d
         if range_y is None:
             range_y = self.rngY2d
-        coords = self.plotter_prj(self.get_meshgrid(xlim=xlim, ylim=ylim,
+        coords = self.prj(self.get_meshgrid(xlim=xlim, ylim=ylim,
                                   grid_type=grid_type), inv=True)
         shape = (range_x, range_y)
         if model_type == 'real':
-            E = paths.real_model.get_potential_energy(paths, coords=coords)
+            E = paths.get_potential_energy(coords=coords, real_model=True)
             return E.reshape(shape)
         elif model_type == 'ave_map':
-            ave_map = paths.model.get_potential_energy(paths, coords=coords)
+            ave_map = paths.get_potential_energy(coords=coords)
             return ave_map.reshape(shape)
         elif model_type == 'cov_map':
             cov = paths.model.get_covariance(paths, coords=coords)

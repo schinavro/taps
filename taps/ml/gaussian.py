@@ -7,9 +7,9 @@ from numpy import vstack, log, cos, sin, sum, diagonal, atleast_3d
 from numpy.linalg import inv, cholesky, solve
 from scipy.optimize import minimize
 from taps.model import Model
-from taps.data import PathsData
+from taps.db.data import PathsData
 from taps.pathfinder import PathFinder
-from taps.utils import dflt, isstr, isbool, isDct, asst, isLst
+from taps.utils.shortcut import dflt, isstr, isbool, isDct, asst, isLst
 
 
 class Kernel:
