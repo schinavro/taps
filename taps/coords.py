@@ -17,10 +17,18 @@ class Coords:
         self.Pk = Pk
         self.unit = unit
 
-    def __call__(self, index=np.s_[:]):
-        coords = self.coords[..., index]
-        del self.__dict__['coords']
-        return self.__class__(coords, **self.__dict__)
+    def __call__(self, index=np.s_[:], coords=None):
+        if coords is not None:
+            kwargs = self.__dict__.copy()
+            del kwargs['coords']
+            return self.__class__(coords, **kwargs)
+        if index.__class__.__name__ == 'slice' and index == np.s_[:]:
+            return self
+        kwargs = self.__dict__.copy()
+        del kwargs['coords']
+        idx = np.arange(self.N)[index]
+        coords = self.coords[..., idx]
+        return self.__class__(coords, **kwargs)
 
     @classmethod
     def ascoords(cls, coords):
@@ -70,11 +78,14 @@ class Coords:
 
     def get_displacements(self, coords=None, epoch=None, index=np.s_[:]):
         p = coords or self.coords
-        if len(p.shape) == 2:
-            return concatenate([[0], np.linalg.norm(np.diff(p), axis=0)])
-        d = np.linalg.norm(np.diff(p), axis=0).sum(axis=0)
-        d = concatenate([[0], d])
-        return np.add.accumulate(d)[index]
+        shape = p.shape
+        if len(shape) == 2:
+            d = np.linalg.norm(np.diff(p), axis=0)
+            d = concatenate([[0], d], axis=-1)
+            return np.add.accumulate(d)[index]
+        d = np.linalg.norm(np.diff(p), axis=0)
+        d = concatenate([np.zeros((shape[1], 1)), d])
+        return np.add.accumulate(d, axis=-1)[..., index]
 
     def get_velocity(self, coords=None, epoch=None, index=np.s_[:]):
         """
@@ -138,6 +149,10 @@ class Coords:
         ## coords = idst(rcoords, type=4, n=P - 2) / (2 * (P - 2))
         ## self.coords[..., 1:-1] = coords
         self.coords[..., 1:-1] = idst(rcoords, type=1, norm='ortho')
+
+    def flat(self):
+        N = self.N
+        return self.coords.reshape((-1, N))
 
 
 class AlanineDipeptideCoords(Coords):

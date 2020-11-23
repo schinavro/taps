@@ -14,6 +14,7 @@ from taps.utils.shortcut import isStr, isbool
 def blob(array):
     """Convert array to blob/buffer object."""
 
+    print(array)
     if array is None:
         return None
     if len(array) == 0:
@@ -294,7 +295,7 @@ class ImageData:
             start_time='real',
             potential='real',
             potentials='blob',
-            gradient='blob',
+            gradients='blob',
             finish_time='real',
             positions='blob',
             forces='blob'
@@ -407,11 +408,10 @@ class ImageData:
         c = conn.cursor()
         data = {}
         for table_name, entries in tables.items():
-            data[table_name] = []
             select_statement = "SELECT " + ', '.join(entries.keys()) + " FROM "
             select_statement += table_name + query
             c.execute(select_statement)
-            data[table_name].append(c.fetchall())
+            data[table_name] = c.fetchall()
         conn.commit()
         conn.close()
         return self.czvf(data, xzvf=True, tables=tables)
@@ -454,7 +454,7 @@ class ImageData:
         c = conn.cursor()
         for table_name, entries in tables.items():
             datum = data.get(table_name)
-            if datum is None:
+            if datum is None or len(datum) == 0:
                 continue
             id = ids[table_name]
             dat_list_with_id = [(*dat, i) for dat, i in zip(datum, id)]
@@ -505,15 +505,14 @@ class ImageData:
                       **kwargs):
         """
         Only search image table positions_arr exists.
-        coords: 3 x N x M array where M is the number of data and N is
-                        the number of image
+        coords: 3 x A x M  or  D x M  array
+                where M is the number of data and A is the number of image
         If pack null given, fill up the void into slot where no data found.
         Search perfect match exist,
         if not, check similar structure, or lower distance calculate
         """
         conn = sqlite3.connect(self.filename)
         c = conn.cursor()
-        coords = np.atleast_3d(coords)
         M = coords.shape[-1]
         ids = []
         for m in range(M):
@@ -525,53 +524,69 @@ class ImageData:
             id = c.fetchone()
             # Check Similar match
             if id is None and search_similar_image:
-                last_id = max(self._cache.get('coords_ids')) or 0
+                cache = self._cache.get('image', {})
+                last_id = max(cache.get('coords_ids', [0]))
                 tol = similar_image_tol
-                read_tables = {'image': OrderedDict(coord='blob', rawid='int')}
+                read_tables = {'image': OrderedDict(coord='blob', rowid='int')}
                 new_data = self.read_all(tables=read_tables, last_id=last_id,
                                          query=' WHERE rowid>%d' % last_id
                                          )['image']
                 if new_data is None or new_data == []:
-                    pass
-                else:
-                    dim, A, N = *new_data[0].shape, len(new_data)
-                    zarr = np.zeros((dim, A, N))
-                    new_coords = zarr.copy()
-                    new_ids = []
-                    for i in range(N):
-                        new_coords[..., i] = new_data[i][0]
-                        new_ids.append(new_data[i][1])
-                    coords_data = self._cache.get('coords_data', zarr.copy())
-                    coords_ids = self._cache.get('coords_ids', [])
-                    coords_data = np.concatenate([coords_data, new_coords],
-                                                 axis=2)
-                    coords_ids.extend(new_ids)
-                    self._cache['coords_data'] = coords_data
-                    self._cache['coords_ids'] = coords_ids
-                    distances = np.linalg.norm(coords_data - coord, axis=2)
-                    checker = distances < tol
-                    # Check similar results exists
-                    if np.any(checker):
-                        sim_ids = np.array(coords_ids)[checker]
-                        n_similar = len(sim_ids)
-                        # Check searched id is already exist in model data ids
-                        similar_yet_fresh_ids = []
-                        for i in range(n_similar):
-                            if sim_ids[i] not in paths.model.data_ids['image']:
-                                similar_yet_fresh_ids.append(sim_ids[i])
-                        # Emergency mode
-                        if similar_yet_fresh_ids == []:
-                            similar_coords = np.array(coords_data)[..., checker]
-                            # Create new coord
-                            center = similar_coords.sum(axis=2) / n_similar
-                            ce = coord - center
-                            e_ce = ce / np.linalg.norm(ce)
-                            coord = coord + tol * e_ce
-                        else:
-                            # pick among fresh ids
-                            id = np.random.choice(similar_yet_fresh_ids)
+                    kdtree = cache.get('kdtree')
+                    if kdtree is None:
+                        exist_similar = False
                     else:
-                        pass
+                        res = kdtree.query_ball_point(coord, tol)
+
+                        if res is None or res == []:
+                            exist_similar = False
+                        else:
+                            dist, similar_idx = res
+                            exist_similar = True
+                            similar_ids = cache.get('ids')[similar_idx]
+
+                else:
+                    M = len(new_data)
+                    new_coord, new_ids = [], []
+                    for i in range(M):
+                        _coord, _id = new_data[i]
+                        new_coord.append(_coord)
+                        new_ids.append(_id)
+                    cache['ids'] = cache.get('ids', [])
+                    cache['coords'] = cache.get('coords', [])
+                    cache['ids'].extend(new_ids)
+                    cache['coords'].extend(new_coord)
+                    cache['kdtree'] = KDTree(cache['coords'])
+
+                    kdtree = cache['kdtree']
+                    res = kdtree.query_ball_point((coord), tol)
+                    if res is None or res == []:
+                        exist_similar = False
+                    else:
+                        dist, similar_idx = res
+                        exist_similar = True
+                        similar_ids = np.array(cache['ids'])[similar_idx]
+                # Check similar results exists
+                if exist_similar:
+                    cur_data_ids = paths.model.data_ids.get('image', [])
+                    n_similar = len(similar_ids)
+                    # Check searched id is already exist in model data ids
+                    similar_yet_fresh_ids = []
+                    for i in range(n_similar):
+                        if similar_ids[i] not in cur_data_ids:
+                            similar_yet_fresh_ids.append(similar_ids[i])
+                    # Emergency mode
+                    if similar_yet_fresh_ids == []:
+                        # M x D or M x 3 x A
+                        similar_coords = np.array(cache['coords'])[similar_idx]
+                        # Create new coord
+                        center = similar_coords.sum(axis=0) / n_similar
+                        ce = coord - center
+                        e_ce = ce / np.linalg.norm(ce)
+                        coord = coord + tol * e_ce
+                    else:
+                        # pick among fresh ids
+                        id = np.random.choice(similar_yet_fresh_ids)
             # PAD empty slots
             if id is None and pack_null:
                 data = {}
@@ -617,7 +632,7 @@ class ImageData:
                         continue
                     last_id = max(max(_ids), last_id)
                 tol = similar_sbdesc_tol
-                read_tables = {'sbdesc': OrderedDict(rawid='int', desc='blob',
+                read_tables = {'sbdesc': OrderedDict(rowid='int', desc='blob',
                                positions='blob', idx='int', source_id='int')}
                 new_data = self.read_all(tables=read_tables, last_id=last_id,
                                          query=' WHERE symbol=%s rowid>%d' %
@@ -628,10 +643,11 @@ class ImageData:
                     if kdtree is None:
                         exist_similar = False
                     else:
-                        dist, _ = kdtree.query_ball_point(d, tol)
-                        if _ is None:
+                        res = kdtree.query_ball_point(d, tol)
+                        if res is None or res == []:
                             exist_similar = False
                         else:
+                            dist, _ = res
                             exist_similar = True
                             similar_ids = cache.get('ids')[_]
                 else:
@@ -722,20 +738,26 @@ class ImageData:
                       ...}
         """
         # ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ #
-        self.coord_shape = (paths.D, paths.M)
-        self.gradient_shape = (paths.D, paths.M)
-        self.potentials_shape = (paths.A)
-        self.desc_shape = (15)
-        self.positions_shape = (paths.A, 3)
-        self.forces_shape = (paths.A, 3)
+        self.coord_shape = paths.coords.shape[:-1]
+        self.gradients_shape = paths.coords.shape[:-1]
+        if len(paths.coords.shape) == 2:
+            self.potentials_shape = (1)
+            self.positions_shape = self.coord_shape
+            self.forces_shape = self.coord_shape
+        elif len(paths.coords.shape) == 3:
+            self.desc_shape = (15)
+            self.potentials_shape = (paths.coords.A)
+            self.positions_shape = (paths.coords.A, 3)
+            self.forces_shape = (paths.coords.A, 3)
         # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ #
 
-        coords = np.atleast_3d(coords)
         ids = self.search(paths, coords, pack_null=True, **kwargs)
         while True:
             # Not existing data + Failed data
             ids_ntbc = self.get_ids_need_to_be_calculated(ids)
+            print(ids_ntbc)
             arr_dict_ntbc = self.get_arr_dict_need_to_be_calculated(ids_ntbc)
+            print(arr_dict_ntbc)
             # you_need_calculation = self.check_calculation_is_necessary(ids)
             try:
                 self.queue(ids_ntbc, arr_dict_ntbc, **kwargs)
@@ -769,7 +791,8 @@ class ImageData:
         dtl = data_table_list or self.tables.keys()
         data = {}
         for table_name in dtl:
-            if arr_dict.get(table_name) is None:
+            arr = arr_dict.get(table_name)
+            if arr is None or len(arr) == 0:
                 continue
             _create_data = getattr(self, '_create_%s_data' % table_name)
             data[table_name] = _create_data(paths, arr_dict[table_name],
@@ -798,20 +821,26 @@ class ImageData:
     def _create_image_data(self, paths, coords, pack_null=False,
                            ids=None, update_status=False, **kwargs):
         """
-        coords : dim x A x M or dim x A array
+        coords : DxM array
         update_status : list of ids
         return : list of tuples containing
               (coord, label, status, start_time, potential, potentials,
-               gradient, finish_time, positions, forces)
+               gradients, finish_time, positions, forces)
         """
         n2i = self.name2idx['image']
         properties = n2i.keys()
-        paths.real_model.update_implemented_properties(paths)
+        properties
+        # paths.real_model.update_implemented_properties(paths)
         model_properties = paths.real_model.implemented_properties
         props = [p for p in properties if p in model_properties]
+        if len(coords.shape) == 1:
+            coords = coords[..., np.newaxis]
         M = coords.shape[-1]
+
         if ids is not None:
             ids_image = ids['image']
+            if ids_image == []:
+                ids_image = [None] * M
         else:
             ids_image = [None] * M
         image_data = []
@@ -893,11 +922,9 @@ class ImageData:
         stl = search_table_list or self.search_table_list
         input_dict = {}
         if 'image' in stl:
-            coords = np.atleast_3d(coords)
             input_dict['image'] = coords
         if 'sbdesc' in stl:
-            coords = np.atleast_3d(coords)
-            positions_arr = np.atleast_3d(coords).T
+            positions_arr = coords.T
             source_id = kwargs.get('source_id', {})
             source_id = source_id.get('image', [None] * len(positions_arr))
             symbols = paths.symbols
@@ -1021,17 +1048,18 @@ class ImageData:
                 start_time = time.time()
                 potential = None
                 potentials = None
-                gradient = None
+                gradients = None
                 finish_time = None
                 positions = None
                 forces = None
                 datum = (coord, label, status, start_time, potential,
-                         potentials, gradient, finish_time, positions, forces)
+                         potentials, gradients, finish_time, positions, forces)
                 id = ids_image[m]
                 self.update({'image': [id]}, {'image': [datum]})
 
     def You_and_I_have_unfinished_business(self, ids,
-                                           calculation_table_list=None):
+                                           calculation_table_list=None,
+                                           **kwargs):
         """
         Kill Bill
         Check calculation of given ids are finished

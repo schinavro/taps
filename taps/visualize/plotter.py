@@ -90,8 +90,8 @@ class Plotter:
         'ylbl2d': {'default': "r'$y$'", 'assert': isstr},
         'xlbl2dftsz': {dflt: "13", 'assert': isint + ' or ' + isStr},
         'ylbl2dftsz': {dflt: "13", 'assert': isint + ' or ' + isStr},
-        'xlim2d': {'default': "np.array([0, 2 * np.pi])", 'assert': isArr},
-        'ylim2d': {'default': "np.array([0, 2 * np.pi])", 'assert': isArr},
+        'xlim2d': {'default': "None", 'assert': isarr},
+        'ylim2d': {'default': "None", 'assert': isarr},
         'rngX2d': {'default': "36", 'assert': isInt},
         'rngY2d': {'default': "36", 'assert': isInt},
         'alp2d': {'default': "None", 'assert': isflt},
@@ -212,6 +212,9 @@ class Plotter:
             dir = '.'
         if not os.path.exists(dir):
             os.makedirs(dir)
+        p = paths.coords
+        self.xlim2d = self.xlim2d or np.array([p[0].min(), p[0].max()])
+        self.ylim2d = self.ylim2d or np.array([p[1].min(), p[1].max()])
         D, M = self.get_shape(self.prj(paths.coords))
         if D == 1:
             raise NotImplementedError('No 1D plot')
@@ -261,24 +264,26 @@ class Plotter:
 
         X, Y = self.get_meshgrid(grid_type='contour')
 
-        if os.path.exists(self.mapfile):
+        if self.calculate_map:
+            Z = self.calculate_model_map(paths, model_type='real')
+            Z.reshape((self.rngX2d, self.rngY2d))
+            with open(self.mapfile, 'wb') as f:
+                pickle.dump(Z, f)
+        elif os.path.exists(self.mapfile):
             with open(self.mapfile, 'rb') as f:
                 Z = pickle.load(f)
             if Z.shape != X.shape:
                 range_x, range_y = Z.shape
                 X, Y = self.get_meshgrid(grid_type='contour',
                                          range_x=range_x, range_y=range_y)
-        elif self.calculate_map:
-            Z = self.calculate_model_map(paths, model_type='real')
-            Z.reshape((self.rngX2d, self.rngY2d))
-            with open(self.mapfile, 'wb') as f:
-                pickle.dump(Z, f)
         else:
             Z = np.zeros((self.rngX2d, self.rngY2d))
-
+        ctrkwargs = {}
+        if self.lvls2d is not None:
+            ctrkwargs['levels'] = self.lvls2d
         CS = ax.contourf(X, Y, self.display_map(Z, map_type='contour'),
-                         cmap=self.cmp2d, levels=self.lvls2d,
-                         corner_mask=True)
+                         cmap=self.cmp2d, corner_mask=True,
+                         **ctrkwargs)
 
         fig.colorbar(CS)
 
@@ -303,8 +308,8 @@ class Plotter:
         # ax.set_xlabel(self.xlblGMu, fontsize=self.ftszGMuXlbl)
         # ax.set_ylabel(self.ylblGMu, fontsize=self.ftszGMuYlbl)
 
-        d_xlim = self.display_lim(self.xlimGMu)
-        d_ylim = self.display_lim(self.ylimGMu)
+        d_xlim = self.display_lim(self.xlim2d)
+        d_ylim = self.display_lim(self.ylim2d)
         ax.set_xlim(d_xlim)
         ax.set_ylim(d_ylim)
 
@@ -315,6 +320,7 @@ class Plotter:
 
         X, Y = self.get_meshgrid(grid_type='contour')
         # cax = fig.add_axes()
+
         CS = ax.contourf(X, Y, self.display_map(ave_map, map_type='contour'),
                          cmap=self.cmpGMu, levels=self.lvlsGMu)
         # ax.clabel(CS, inline=self.inlnGMu, fontsize=self.ftszGMu,
@@ -379,7 +385,8 @@ class Plotter:
 
         fig, ax = plt.subplots(figsize=self.fgszE)
         ax.tick_params(axis='both', which='major', labelsize=self.tick_size)
-        ax.set_ylim(self.ylimHE)
+        if self.ylimHE is not None:
+            ax.set_ylim(self.ylimHE)
         ttlE = ''
         formatkwargs = {'x': 'dist', 'pf': 'paths.finder'}
         for key, value in paths.finder.display_graph_title_parameters.items():
@@ -422,7 +429,8 @@ class Plotter:
         H = V + T
         # ax.plot(dist, H, '--')
         ax2 = ax.twinx()
-        ax2.set_ylim(self.ylimTE)
+        if self.ylimTE is not None:
+            ax2.set_ylim(self.ylimTE)
         ax2.tick_params(axis='both', which='major', labelsize=self.tick_size)
         # ax2.set_ylabel(self.ylblT + Kunit, fontsize=self.ftszTYlbl)
         ax2.set_ylabel(self.ylblT, fontsize=self.ftszTYlbl)
@@ -522,7 +530,7 @@ class Plotter:
             ax.scatter(*d_coord, color=scatter_color[i], alpha=0.5)
             if forces is not None:
                 force = forces[:, i, :]
-                # *(forces.reshape(-1, paths.P))
+                # *(forces.reshape(-1, paths.N))
                 ax.quiver(*d_coord, *force, color='w')
 
     def plot_data(self, paths, plt, ax, mark_update=False, quiver_scale=None):
@@ -531,16 +539,16 @@ class Plotter:
         elif quiver_scale is None:
             quiver_scale = self.quiver_scale
 
-        D, M = paths.DM
+        D, N = paths.coords.shape
         data = paths.model.get_data(paths)
-        X_dat = self.display_coord(data['X'].reshape(D * M, -1))
-        F_dat = data['F'].reshape(D * M, -1)
+        X_dat = self.display_coord(data['X'].reshape(D, -1))
+        F_dat = data['F'].reshape(D, -1)
         tX, tY = X_dat[0, :], X_dat[1, :]
-        ax.scatter(tX, tY, color='black', marker='x', s=paths.P)
+        ax.scatter(tX, tY, color='black', marker='x', s=paths.coords.N)
         ax.quiver(tX, tY, *F_dat, color='w', angles='xy', scale_units='xy',
                   scale=quiver_scale)
         if mark_update:
-            ax.scatter(tX[-1], tY[-1], color='red', marker='X', s=paths.P)
+            ax.scatter(tX[-1], tY[-1], color='red', marker='X', s=paths.N)
 
     def plot_information(self, paths, plt, ax, information='finder', xlim=None,
                          ylim=None):
@@ -760,7 +768,8 @@ class Plotter:
             x = np.linspace(*xlim, range_x)
             y = np.linspace(*ylim, range_y)
             X, Y = np.meshgrid(x, y)
-            return np.c_[X.ravel(), Y.ravel()].T[:, np.newaxis, :]
+            # return np.c_[X.ravel(), Y.ravel()].T[:, np.newaxis, :]
+            return np.c_[X.ravel(), Y.ravel()].T
         elif grid_type in ['contour']:
             x = np.linspace(*xlim, range_x)
             y = np.linspace(*ylim, range_y)
@@ -779,8 +788,8 @@ class Plotter:
             range_x = self.rngX2d
         if range_y is None:
             range_y = self.rngY2d
-        coords = self.prj(self.get_meshgrid(xlim=xlim, ylim=ylim,
-                                  grid_type=grid_type), inv=True)
+        _coords = self.get_meshgrid(xlim=xlim, ylim=ylim, grid_type=grid_type)
+        coords = self.prj(paths.coords(coords=_coords))
         shape = (range_x, range_y)
         if model_type == 'real':
             E = paths.get_potential_energy(coords=coords, real_model=True)

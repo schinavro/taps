@@ -504,13 +504,13 @@ class DAO(PathFinder):
 
         def sin_handler(S):
             def action(rcoords):
-                paths.rcoords = rcoords.reshape((D, M, Pk))
+                paths.coords.rcoords = rcoords.reshape((D, Pk))
                 return S()
             return action
 
         def cartesian_handler(S):
             def action(rcoords):
-                paths.coords[..., 1:-1] = rcoords.reshape((D, M, P - 2))
+                paths.coords[..., 1:-1] = rcoords.reshape((D, P - 2))
                 return S()
             return action
 

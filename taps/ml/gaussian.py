@@ -6,7 +6,7 @@ from numpy import newaxis as nax
 from numpy import vstack, log, cos, sin, sum, diagonal, atleast_3d
 from numpy.linalg import inv, cholesky, solve
 from scipy.optimize import minimize
-from taps.model import Model
+from taps.model.model import Model
 from taps.db.data import PathsData
 from taps.pathfinder import PathFinder
 from taps.utils.shortcut import dflt, isstr, isbool, isDct, asst, isLst
@@ -44,8 +44,8 @@ class Kernel:
         sig_f = hyperparameters.get('sigma_f')
         if Xn is None:
             Xn = Xm.copy()
-        Xm = atleast_3d(Xm)
-        Xn = atleast_3d(Xn)
+        # Xm = atleast_3d(Xm)
+        # Xn = atleast_3d(Xn)
         N = Xn.shape[-1]
         M = Xm.shape[-1]
         D = np.prod(Xm.shape[:-1])
@@ -139,12 +139,12 @@ class Kernel:
             return self.hyperparameters
 
     def shape_data(self, data, hess=True):
-        D, M, P = data['X'].shape
-        if P == 0:
+        D, M = data['X'].shape
+        if M == 0:
             return np.zeros(0)
         if not hess:
             return data['V']
-        return np.vstack([data['V'], -data['F'].reshape(D * M, P)]).flatten()
+        return np.vstack([data['V'], -data['F'].reshape(D, M)]).flatten()
 
     def __repr__(self):
         return self.__class__.__name__
@@ -159,7 +159,7 @@ class AtomicDistanceKernel(Kernel):
 
 
 class DescriptorKernel(Kernel):
-    from taps.descriptor import SphericalHarmonicDescriptor
+    from taps.ml.descriptor import SphericalHarmonicDescriptor
     """
     period : NxD array
     """
@@ -385,17 +385,16 @@ class Mean:
             return 0.
         if data is None:
             data = self._data
-        X = np.atleast_3d(X)
         V = data['V']
-        D, M, P = X.shape
-        F = np.zeros((D * M, P))
+        D, M = X.shape
+        F = np.zeros((D, M))
         # F = np.zeros((D, M, P)) + np.average(data['F'], axis=2)[..., nax]
         if type == 'average':
-            e = np.zeros(P) + np.average(V)
+            e = np.zeros(M) + np.average(V)
         elif type == 'min':
-            e = np.zeros(P) + np.min(V)
+            e = np.zeros(M) + np.min(V)
         else:
-            e = np.zeros(P) + np.max(V)
+            e = np.zeros(M) + np.max(V)
         if not hess:
             return e
         ef = np.vstack([e, F])
@@ -409,14 +408,15 @@ class Mean:
 
 
 class Gaussian(Model):
-    implemented_properties = {'covariance', 'potential', 'forces', 'hessian'}
+    implemented_properties = {'covariance', 'potential', 'gradients',
+                              'hessian'}
     model_parameters = {
         'real_model': {'default': "'Model'", 'assert': 'True',
                        'class': True, 'from': 'taps.model'},
         'kernel': {'default': "'Kernel'", 'assert': 'True',
-                   'class': True, 'from': 'taps.gaussian'},
+                   'class': True, 'from': 'taps.ml.gaussian'},
         'mean': {'default': "'Mean'", 'assert': 'True',
-                 'class': True, 'from': 'taps.gaussian'},
+                 'class': True, 'from': 'taps.ml.gaussian'},
         'mean_type': {'default': "'average'", 'assert': isstr},
         'kernel_type': {'default': "'Total'", 'assert': isstr},
         'optimized': {'default': 'None', 'assert': isbool},
@@ -452,35 +452,20 @@ class Gaussian(Model):
         self.regression_method = regression_method
         self.likelihood_type = likelihood_type
         self._cache = {}
-        for key, value in kwargs.items():
-            setattr(self, key, value)
 
-    def __setattr__(self, key, value):
-        if key[0] == '_':
-            super().__setattr__(key, value)
-        elif key in ['real_model']:
-            if type(value) == str:
-                from_ = 'taps.model'
-                module = __import__(from_, {}, None, [value])
-                value = getattr(module, value)()
-            super().__setattr__(key, value)
-        elif key in self.real_model.model_parameters:
-            default = self.model_parameters[key]['default']
-            assertion = self.model_parameters[key]['assert']
-            if value is None:
-                value = eval(default.format())
-            assert eval(assertion.format(name='value')), (key, value)
-            super(Model, self.real_model).__setattr__(key, value)
-            super().__setattr__(key, value)
-        elif key in self.model_parameters:
-            default = self.model_parameters[key]['default']
-            assertion = self.model_parameters[key]['assert']
-            if value is None:
-                value = eval(default.format())
-            assert eval(assertion.format(name='value')), (key, value)
-            super().__setattr__(key, value)
-        else:
-            super().__setattr__(key, value)
+        super().__init__(**kwargs)
+
+    # def __setattr__(self, key, value):
+    #     if key in self.real_model.model_parameters:
+    #         default = self.model_parameters[key]['default']
+    #         assertion = self.model_parameters[key]['assert']
+    #         if value is None:
+    #             value = eval(default.format())
+    #         assert eval(assertion.format(name='value')), (key, value)
+    #         super(Model, self.real_model).__setattr__(key, value)
+    #         super().__setattr__(key, value)
+    #     else:
+    #         super().__setattr__(key, value)
 
     def calculate(self, paths, coords, properties=None, **kwargs):
         """
@@ -495,16 +480,16 @@ class Gaussian(Model):
         k, m = self.kernel, self.mean
         X = coords.copy()
         data = self.get_data(paths)
-        Xn = data['X']
-        Xm = coords
+        Xm = data['X']
+        Xn = coords
         Y = k.shape_data(data)    # N
         if len(Y) == 0:  # If no data given
             return np.zeros(X.shape[-1])
 
         # Xn = np.atleast_3d(Xn)
-        Xm = np.atleast_3d(Xm)
-
-        D, M, P = Xm.shape
+        # Xm = np.atleast_3d(Xm)
+        D, N = Xn.shape
+        D, M = Xm.shape
         #   len(self._cache['K_y_inv']) != (D + 1) * P:
         if not self.optimized or self._cache == {} or \
                 self._cache.get('K_y_inv') is None:
@@ -512,15 +497,23 @@ class Gaussian(Model):
             self.hyperparameters = self.regression(paths)
             k.hyperparameters.update(self.hyperparameters)
             # k.hyperparameters.update(self.regression(data))
-            self._cache['K_y_inv'] = inv(k(Xn, Xn, noise=True))    # N x N x P
+            self._cache['K_y_inv'] = inv(k(Xm, Xm, noise=True))    # N x N x P
             m._data = data
             self.optimized = True
 
         K_y_inv = self._cache['K_y_inv']
 
+        if 'potential_and_gradient' in properties:
+            N = len(Xn[..., :])
+            K_s = k(Xm, Xn)  # (D+1)N x (D+1)M x P
+            mu = m(Xn) + K_s.T @ K_y_inv @ (Y - m(Xn))
+            E = mu[: N]
+            F = -mu[N:].reshape(D, N)
+            self.results['potential_and_forces'] = E, F
+
         if 'potential' in properties:
-            K_s = k(Xn, Xm, potential_only=True)  # (D+1)N x M
-            potential = m(Xm, hess=False) + K_s.T @ K_y_inv @ (Y - m(Xn))
+            K_s = k(Xm, Xn, potential_only=True)  # (D+1)N x M
+            potential = m(Xn, hess=False) + K_s.T @ K_y_inv @ (Y - m(Xm))
             # Y = data['V']  # @@@
             # N = len(Y)  # @@@
             # K_s = K_s[:N] # @@@
@@ -528,37 +521,31 @@ class Gaussian(Model):
             # return m(Xm, hess=False) + \
             #      K_s.T @ K_y_inv @ (Y - m(Xn, hess=False)) # @@@
             self.results['potential'] = potential
-        if 'forces' in properties:
-            dK_s = k(Xn, Xm, gradient_only=True)  # (D+1)N x (D+1)M x P
-            mu_f = m.dm(Xm) + dK_s.T @ K_y_inv @ (Y - m(Xn))
+        if 'gradients' in properties:
+            dK_s = k(Xm, Xn, gradient_only=True)  # (D+1)N x (D+1)M x P
+            mu_f = m.dm(Xn) + dK_s.T @ K_y_inv @ (Y - m(Xm))
             # N = len(Y) # @@@
             # dK_s = dK_s[:N] # @@@
             # K_y_inv = inv(k(Xn, Xn, orig=True))  # @@@
             # mu_f = m.dm(Xm) + dK_s.T @ K_y_inv @ (Y - m(Xn, hess=False))
             # return -mu_f.reshape(Xm.shape)
-            self.results['forces'] = -mu_f.reshape(Xm.shape)
+            self.results['gradients'] = -mu_f.reshape(Xm.shape)
         if 'hessian' in properties:
-            K_s = k(Xn, Xm, hessian_only=True)            # (D+1)N x DDM
+            K_s = k(Xm, Xn, hessian_only=True)            # (D+1)N x DDM
             # @@@@@@@@@@@ orig
-            H = m.dm(Xm) + K_s.T @ K_y_inv @ (Y - m(Xn))  # DDM
+            H = m.dm(Xn) + K_s.T @ K_y_inv @ (Y - m(Xm))  # DDM
             # @@@@@@@@@@@@ no forces
             # Y = data['V']
             # K_y_inv = inv(k(Xn, Xn, orig=True))  # @@@
             # H = m.dm(Xm) + K_s.T @ K_y_inv @ (Y - m(Xn, hess=False))  # DDM
             #####
-            self.results['hessian'] = H.reshape(D, M, D, M, P)
+            self.results['hessian'] = H.reshape(D, D, N)
+
         if 'covariance' in properties:
-            K = k(Xm, Xm, orig=True)
-            K_s = k(Xn, Xm)
-            K_s_T = k(Xm, Xn)
-            self.results['covariance'] = K - (K_s_T @ K_y_inv @ K_s)[:P, :P]
-        if 'potential_and_forces' in properties:
-            P = len(Xm[..., :])
-            K_s = k(Xm, Xn)  # (D+1)N x (D+1)M x P
-            mu = m(Xm) + K_s.T @ K_y_inv @ (Y - m(Xn))
-            E = mu[: P]
-            F = -mu[P:].reshape(D, M, P)
-            self.results['potential_and_forces'] = E, F
+            K = k(Xn, Xn, orig=True)
+            K_s = k(Xm, Xn)
+            K_s_T = k(Xn, Xm)
+            self.results['covariance'] = K - (K_s_T @ K_y_inv @ K_s)[:N, :N]
 
     def get_covariance(self, paths, **kwargs):
         return self.get_properties(paths, properties=['covariance'], **kwargs)
@@ -578,8 +565,7 @@ class Gaussian(Model):
             return self.hyperparameters
         k, m = self.kernel, self.mean
         m.type = self.mean_type
-        if likelihood_type is None:
-            likelihood_type = self.likelihood_type
+        likelihood_type = likelihood_type or self.likelihood_type
         if likelihood_type == 'pseudo_gradient_likelihood':
             data = self.get_data(paths)
             D, M, P = data['X'].shape
@@ -614,7 +600,8 @@ class Gaussian(Model):
 
             def gradient_likelihood(hyperparameters_list):
                 # @@@@@
-                hyperparameters_list = np.concatenate([[1], hyperparameters_list])
+                # hyperparameters_list = np.concatenate([[1],
+                #                                       hyperparameters_list])
                 # @@@@@
                 k.set_hyperparameters(hyperparameters_list)
                 K = k(X, X, noise=True)
@@ -635,8 +622,8 @@ class Gaussian(Model):
 
         res = minimize(log_likelihood(k, X, Y_m, likelihood_type), **reg_kwargs)
         self.optimized = True
-        # return self.kernel.get_hyperparameters(res.x)
-        return self.kernel.get_hyperparameters(np.concatenate([[1], res.x]))
+        return self.kernel.get_hyperparameters(res.x)
+        # return self.kernel.get_hyperparameters(np.concatenate([[1], res.x]))
 
     def get_hyperparameters(self, hyperparameters_list=None):
         return self.kernel.get_hyperparameters(hyperparameters_list)
@@ -663,13 +650,13 @@ class Gaussian(Model):
         if no_boundary:
             bounds = None
         # @@@@@
-        x0 = x0[1:]
-        bounds = bounds[1:]
+        # x0 = x0[1:]
+        # bounds = bounds[1:]
         # @@@@@
         return {'x0': x0, 'bounds': bounds, 'method': method}
 
     def get_data(self, paths, data_ids=None,
-                 keys=['coords', 'potential', 'gradient']):
+                 keys=['coords', 'potential', 'gradients']):
         """
         data_ids : dictionary of lists
             {'image': [...], 'descriptor': [...]}
@@ -683,12 +670,13 @@ class Gaussian(Model):
         data_ids = data_ids or getattr(self, 'data_ids', None)
         if data_ids is None or len(data_ids.get('image', [])) == 0:
             return None
-        D, M = paths.DM
+        shape = paths.coords.shape[:-1]
+        M = len(data_ids['image'])
         if self._cache.get('data_ids_image') is None:
             self._cache['data_ids_image'] = []
-            self._cache['data'] = {'X': np.zeros((D, M, 0), dtype=float),
+            self._cache['data'] = {'X': np.zeros((*shape, 0), dtype=float),
                                    'V': np.zeros(0, dtype=float),
-                                   'F': np.zeros((D, M, 0), dtype=float)}
+                                   'F': np.zeros((*shape, 0), dtype=float)}
         if self._cache.get('data_ids_image') == data_ids['image']:
             return self._cache['data']
         else:
@@ -703,20 +691,20 @@ class Gaussian(Model):
         P = len(new_data_ids_image)
         data = self._cache['data']
         if 'coords' in keys:
-            coords = np.zeros((D, M, P), dtype=float)
-            for i in range(P):
+            coords = np.zeros((*shape, M), dtype=float)
+            for i in range(M):
                 coords[..., i] = new_data[i][n2i['coord']]
-            data['X'] = np.concatenate([data['X'], coords], axis=2)
+            data['X'] = np.concatenate([data['X'], coords], axis=-1)
         if 'potential' in keys:
-            potential = np.zeros(P, dtype=float)
+            potential = np.zeros(M, dtype=float)
             for i in range(P):
                 potential[i] = new_data[i][n2i['potential']]
             data['V'] = np.concatenate([data['V'], potential])
-        if 'gradient' in keys:
-            gradients = np.zeros((D, M, P), dtype=float)
-            for i in range(P):
-                gradients[..., i] = new_data[i][n2i['gradient']]
-            data['F'] = np.concatenate([data['F'], -gradients], axis=2)
+        if 'gradients' in keys:
+            gradients = np.zeros((*shape, M), dtype=float)
+            for i in range(M):
+                gradients[..., i] = new_data[i][n2i['gradients']]
+            data['F'] = np.concatenate([data['F'], -gradients], axis=-1)
         self._cache['data_ids_image'].extend(new_data_ids_image)
         return data
 

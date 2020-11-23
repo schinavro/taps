@@ -3,7 +3,7 @@ from taps.model.model import Model
 
 
 class MullerBrown(Model):
-    implemented_properties = {'potential', 'gradients', 'hessian', 'forces'}
+    implemented_properties = {'potential', 'gradients', 'hessian'}
 
     model_parameters = {
         'A': {'default': 'np.array([-200, -100, -170, 15])', 'assert': 'True'},
@@ -33,7 +33,9 @@ class MullerBrown(Model):
         y : P shape array
         """
         self.results = getattr(self, 'results', {})
-        x, y = coords.reshape(2, -1)
+        if len(coords.shape) == 1:
+            coords = coords[:, np.newaxis]
+        x, y = coords
         A, a, b, c, x0, y0 = self.A, self.a, self.b, self.c, self.x0, self.y0
         x_x0 = (x[:, np.newaxis] - x0)  # P x 4
         y_y0 = (y[:, np.newaxis] - y0)  # P x 4
@@ -41,13 +43,13 @@ class MullerBrown(Model):
         if 'potential' in properties:
             potential = Vk.sum(axis=1)
             self.results['potential'] = potential
-        if 'gradients' in properties or 'forces' in properties:
+        if 'gradients' in properties:
             Fx = (Vk * (2 * a * x_x0 + b * y_y0)).sum(axis=1)
             Fy = (Vk * (b * x_x0 + 2 * c * y_y0)).sum(axis=1)
             if 'gradients' in properties:
                 self.results['gradients'] = np.array([[Fx], [Fy]])
-            if 'forces' in properties:
-                self.results['forces'] = -np.array([[Fx], [Fy]])
+            # if 'forces' in properties:
+            #     self.results['forces'] = -np.array([[Fx], [Fy]])
         if 'hessian' in properties:
             # return 3 x P
             H = np.zeros((2, 1, 2, 1, coords.shape[-1]))

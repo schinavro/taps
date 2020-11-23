@@ -9,36 +9,6 @@ from ase.data import atomic_masses
 
 
 class Projector:
-    prj_parameters = {
-        'dt': {
-            'default': '0.1',
-            'assert': '{name:s} > 0'
-        },
-        'mass_type': {
-            'default': '"invariant"',
-            'assert': 'True'
-        },
-        'moving_average': {
-            'default': '2',
-            'assert': 'isinstance({name:s}, (int, np.int64))'
-        },
-        'time_unit': {
-            'default': '"ang / sqrt(u / eV)"',
-            'assert': 'isinstance({name:s}, str)'
-        },
-        'mass_unit': {
-            'default': '"u"',
-            'assert': 'isinstance({name:s}, str)'
-        },
-        'distance_unit': {
-            'default': '"Ang"',
-            'assert': 'isinstance({name:s}, str)'
-        },
-        'kinetic_unit': {
-            'default': '"eV"',
-            'assert': 'isinstance({name:s}, str)'
-        }
-    }
     dt = 0.1
     moving_average = 2
     mass_type = "invariant"

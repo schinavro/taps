@@ -20,7 +20,8 @@ class Model:
         'prefix': {'default': 'None', 'assert': isstr},
         'pbc': {'default': 'None', 'assert': 'True'},
         'potential_unit': {'default': '"eV"', 'assert': isstr},
-        'data_ids': {'default': 'None', 'assert': isdct}
+        'data_ids': {'default': 'None', 'assert': isdct},
+        'optimized': {'default': 'True', 'assert': 'True'}
     }
     potential_unit = 'eV'
     name = 'Model'
@@ -40,13 +41,12 @@ class Model:
 
     def __setattr__(self, key, value):
         if key == 'real_model':
-            if self.__class__.__name__ != 'Gaussian':
-                super().__setattr__(key, self)
-            else:
-                super().__setattr__(key, value)
-            #     from_ = 'taps.model'
-            #     module = __import__(from_, {}, None, [value])
-            #     value = getattr(module, value)()
+            if type(value) == str:
+                from_ = 'taps.model.' + value.lower()
+                module = __import__(from_, {}, None, [value])
+                value = getattr(module, value)()
+            super().__setattr__(key, value)
+
         elif key == 'prj':
             if value is None:
                 def value(x):
@@ -125,8 +125,7 @@ class Model:
             if property not in model.implemented_properties:
                 raise NotImplementedError('Can not calaculate %s' % property)
         if coords is None:
-            idx = np.arange(paths.N)[index]
-            coords = model.prj(paths.coords(idx))
+            coords = model.prj(paths.coords(index=index))
         new_coords = None
         new_properties = []
         results = {}
@@ -160,9 +159,9 @@ class Model:
             else:
                 results[new_property] = new_result
 
-            if new_property == 'forces':
-                positionss = model.results.get('positions', None)
-                results['gradients'] = model.prjf(new_result, positionss)
+            # if new_property == 'forces':
+            #    positionss = model.results.get('positions', None)
+            #    results['gradients'] = model.prjf(new_result, positionss)
 
         if caching:
             model._cache[coords.tobytes()] = copy.deepcopy(results)
@@ -183,8 +182,8 @@ class Model:
             model = self
 
         if coords is None:
-            idx = np.arange(paths.N)[index]
-            coords = model.prj(paths.coords(idx))
+            # Kinetic calculation is fixed length calculation
+            coords = model.prj(paths.coords)
         required = {}
         for property in properties:
             if property in ['displacements']:
@@ -198,20 +197,21 @@ class Model:
                 if property in ['kinetic_grad']:
                     required['mass'] = True
         if required.get('mass'):
-            m = model.get_effective_mass(paths, coords=coords)
+            _coords = model.prj(paths.coords(index=index))
+            m = model.get_effective_mass(paths, coords=_coords, **kwargs)
         if required.get('velocity'):
-            v = coords.get_velocity()
+            v = coords.get_velocity(index=index)
         if required.get('acceleration'):
-            a = coords.get_acceleration()
+            a = coords.get_acceleration(index=index)
         if required.get('displacements'):
-            d = coords.get_displacements()
+            d = coords.get_displacements(index=index)
 
         results = {}
         if 'velocity' in properties:
             results['velocity'] = v
         if 'acceleration' in properties:
             results['acceleration'] = a
-        if 'displacement' in properties:
+        if 'displacements' in properties:
             results['displacements'] = d
         if 'kinetic_energy' in properties:
             axis = tuple(np.arange(len(v.shape) - 1))         # 0     or (0, 1)
@@ -220,7 +220,22 @@ class Model:
             results['momentum'] = m * v
         if 'kinetic_grad' in properties:
             results['kinetic_energy_gradient'] = m * a
+        if len(properties) == 1:
+            property = list(results.keys())[0]
+            return results[property]
         return results
+
+    def get_effective_mass(self, paths, coords=None, **kwargs):
+        """
+        Return one as a default mass
+
+        coords
+        ------
+              Array with shape DxN or 3xAxN
+        if DxN, return D
+        else, return A
+        """
+        return np.ones((coords.shape[-2], 1))
 
     def get_potential(self, paths, **kwargs):
         return self.get_properties(paths, properties='potential', **kwargs)

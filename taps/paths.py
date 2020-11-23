@@ -160,6 +160,9 @@ class Paths:
     def get_acceleration(self, **kwargs):
         return self.model.get_acceleration(self, **kwargs)
 
+    def get_accelerations(self, **kwargs):
+        return self.model.get_acceleration(self, **kwargs)
+
     def get_effective_mass(self, **kwargs):
         return self.model.get_effective_mass(self, **kwargs)
 
@@ -197,8 +200,9 @@ class Paths:
 
     def get_covariance(self, index=np.s_[1:-1]):
         cov_coords = self.model.get_covariance(self, index=np.s_[1:-1])
-        cov_coords = np.diag(cov_coords)
-        cov_coords[cov_coords < 0] = 0
+        _ = np.diag(cov_coords)
+        cov_coords = _.copy()
+        cov_coords[_ < 0] = 0
         sigma_f = self.model.hyperparameters.get('sigma_f', 1)
         return 1.96 * np.sqrt(cov_coords) / 2 / sigma_f
 
@@ -228,7 +232,7 @@ class Paths:
         """
         if coords is None:
             # Create positional descriptor
-            coords = self.coords[..., index]
+            coords = self.coords(index=index)
         ids = self.imgdata.add_data(self, coords, search_similar_image=True)
         if cache_model:
             self.model.add_data_ids(ids)
@@ -254,7 +258,7 @@ class Paths:
 
     @property
     def N(self):
-        return self.coords.shape[-1]
+        return self.coords.N
 
     @property
     def D(self):
