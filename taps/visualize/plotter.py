@@ -12,30 +12,6 @@ from taps.utils.shortcut import isflt, islst, isArr, isTpl, issclr
 from taps.utils.shortcut import isarr, asst, dflt
 
 
-class PlotterProjector:
-    def __init__(self):
-        pass
-
-    def __call__(self, coords, inv=False):
-        if inv:
-            return self.inv(coords)
-        return self.prj(coords)
-
-    def prj(self, coords):
-        """
-        coords : 3 x A x N
-        return : 2 x 1 x N
-        """
-        return coords
-
-    def inv(self, coords):
-        return coords
-
-
-class TranslationNotMatchError(Exception):
-    pass
-
-
 # matplotlib.rc('text', usetex=True)
 matplotlib.rcParams['mathtext.fontset'] = 'stix'
 # matplotlib.rc('font', family='sans-serif')
@@ -213,8 +189,10 @@ class Plotter:
         if not os.path.exists(dir):
             os.makedirs(dir)
         p = paths.coords
-        self.xlim2d = self.xlim2d or np.array([p[0].min(), p[0].max()])
-        self.ylim2d = self.ylim2d or np.array([p[1].min(), p[1].max()])
+        if self.xlim2d is None:
+            self.xlim2d = np.array([p[0].min(), p[0].max()])
+        if self.ylim2d is None:
+            self.ylim2d = np.array([p[1].min(), p[1].max()])
         D, M = self.get_shape(self.prj(paths.coords))
         if D == 1:
             raise NotImplementedError('No 1D plot')
@@ -851,30 +829,6 @@ class Plotter:
         return df + unit
 
 
-class MullerBrownPlotter(Plotter):
-    def __init__(self, **kwargs):
-        self.calculate_map = True
-        self.ttl2d = 'Muller Brown Potential Energy Surface'
-        self.xlim2d = np.array([-1.8, 1.2])
-        self.ylim2d = np.array([-0.7, 2.3])
-        self.cmp2d = 'cividis'
-        self.alp2d = 0.5
-        self.xlimGMu = np.array([-1.8, 1.2])
-        self.ylimGMu = np.array([-0.7, 2.3])
-        self.cmpGMu = 'cividis'
-        self.lvls2d = np.linspace(-1.75, 0.75, 15)
-        self.lvlsGMu = np.linspace(-1.75, 0.75, 15)
-        self.cmpGCov = 'plasma'
-        self.lvlsGCov = np.linspace(0, 2, 15)
-        self.pbc = np.array([False, False])
-        self.energy_range = (-1.75, 0.75)
-        self.quiver_scale = 3
-        self.ylimHE = (-1.5, 0.)
-        self.ylimTE = (0, 1)
-
-        super().__init__(**kwargs)
-
-
 class FlatModelPlotter(Plotter):
     def __init__(self, **kwargs):
         self.calculate_map = True
@@ -1005,109 +959,3 @@ class PeriodicModel2Plotter(Plotter):
         self.quiver_scale = 100
 
         super().__init__(**kwargs)
-
-
-class AlanineDipeptidePlotterProjector(PlotterProjector):
-    ref = np.array([[3.13042320, 8.69636925, 6.86034480],
-                    [3.62171100, 7.75287090, 7.13119080],
-                    [3.06158460, 6.94361235, 6.64450215],
-                    [3.56832480, 7.62030150, 8.21956230],
-                    [5.03124195, 7.76696535, 6.56486415],
-                    [5.19044280, 7.93294500, 5.34189060],
-                    [6.01497510, 7.58529855, 7.48734615],
-                    [5.65167885, 7.45428060, 8.42656485],
-                    [7.50000000, 7.50000000, 7.50000000],
-                    [7.84286445, 8.35064955, 8.11409370],
-                    [7.87916790, 6.20253030, 8.23173825],
-                    [8.96770980, 6.15547755, 8.34399540],
-                    [7.53870225, 5.32801485, 7.65999495],
-                    [7.41872085, 6.16658700, 9.23056245],
-                    [8.38912575, 7.62345720, 6.23286150],
-                    [9.61384530, 7.55572530, 6.43116195],
-                    [7.83695265, 7.81965300, 5.02677705],
-                    [6.80236320, 7.87813665, 4.96104660],
-                    [8.67108645, 7.97151630, 3.84856545],
-                    [9.48211245, 8.68811745, 4.03978560],
-                    [9.13567845, 7.01691960, 3.55615545],
-                    [8.04737280, 8.33316525, 3.02266680]])
-
-    def __init__(self, D=2, M=1):
-        self.D = D
-        self.M = M
-        self.DM = (D, M)
-        self.r = self.ref.T[..., np.newaxis]
-
-    def prj(self, coords):
-        """
-        coords : 3 x A x N
-        return : 2 x 1 x N
-        """
-        phi = self.get_dihedral(coords, 4, 6, 8, 14)   # 1 x P
-        psi = self.get_dihedral(coords, 6, 8, 14, 16)  # 1 x P
-        return np.array([phi, psi])
-
-    def inv(self, reduced):
-        P = reduced.shape[-1]
-        p = np.zeros((3, 22, P)) + self.r
-        p[:, :8] = self.rotate(self.r, reduced[0], v=(6, 8), mask=np.s_[:8])
-        p[:, 14:] = self.rotate(self.r, reduced[1], v=(14, 8), mask=np.s_[14:])
-        return p
-
-    def get_dihedral(self, p, a, b, c, d, rad=True):
-        # vector 1->2, 2->3, 3->4 and their normalized cross products:
-        # p : 3 x N x P
-        v_a = p[:, b, :] - p[:, a, :]  # 3 x P
-        v_b = p[:, c, :] - p[:, b, :]
-        v_c = p[:, d, :] - p[:, c, :]
-
-        bxa = np.cross(v_b.T, v_a.T).T  # 3 x P
-        cxb = np.cross(v_c.T, v_b.T).T
-        bxanorm = np.linalg.norm(bxa, axis=0)  # P
-        cxbnorm = np.linalg.norm(cxb, axis=0)
-        if np.any(bxanorm == 0) or np.any(cxbnorm == 0):
-            raise ZeroDivisionError('Undefined dihedral angle')
-        bxa /= bxanorm  # 3 x P
-        cxb /= cxbnorm
-        angle = np.sum(bxa * cxb, axis=0)  # P
-        # check for numerical trouble due to finite precision:
-        angle[angle < -1] = -1
-        angle[angle > 1] = 1
-        angle = np.arccos(angle) * 180 / np.pi
-        reverse = np.sum(bxa * v_c, axis=0) > 0
-        angle[reverse] = -angle[reverse]
-        if rad:
-            return angle.reshape(1, -1) * np.pi / 180
-        return angle.reshape(1, -1)
-
-    def rotate(ref, a=None, v=None, i=8, mask=None):
-        """Rotate atoms based on a vector and an angle, or two vectors.
-        Parameters:
-         ref  : reference; C70; 3 x N x P  or  3 x N
-         a    : angles   2 x P
-         v    : tuple, rotation axis index
-         i    : center index ; 8
-        Return:
-         p : 3 x N x P  or  3 x N
-        """
-        p = ref.copy()  # 3 x N x P
-        v_i, v_f = v
-        v = (p[:, v_i] - p[:, v_f])    # 3 x P or 3
-        normv = np.linalg.norm(v, axis=0)  # P or 1
-
-        if np.any(normv == 0.0):
-            raise ZeroDivisionError('Cannot rotate: norm(v) == 0')
-
-        # a *= pi / 180
-        v /= normv                     # 3 x P  or  3
-        c = np.cos(a)
-        s = np.sin(a)                     # P  or  1
-        center = p[:, i]               # 3 x P     or  3
-        p = p.copy() - center[:, np.newaxis]  # 3 x N x P or 3 x N
-
-        # 3 x N x P @ 3 x 1 x P  ->  N x P
-        p0v = np.sum(p * v[:, np.newaxis], axis=0)
-        r = p * c - np.cross(p, (v * s), axis=0)       # 3 x N x P
-        # 3 x 1 x P (x) 1 x N x P -> 3 x N x P
-        r = r + ((1.0 - c) * v)[:, np.newaxis] * p0v[np.newaxis, :]
-        r = r + center[:, np.newaxis]
-        return r[:, mask]

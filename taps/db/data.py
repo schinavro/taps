@@ -540,9 +540,10 @@ class ImageData:
                         if res is None or res == []:
                             exist_similar = False
                         else:
-                            dist, similar_idx = res
+                            similar_idx = res
                             exist_similar = True
-                            similar_ids = cache.get('ids')[similar_idx]
+                            similar_ids = cache.get(
+                                'ids')[similar_idx].reshape(-1)
 
                 else:
                     M = len(new_data)
@@ -558,13 +559,14 @@ class ImageData:
                     cache['kdtree'] = KDTree(cache['coords'])
 
                     kdtree = cache['kdtree']
-                    res = kdtree.query_ball_point((coord), tol)
+                    res = kdtree.query_ball_point(coord, tol)
                     if res is None or res == []:
                         exist_similar = False
                     else:
-                        dist, similar_idx = res
+                        similar_idx = res
                         exist_similar = True
-                        similar_ids = np.array(cache['ids'])[similar_idx]
+                        similar_ids = np.array(
+                            cache['ids'])[similar_idx].reshape(-1)
                 # Check similar results exists
                 if exist_similar:
                     cur_data_ids = paths.model.data_ids.get('image', [])
@@ -585,7 +587,7 @@ class ImageData:
                         coord = coord + tol * e_ce
                     else:
                         # pick among fresh ids
-                        id = np.random.choice(similar_yet_fresh_ids)
+                        id = [np.random.choice(similar_yet_fresh_ids)]
             # PAD empty slots
             if id is None and pack_null:
                 data = {}
@@ -646,9 +648,10 @@ class ImageData:
                         if res is None or res == []:
                             exist_similar = False
                         else:
-                            dist, _ = res
+                            similar_idx = res
                             exist_similar = True
-                            similar_ids = cache.get('ids')[_]
+                            similar_ids = cache.get(
+                                'ids')[similar_idx].reshape(-1)
                 else:
                     N = len(new_data)
                     new_desc = []
