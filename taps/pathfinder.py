@@ -14,6 +14,7 @@ from taps.utils.shortcut import isbool, isdct, isstr, isflt, issclr
 
 class PathFinder:
     finder_parameters = {
+        'real_finder': {'default': "None", 'assert': 'True'},
         'results': {'default': 'None', 'assert': isdct},
         'relaxed': {'default': 'None', 'assert': isbool},
         'prefix': {'default': 'None', 'assert': isstr},
@@ -48,6 +49,14 @@ class PathFinder:
             assert eval(assertion.format(name='value')), (key, value)
             super().__setattr__(key, value)
         elif key[0] == '_':
+            super().__setattr__(key, value)
+        elif key == 'real_finder':
+            if value is None:
+                value = eval(self.finder_parameters['real_finder']['default'])
+            if isinstance(value, str):
+                from_ = 'taps.pathfinder'
+                module = __import__(from_, {}, None, [value])
+                value = getattr(module, value)()
             super().__setattr__(key, value)
         elif isinstance(getattr(type(self), key, None), property):
             super().__setattr__(key, value)
@@ -244,11 +253,11 @@ class NEB(PathFinder):
         if l0 is None:
             l0 = self.l0
 
-        r = np.concatenate([r[..., 0, nax], r, r[..., -1, nax]], axis=2)
+        r = np.concatenate([r[..., 0, nax], r, r[..., -1, nax]], axis=-1)
         # r1 = r[:, :, 2:]
         # r0 = r[:, :, 1:-1]
         # r_1 = r[:, :, :-2]
-        # r = np.concatenate([r, r[..., -1, nax]], axis=2)
+        # r = np.concatenate([r, r[..., -1, nax]], axis=-1)
         r1 = r[:, :, 2:]                                       # DxMxP
         r0 = r[:, :, 1:-1]
         r_1 = r[:, :, :-2]
@@ -307,7 +316,7 @@ class NEB(PathFinder):
         for n = 1, 2, 3, ... iterate
             x[n+1] = 2 * x[n] - x[n-1] + a[n] * ddt
         """
-        P, D = self.paths.P, self.paths.D
+        P, D = self.paths.N, self.paths.D
         mask = self.paths.mask
         masses = np.outer(self.paths.masses, np.ones(P - 2))
         dt = self.dt
@@ -325,7 +334,7 @@ class NEB(PathFinder):
         return x2.copy()
 
     def velocity_verlet(self, paths):
-        P, D = self.paths.P, self.paths.D
+        P, D = self.paths.N, self.paths.D
         mask = self.paths.mask
         masses = np.outer(self.paths.masses, np.ones(P - 2))
         dt = self.dt
@@ -370,7 +379,7 @@ class NEB(PathFinder):
         Should return full paths
         """
         D, M, P = paths.DMP
-        if M * D == 1:
+        if D == 1:
             self.shaper = (1, 1, -1)
         elif M * D == 2:
             self.shaper = (2, 1, -1)
@@ -498,19 +507,19 @@ class DAO(PathFinder):
         if sin_search is None:
             sin_search = self.sin_search
         muT, muP, muL = self.muT, self.muP, self.muL
-        D, M, Pk, P = paths.D, paths.M, paths.Pk, paths.P
-        dt = paths.prj.dt
+        D, Nk, N = paths.D, paths.Nk, paths.N
+        dt = paths.coords.epoch / N
         gam = self.gam
 
         def sin_handler(S):
             def action(rcoords):
-                paths.coords.rcoords = rcoords.reshape((D, Pk))
+                paths.coords.rcoords = rcoords.reshape((D, Nk))
                 return S()
             return action
 
         def cartesian_handler(S):
-            def action(rcoords):
-                paths.coords[..., 1:-1] = rcoords.reshape((D, P - 2))
+            def action(coords):
+                paths.coords[..., 1:-1] = coords.reshape((D, N - 2))
                 return S()
             return action
 
@@ -534,9 +543,9 @@ class DAO(PathFinder):
             """
             # Vi, Vf = paths.get_potential_energy(index=[0, -1])
             F = -paths.get_gradients(index=np.s_[:])
-            dV = -np.concatenate([F, F[..., -1, np.newaxis]], axis=2)
-            v = paths.get_velocity(np.s_[:])
-            m = paths.get_effective_mass(np.s_[:])
+            dV = -np.concatenate([F, F[..., -1, np.newaxis]], axis=-1)
+            v = paths.get_velocity(index=np.s_[:])
+            m = paths.get_effective_mass(index=np.s_[:])
             _gam = gam * m
             ldVl2 = (dV * dV).sum(axis=0)
             # DxMx(P-1) -> P
@@ -575,21 +584,21 @@ class DAO(PathFinder):
         if sin_search is None:
             sin_search = self.sin_search
 
-        D, M, Pk, P = paths.D, paths.M, paths.Pk, paths.P
+        D, Nk, N = paths.D, paths.Nk, paths.N
         muT, muP, muL = self.muT, self.muP, self.muL
-        dt = paths.prj.dt
+        dt = paths.coords.epoch / N
         # energy_conservation_grad = two_points_e_grad
         gam = self.gam
 
         def sin_handler(dS):
             def grad_action(rcoords):
-                paths.rcoords = rcoords.reshape((D, M, Pk))
-                return dst(dS(), type=1, norm='ortho')[..., :Pk].flatten()
+                paths.coords.rcoords = rcoords.reshape((D, Nk))
+                return dst(dS(), type=1, norm='ortho')[..., :Nk].flatten()
             return grad_action
 
         def cartesian_handler(dS):
             def grad_action(rcoords):
-                paths.coords[..., 1:-1] = rcoords.reshape((D, M, P - 2))
+                paths.coords[..., 1:-1] = rcoords.reshape((D, N - 2))
                 return dS().flatten()
             return grad_action
 
@@ -600,8 +609,8 @@ class DAO(PathFinder):
 
         @handler
         def classic():
-            Fp = paths.get_kinetic_energy_gradient(index=np.s_[:])  # D x M x P
-            F = -paths.get_gradients(index=np.s_[:])                # D x M x P
+            Fp = paths.get_kinetic_energy_gradient(index=np.s_[:])  # D x P
+            F = -paths.get_gradients(index=np.s_[:])                # D x P
             dS = (Fp + F) * dt   # grad action
             # action - reaction
             dS[..., 1] -= dS[..., 0]
@@ -610,12 +619,12 @@ class DAO(PathFinder):
 
         @handler
         def onsager_machlup():
-            F = -paths.get_gradients(index=np.s_[:]).reshape((D * M, P))
+            F = -paths.get_gradients(index=np.s_[:]).reshape((D, N))
             dV = -np.hstack([F[:, 0, np.newaxis], F, F[:, -1, np.newaxis]])
             # dV = -np.hstack([np.zeros((D * M, 1)), F, np.zeros((D * M, 1))])
-            H = paths.get_hessian(index=np.s_[:]).reshape((D * M, D * M, P))
-            a = paths.get_acceleration(index=np.s_[:]).reshape((D * M, P))
-            m = paths.get_effective_mass(index=np.s_[:]).reshape((M, -1))
+            H = paths.get_hessian(index=np.s_[:]).reshape((D, D, N))
+            a = paths.get_acceleration(index=np.s_[:]).reshape((D, N))
+            m = paths.get_effective_mass(index=np.s_[:])
             _gam = gam * m
 
             notation = 'ij...,i...->j...'
@@ -687,9 +696,9 @@ class DAO(PathFinder):
         while True:
             # print(res.message)
             if self.sin_search:
-                x0 = paths.rcoords.flatten()
+                x0 = paths.coords.rcoords.flatten()
             else:
-                x0 = paths.coords.flatten()
+                x0 = paths.coords.rcoords.flatten()
             res = minimize(act, x0, jac=jac, **search_kwargs)
             self.set_results(res)
             print('{msg} : {nit:6d} {nfev:6d} {njev:6d} '
@@ -700,7 +709,7 @@ class DAO(PathFinder):
         # Gradient - Error handling by directly use action
         while self.results['jac_max'] > self.tol:
             if self.sin_search:
-                x0 = paths.rcoords.flatten()
+                x0 = paths.coords.rcoords.flatten()
             else:
                 x0 = paths.coords.flatten()
             print("Gradient Error above tolerence! Emergency mode; Run without gradient")
@@ -713,16 +722,16 @@ class DAO(PathFinder):
 
         om = 'Onsager Machlup'
         self.results[om] = self.action(paths, action_name=om,
-                                       muE=0.)(paths.rcoords)
+                                       muE=0.)(paths.coords.rcoords)
         if logfile is not None:
             sys.stdout = stdout
             if close_log:
                 logfile.close()
         if self.sin_search:
-            paths.rcoords = res.x.reshape((paths.D, paths.M, paths.Pk))
+            paths.coords.rcoords = res.x.reshape((paths.D, paths.Nk))
             return paths.copy()
         else:
-            p = res.x.reshape((paths.D, paths.M, paths.P - 2))
+            p = res.x.reshape((paths.D, paths.N - 2))
             paths.coords[..., 1:-1] = p
             return paths.copy()
 
@@ -852,21 +861,21 @@ class DAO(PathFinder):
             print('Need to set up data first')
             return
         if self.sin_search:
-            x0 = paths.rcoords.flatten()
+            x0 = paths.coords.rcoords.flatten()
         else:
             x0 = paths.coords.flatten()
         act = self.action(paths)
         jac = self.grad_action(paths)
         print(check_grad(act, jac, x0, **kwargs))
         if self.sin_search:
-            paths.rcoords = x0.reshape((paths.D, paths.M, paths.Pk))
+            paths.coords.rcoords = x0.reshape((paths.D, paths.M, paths.Nk))
         else:
-            paths.coords = x0.reshape((paths.D, paths.M, paths.P))
+            paths.coords = x0.reshape((paths.D, paths.M, paths.N))
 
     def isConverged(self, paths):
         # jac = self.grad_action(paths)
-        # grad = jac(paths.rcoords.flatten())
-        # if np.abs(np.max(grad) / np.sqrt(2 * paths.P)) < self.tol:
+        # grad = jac(paths.coords.rcoords.flatten())
+        # if np.abs(np.max(grad) / np.sqrt(2 * paths.N)) < self.tol:
         #     return True
         # return False
         if self.results.get('jac_max') is None:

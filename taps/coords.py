@@ -10,11 +10,11 @@ class Coords:
     """
     Default - descretized coordinate representation.
     """
-    def __init__(self, coords, epoch=3, Pk=None, unit=None):
+    def __init__(self, coords, epoch=3, _Nk=None, Nk=None, unit=None):
         coords = np.asarray(coords, dtype=float)
         self.coords = coords
         self.epoch = epoch
-        self.Pk = Pk
+        self._Nk = _Nk or Nk
         self.unit = unit
 
     def __call__(self, index=np.s_[:], coords=None):
@@ -26,7 +26,7 @@ class Coords:
             return self
         kwargs = self.__dict__.copy()
         del kwargs['coords']
-        idx = np.arange(self.N)[index]
+        idx = np.arange(self.N)[index].reshape(-1)
         coords = self.coords[..., idx]
         return self.__class__(coords, **kwargs)
 
@@ -76,6 +76,28 @@ class Coords:
         """
         return self.coords.shape[-1]
 
+    @property
+    def Nk(self):
+        return self._Nk or self.N - 2
+
+    @Nk.setter
+    def Nk(self, Nk=None):
+        self._Nk = Nk
+
+    @property
+    def D(self):
+        """
+        Total dimension
+        """
+        return len(self.coords.shape)
+
+    @property
+    def A(self):
+        """
+        Number of individual components
+        """
+        return 1
+
     def get_displacements(self, coords=None, epoch=None, index=np.s_[:]):
         p = coords or self.coords
         shape = p.shape
@@ -95,13 +117,13 @@ class Coords:
         epoch, N = epoch or self.epoch, self.N
         dt = epoch / N
         if index == np.s_[:]:
-            p = np.concatenate([p, p[..., -1, nax]], axis=2)
+            p = np.concatenate([p, p[..., -1, nax]], axis=-1)
             return (p[..., 1:] - p[..., :-1]) / dt
         elif index == np.s_[1:-1]:
             return (p[..., 2:] - p[..., 1:-1]) / dt
         i = np.arange(N)[index]
         if i[-1] == N - 1:
-            p = concatenate([p, p[..., -1, nax]], axis=2)
+            p = concatenate([p, p[..., -1, nax]], axis=-1)
         return (p[..., i] - p[..., i - 1]) / dt
 
     def get_acceleration(self, coords=None, epoch=None, index=np.s_[:]):
@@ -114,16 +136,16 @@ class Coords:
         dt = epoch / N
         ddt = dt * dt
         if index == np.s_[:]:
-            p = concatenate([p[..., 0, nax], p, p[..., -1, nax]], axis=2)
-            return (2 * p[:, :, 1:-1] - p[:, :, :-2] - p[:, :, 2:]) / ddt
+            p = concatenate([p[..., 0, nax], p, p[..., -1, nax]], axis=-1)
+            return (2 * p[..., 1:-1] - p[..., :-2] - p[..., 2:]) / ddt
         elif index == np.s_[1:-1]:
-            return (2 * p[:, :, 1:-1] - p[:, :, :-2] - p[:, :, 2:]) / ddt
+            return (2 * p[..., 1:-1] - p[..., :-2] - p[..., 2:]) / ddt
         i = np.arange(N)[index]
         if i[0] == 0:
-            p = concatenate([p[..., 0, nax], p], axis=2)
+            p = concatenate([p[..., 0, nax], p], axis=-1)
             i += 1
         if i[-1] == N - 1:
-            p = concatenate([p, p[..., -1, nax]], axis=2)
+            p = concatenate([p, p[..., -1, nax]], axis=-1)
         return (2 * p[..., i] - p[..., i - 1] - p[..., i + 1]) / ddt
 
     @property
@@ -191,7 +213,7 @@ class AlanineDipeptideCoords(Coords):
         idx = np.arange(self.N)[index]
         coords = self.coords[..., idx]
         phi, psi = coords
-        p = self.reference.T[:, :, np.newaxis] * np.ones(len(coords.T))
+        p = self.reference.T[..., np.newaxis] * np.ones(len(coords.T))
         positions = p.copy()  # 3 x N x P
         # Phi, Psi
         positions[:, :8] = self.rotate(p, phi, v=(6, 8), mask=np.s_[:8])

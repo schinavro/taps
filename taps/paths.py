@@ -265,6 +265,14 @@ class Paths:
         return len(self.coords)
 
     @property
+    def Nk(self):
+        return self.coords.Nk
+
+    @property
+    def A(self):
+        return self.coords.A
+
+    @property
     def masses(self):
         return self.model.get_mass()
 

@@ -11,6 +11,14 @@ from ase.atoms import Atoms
 from taps.utils.shortcut import isdct, isstr
 
 
+def default_prj(x):
+    return x
+
+
+def default_prjf(f, x):
+    return f
+
+
 class Model:
     implemented_properties = {'potential'}
     model_parameters = {
@@ -49,13 +57,11 @@ class Model:
 
         elif key == 'prj':
             if value is None:
-                def value(x):
-                    return x
+                value = default_prj
             super().__setattr__(key, value)
         elif key == 'prjf':
             if value is None:
-                def value(f, x):
-                    return f
+                value = default_prjf
             super().__setattr__(key, value)
         elif key in self.model_parameters:
             attribute = self.model_parameters[key]
@@ -232,10 +238,11 @@ class Model:
         coords
         ------
               Array with shape DxN or 3xAxN
-        if DxN, return D
-        else, return A
+        if DxN, return 1x1
+        else, return Ax1
         """
-        return np.ones((coords.shape[-2], 1))
+        coords = coords or paths.coords
+        return np.ones((coords.A, 1))
 
     def get_potential(self, paths, **kwargs):
         return self.get_properties(paths, properties='potential', **kwargs)
@@ -307,7 +314,7 @@ class Model:
 
             def f(p):
                 paths.coords[..., index] = p.reshape(shape)
-                E = self.get_potential_energy(paths, index=index)
+                E = self.get_potential(paths, index=index)
                 prind('E', p, E.sum())
                 return E.sum()
             return f
@@ -317,9 +324,9 @@ class Model:
 
             def f(p):
                 paths.coords[..., index] = p.reshape(shape)
-                F = self.get_forces(paths, index=index).flatten()
-                prind('F', p, F)
-                return -F
+                dV = self.get_gradients(paths, index=index).flatten()
+                prind('dV', p, dV)
+                return dV
             return f
 
         paths0 = paths.coords[..., index].copy()

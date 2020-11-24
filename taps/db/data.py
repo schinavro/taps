@@ -14,7 +14,6 @@ from taps.utils.shortcut import isStr, isbool
 def blob(array):
     """Convert array to blob/buffer object."""
 
-    print(array)
     if array is None:
         return None
     if len(array) == 0:
@@ -755,9 +754,7 @@ class ImageData:
         while True:
             # Not existing data + Failed data
             ids_ntbc = self.get_ids_need_to_be_calculated(ids)
-            print(ids_ntbc)
             arr_dict_ntbc = self.get_arr_dict_need_to_be_calculated(ids_ntbc)
-            print(arr_dict_ntbc)
             # you_need_calculation = self.check_calculation_is_necessary(ids)
             try:
                 self.queue(ids_ntbc, arr_dict_ntbc, **kwargs)

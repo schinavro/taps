@@ -529,7 +529,7 @@ class Gaussian(Model):
             # K_y_inv = inv(k(Xn, Xn, orig=True))  # @@@
             # mu_f = m.dm(Xm) + dK_s.T @ K_y_inv @ (Y - m(Xn, hess=False))
             # return -mu_f.reshape(Xm.shape)
-            self.results['gradients'] = -mu_f.reshape(Xm.shape)
+            self.results['gradients'] = mu_f.reshape(Xn.shape)
         if 'hessian' in properties:
             K_s = k(Xm, Xn, hessian_only=True)            # (D+1)N x DDM
             # @@@@@@@@@@@ orig
@@ -688,7 +688,7 @@ class Gaussian(Model):
         name2idx = atomdata.name2idx
         n2i = name2idx['image']
         new_data = atomdata.read({'image': new_data_ids_image})['image']
-        P = len(new_data_ids_image)
+        M = len(new_data_ids_image)
         data = self._cache['data']
         if 'coords' in keys:
             coords = np.zeros((*shape, M), dtype=float)
@@ -697,7 +697,7 @@ class Gaussian(Model):
             data['X'] = np.concatenate([data['X'], coords], axis=-1)
         if 'potential' in keys:
             potential = np.zeros(M, dtype=float)
-            for i in range(P):
+            for i in range(M):
                 potential[i] = new_data[i][n2i['potential']]
             data['V'] = np.concatenate([data['V'], potential])
         if 'gradients' in keys:
@@ -761,6 +761,7 @@ class GaussianSearch(PathFinder):
         'cov_max_tol': {'default': '0.05', 'assert': 'True'},
         'E_max_tol': {'default': '0.05', 'assert': 'True'},
         'distance_tol': {'default': '0.05', 'assert': 'True'},
+        'plot': {'default': 'None', 'assert': 'True'},
         'last_checker': {'default': "'Uncertain or Maximum energy'",
                          'assert': 'True'}
     }
@@ -806,7 +807,7 @@ class GaussianSearch(PathFinder):
 
     def __init__(self, real_finder=None, log=None, gptol=None, cov_max_tol=None,
                  E_max_tol=None, maxtrial=None, phase=0, phases=None,
-                 last_checker=None, distance_tol=None,
+                 last_checker=None, distance_tol=None, plot=None,
                  _pbs_walltime="walltime=48:00:00", **kwargs):
         self.real_finder = real_finder
         self.finder_parameters.update(self.real_finder.finder_parameters)
@@ -821,6 +822,7 @@ class GaussianSearch(PathFinder):
         self.cov_max_tol = cov_max_tol
         self.E_max_tol = E_max_tol
         self.distance_tol = distance_tol
+        self.plot = plot
         self.maxtrial = maxtrial
         self.phase = phase
         self.phases = phases
@@ -832,37 +834,6 @@ class GaussianSearch(PathFinder):
         self._write_pbs_only = False
         self._pbs_walltime = _pbs_walltime
         super().__init__(**kwargs)
-        #for key, value in kwargs.items():
-        #    setattr(self, key, value)
-
-    def __setattr__(self, key, value):
-        if key[0] == '_':
-            super().__setattr__(key, value)
-        elif key in ['real_finder']:
-            if value is None:
-                value = eval(self.finder_parameters['real_finder']['default'])
-            if isinstance(value, str):
-                from_ = 'taps.pathfinder'
-                module = __import__(from_, {}, None, [value])
-                value = getattr(module, value)()
-            super().__setattr__(key, value)
-        elif key in self.real_finder.finder_parameters:
-            default = self.finder_parameters[key]['default']
-            assertion = self.finder_parameters[key]['assert']
-            if value is None:
-                value = eval(default.format())
-            assert eval(assertion.format(name='value')), (key, value)
-            super(PathFinder, self.real_finder).__setattr__(key, value)
-            super().__setattr__(key, value)
-        elif key in self.finder_parameters:
-            default = self.finder_parameters[key]['default']
-            assertion = self.finder_parameters[key]['assert']
-            if value is None:
-                value = eval(default.format())
-            assert eval(assertion.format(name='value')), (key, value)
-            super().__setattr__(key, value)
-        else:
-            super().__setattr__(key, value)
 
     def __getattr__(self, key):
         if key in self.__dict__.get('real_finder', {}).finder_parameters.keys():
@@ -1132,7 +1103,8 @@ class GaussianSearch(PathFinder):
 
     def _save(self, paths, filename=None):
         label = getattr(self, 'label', None) or paths.label
-        paths.plot(filename=filename, savefig=True, gaussian=True)
+        self.plot(paths, filename=filename, savefig=True, gaussian=True)
+        # paths.plot(filename=filename, savefig=True, gaussian=True)
         pathsdata = PathsData(label + '_pathsdata.db')
         data = [{'paths': paths}]
         pathsdata.write(data=data)
