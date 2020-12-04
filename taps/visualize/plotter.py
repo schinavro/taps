@@ -270,8 +270,8 @@ class Plotter:
 
         if savefig:
             plt.tight_layout()
-            with open(filename + '_fig2D.pkl', 'wb') as f:
-                pickle.dump(fig, f)
+            # with open(filename + '_fig2D.pkl', 'wb') as f:
+            #     pickle.dump(fig, f)
             plt.savefig(filename + '_2D.' + self.save_format,
                         format=self.save_format)
 
@@ -320,8 +320,12 @@ class Plotter:
 
         if savefig:
             # plt.tight_layout()
-            with open(filename + '_figmu.pkl', 'wb') as f:
-                pickle.dump(fig, f)
+            # with open(filename + '_figmu.pkl', 'wb') as f:
+            #     pickle.dump(fig, f)
+            with open(filename + '_mu.pkl', 'wb') as f:
+                pickle.dump(self.display_map(ave_map, map_type='contour'), f)
+            with open(filename + '_coords.pkl', 'wb') as f:
+                pickle.dump(paths.coords, f)
             plt.savefig(filename + '_mu.' + self.save_format,
                         format=self.save_format)
 
@@ -350,8 +354,10 @@ class Plotter:
         self.plot_info_map(paths, plt, ax, information='maximum_uncertainty')
         if savefig:
             # plt.tight_layout()
-            with open(filename + '_figcov.pkl', 'wb') as f:
-                pickle.dump(fig, f)
+            # with open(filename + '_figcov.pkl', 'wb') as f:
+            #     pickle.dump(fig, f)
+            with open(filename + '_cov.pkl', 'wb') as f:
+                pickle.dump(self.display_map(cov_map, map_type='contour'), f)
             plt.savefig(filename + '_cov.' + self.save_format,
                         format=self.save_format)
 
@@ -466,8 +472,16 @@ class Plotter:
         # lnVMx.set_rotation(slope_degrees)
         if savefig:
             plt.tight_layout()
-            with open(filename + '_figE.pkl', 'wb') as f:
-                pickle.dump(fig, f)
+            if gaussian:
+                with open(filename + '_VHTVarEt.pkl', 'wb') as f:
+                    pickle.dump(V, f)
+                    pickle.dump(H, f)
+                    pickle.dump(T, f)
+                    pickle.dump(cov_coords, f)
+                    pickle.dump(paths.real_finder.Et, f)
+            else:
+                with open(filename + '_figE.pkl', 'wb') as f:
+                    pickle.dump(fig, f)
             plt.savefig(filename + '_E.' + self.save_format,
                         format=self.save_format)
 

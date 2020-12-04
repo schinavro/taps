@@ -51,6 +51,8 @@ class Paths:
                 value = np.zeros((0, 0))
             if 'Coords' in value.__class__.__name__:
                 super().__setattr__(key, value)
+            elif 'SineBasis' in value.__class__.__name__:
+                super().__setattr__(key, value)
             else:
                 super().__setattr__(key, Coords(np.asarray(value)))
         elif key[0] == '_':

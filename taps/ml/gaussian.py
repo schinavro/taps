@@ -451,7 +451,7 @@ class Gaussian(Model):
         self.hyperparameters_bounds = hyperparameters_bounds
         self.regression_method = regression_method
         self.likelihood_type = likelihood_type
-        self._cache = {}
+        self.data_ids = {}
 
         super().__init__(**kwargs)
 
@@ -600,8 +600,7 @@ class Gaussian(Model):
 
             def gradient_likelihood(hyperparameters_list):
                 # @@@@@
-                # hyperparameters_list = np.concatenate([[1],
-                #                                       hyperparameters_list])
+                hyperparameters_list = np.concatenate([[1], hyperparameters_list])
                 # @@@@@
                 k.set_hyperparameters(hyperparameters_list)
                 K = k(X, X, noise=True)
@@ -622,8 +621,8 @@ class Gaussian(Model):
 
         res = minimize(log_likelihood(k, X, Y_m, likelihood_type), **reg_kwargs)
         self.optimized = True
-        return self.kernel.get_hyperparameters(res.x)
-        # return self.kernel.get_hyperparameters(np.concatenate([[1], res.x]))
+        # return self.kernel.get_hyperparameters(res.x)
+        return self.kernel.get_hyperparameters(np.concatenate([[1], res.x]))
 
     def get_hyperparameters(self, hyperparameters_list=None):
         return self.kernel.get_hyperparameters(hyperparameters_list)
@@ -650,8 +649,8 @@ class Gaussian(Model):
         if no_boundary:
             bounds = None
         # @@@@@
-        # x0 = x0[1:]
-        # bounds = bounds[1:]
+        x0 = x0[1:]
+        bounds = bounds[1:]
         # @@@@@
         return {'x0': x0, 'bounds': bounds, 'method': method}
 
@@ -915,9 +914,10 @@ class GaussianSearch(PathFinder):
         return self.check_maximum_energy_convergence(paths, idx=idx, **kwargs)
 
     def auto_et(self, paths, **kwargs):
-        self.Et = self.get_next_et(paths)
-        self.Et_type = 'manual'
+        paths.real_finder.Et = self.get_next_et(paths)
+        paths.real_finder.Et_type = 'manual'
         return self.uncertain_or_maximum_energy(paths, **kwargs)
+        # return self.maximum_uncertainty(paths, **kwargs)
 
     def check_auto_et_convergence(self, paths, idx=None, **kwargs):
         V = paths.get_potential_energy(index=np.s_[1:-1])
@@ -925,8 +925,16 @@ class GaussianSearch(PathFinder):
         imgdata = paths.get_data(data_ids=data_ids)
         if self._maximum_energy_checked:
             self._muErr = np.abs(self._E_max - imgdata['V'][-1])
-        if np.abs(V.max() - self.Et) < self.Et_opt_tol:
+        # @@@@@@@@@@@@@@@@@@@@
+        cov = paths.get_covariance(index=np.s_[:])
+        self._cov_max = cov.max() / paths.model.hyperparameters['sigma_f']
+        if np.abs(V.max() - paths.real_finder.Et) < self.Et_opt_tol and \
+                self._cov_max > self.cov_max_tol:
             return 1
+        # @@@@@@@@@@@@@@@
+        # if np.abs(V.max() - paths.real_finder.Et) < self.Et_opt_tol and \
+        #         self._cov_max > self.cov_max_tol:
+        #     return 1
         return 0
 
     def maximum_mu(self, paths, **kwargs):
@@ -948,14 +956,14 @@ class GaussianSearch(PathFinder):
     def get_next_et(self, paths, **kwargs):
         V = paths.get_potential_energy(index=np.s_[1:-1])
         self._target_energy_checked = True
-        self._mu_Et = V.max() - self.Et
+        self._mu_Et = V.max() - paths.real_finder.Et
 
         # self._Kinetic = self.__dict__.get('_Kinetic', 0.1)
         # Et too low
         # Et = (np.max(V) + self.Et - self.Et_opt_tol) / 2
         # Et = np.max(V)
-        # Et = (np.max(V) + self.Et) / 2
-        Et = (np.max(V) + self.Et - self.Et_opt_tol / 2) / 2
+        # Et = (np.max(V) + paths.real_finder.Et) / 2
+        Et = (np.max(V) + paths.real_finder.Et - self.Et_opt_tol / 2) / 2
         return Et
 
     def alternate_energy(self, paths, gptol=None, iter=None):
@@ -1098,6 +1106,16 @@ class GaussianSearch(PathFinder):
                 logfile.write("Max iteration, %d, reached! \n" % self.maxtrial)
                 break
 
+        dat = [str(d) for d in paths.model.data_ids['image']]
+        logfile.write("Iteration    : %d\n" % i)
+        logfile.write("Phase        : %s\n" % self.Phase)
+        logfile.write("Number of Dat: %d\n" % len(dat))
+        logfile.write("ImgData idx  : %s\n" % ', '.join(dat))
+        filename = label + '_{i:02d}'.format(i=i)
+        self.I_prepared_my_paths_in_various_ways(paths, logfile=logfile)
+        paths.search(real_finder=True, logfile=logfile, **search_kwargs)
+        self.results.update(paths.real_finder.results)
+        self._save(paths, filename=filename)
         logfile.close()
         return paths
 

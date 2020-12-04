@@ -10,7 +10,7 @@ class Coords:
     """
     Default - descretized coordinate representation.
     """
-    def __init__(self, coords, epoch=3, _Nk=None, Nk=None, unit=None):
+    def __init__(self, coords=None, epoch=3, _Nk=None, Nk=None, unit=None):
         coords = np.asarray(coords, dtype=float)
         self.coords = coords
         self.epoch = epoch

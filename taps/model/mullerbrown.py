@@ -31,6 +31,7 @@ class MullerBrown(Model):
         """
         x : P shape array
         y : P shape array
+        return D x P
         """
         self.results = getattr(self, 'results', {})
         if len(coords.shape) == 1:
@@ -47,7 +48,7 @@ class MullerBrown(Model):
             Fx = (Vk * (2 * a * x_x0 + b * y_y0)).sum(axis=1)
             Fy = (Vk * (b * x_x0 + 2 * c * y_y0)).sum(axis=1)
             if 'gradients' in properties:
-                self.results['gradients'] = np.array([[Fx], [Fy]])
+                self.results['gradients'] = np.array([Fx, Fy])
             # if 'forces' in properties:
             #     self.results['forces'] = -np.array([[Fx], [Fy]])
         if 'hessian' in properties:
