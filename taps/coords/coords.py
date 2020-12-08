@@ -10,7 +10,8 @@ class Coords:
     """
     Default - descretized coordinate representation.
     """
-    def __init__(self, coords=None, epoch=3, _Nk=None, Nk=None, unit=None):
+    def __init__(self, coords=None, epoch=3, _Nk=None, Nk=None, unit=None,
+                 **kwargs):
         coords = np.asarray(coords, dtype=float)
         self.coords = coords
         self.epoch = epoch
@@ -21,14 +22,14 @@ class Coords:
         if coords is not None:
             kwargs = self.__dict__.copy()
             del kwargs['coords']
-            return self.__class__(coords, **kwargs)
+            return self.__class__(coords=coords, **kwargs)
         if index.__class__.__name__ == 'slice' and index == np.s_[:]:
             return self
         kwargs = self.__dict__.copy()
         del kwargs['coords']
         idx = np.arange(self.N)[index].reshape(-1)
         coords = self.coords[..., idx]
-        return self.__class__(coords, **kwargs)
+        return self.__class__(coords=coords, **kwargs)
 
     @classmethod
     def ascoords(cls, coords):

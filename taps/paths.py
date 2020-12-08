@@ -54,7 +54,12 @@ class Paths:
             elif 'SineBasis' in value.__class__.__name__:
                 super().__setattr__(key, value)
             else:
-                super().__setattr__(key, Coords(np.asarray(value)))
+                crd = self.__dict__.get('coords')
+                if crd is None:
+                    value = Coords(coords=np.asarray(value))
+                else:
+                    value = crd.__class__(coords=np.asarray(value))
+                super().__setattr__(key, value)
         elif key[0] == '_':
             super().__setattr__(key, value)
         elif isinstance(getattr(type(self), key, None), property):

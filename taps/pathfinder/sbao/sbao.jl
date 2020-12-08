@@ -1,9 +1,18 @@
 using NPZ
+import MPI
+MPI.Init()
 
+comm = MPI.COMM_WORLD
+size = MPI.Comm_size(comm)
+rank = MPI.Comm_rank(comm)
+root = 0
+
+println("I am rank " * string(rank) * " of size " * string(size))
 indict = npzread(ARGS[1])
-
-println(indict)
-println(size(indict["ak"]))
+if rank == root
+    print(indict)
+end
+# indict = MPI.bcast(indict, root, comm)
 
 t0 = indict["epoch"]
 Nk = indict["Nk"]
@@ -16,8 +25,8 @@ ak = indict["ak"]
 dir = (fin - init) / t0
 ν = π/t0
 
-x(θ, t::Real) = init + dir .* t + sum((θ/100 .* sin.(ν*t * [1:1:Nk;])), dims=1)     # (1 x D)
-ẋ(θ, t::Real) = dir .+ sum((θ/100. *ν.*[1:1:Nk;].* cos.(ν * t * [1:1:Nk;])), dims=1)
+x(θ, t::Real) = init + dir .* t + 2 * sum((θ .* sin.(ν*t * [1:1:Nk;])), dims=1) / (2*(Nk + 1))   # (1 x D)
+ẋ(θ, t::Real) = dir .+ 2 * sum((θ *ν.*[1:1:Nk;].* cos.(ν * t * [1:1:Nk;])), dims=1) / (2 * (Nk + 1))
 #ak = (rand(Nk, D) .- 0.5) .* 0.5 .* LinRange(1, 0, Nk) .* LinRange(1, 0, Nk)
 
 A = [-200., -100., -170, 15]
@@ -58,16 +67,43 @@ using QuadGK
 """
 Action
 """
-function S(θ)
-    return quadgk(t -> L(θ, t), 0., t0, rtol=1e-8)[1]
+function S(θ, comm=comm)
+    dt0 = t0 / size
+    a = rank * dt0
+    b = (rank + 1) * dt0
+    return quadgk(t -> L(θ, t), a, b, rtol=1e-8)[1]
+end
+
+function dS(g, θ, comm=comm)
+    Nk, D = size(θ)
+    a = div(Nk * D, size) * rank + 1
+    b = div(Nk * D, size) * (rank + 1)
+    function 𝒮(θi)
+        _θ1D = vec(θ)
+        _θ1D[a:b] = θi
+        return quadgk(t -> L(reshape(_θ1D, Nk, D), t), 0, t0, rtol=1e-8)[1]
+    end
+    θ1D = vec(θ)
+    return ForwardDiff.gradient(𝒮, θ1D[a:b])
 end
 
 
-using Optim
+# using Optim
+module_mpi = include("./lbfgsb_mpi.jl")
+optimizer = module_mpi.L_BFGS_B(Nk * D, 40)
+result, x = optimizer(S, dS, ak, comm)
 
-result = optimize(S, ak, BFGS(), Optim.Options(g_tol = 1e-16, iterations=1000),
-                  autodiff=:forward)
 
-resk = Optim.minimizer(result)
+# result = optimize(S, ak, BFGS(),
+#                       Optim.Options(g_tol = 1e-16, iterations=1000),
+#                       autodiff=:forward)
+# resk = Optim.minimizer(result)
 
-npzwrite("result.npz", Dict("resk" => resk))
+
+if rank == root
+    println(map(t -> x(resk, t), LinRange(0, t0, Nk +2)))
+    npzwrite("result.npz", Dict("resk" => resk))
+end
+
+MPI.Barrier(comm)
+MPI.Finalize()
