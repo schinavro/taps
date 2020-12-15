@@ -90,25 +90,33 @@ class Coords:
         """
         Total dimension
         """
-        return len(self.coords.shape)
+        if self.__dict__.get('_D') is None:
+            shape = self.coords.shape
+            if len(shape) == 3:
+                self._D = shape[0] * shape[1]
+            else:
+                self._D = shape[0]
+        return self._D
 
     @property
     def A(self):
         """
         Number of individual components
         """
-        return 1
+        if self.__dict__.get('_A') is None:
+            shape = self.coords.shape
+            if len(shape) == 3:
+                self._A = shape[1]
+            else:
+                self._A = 1
+        return self._A
 
     def get_displacements(self, coords=None, epoch=None, index=np.s_[:]):
         p = coords or self.coords
-        shape = p.shape
-        if len(shape) == 2:
-            d = np.linalg.norm(np.diff(p), axis=0)
-            d = concatenate([[0], d], axis=-1)
-            return np.add.accumulate(d)[index]
-        d = np.linalg.norm(np.diff(p), axis=0)
-        d = concatenate([np.zeros((shape[1], 1)), d])
-        return np.add.accumulate(d, axis=-1)[..., index]
+        normaxis = np.arange(len(p.shape))[:-1]
+        d = np.linalg.norm(np.diff(p), axis=tuple(normaxis))
+        d = concatenate([[0], d], axis=-1)
+        return np.add.accumulate(d)[index]
 
     def get_velocity(self, coords=None, epoch=None, index=np.s_[:]):
         """

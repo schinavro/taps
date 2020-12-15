@@ -269,7 +269,7 @@ class Paths:
 
     @property
     def D(self):
-        return len(self.coords)
+        return self.coords.D
 
     @property
     def Nk(self):

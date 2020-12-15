@@ -4,7 +4,7 @@ import binascii
 import numpy as np
 from collections import OrderedDict
 from numpy import pi
-from numpy import exp, dot
+from numpy import dot
 from numpy.linalg import norm
 from scipy.optimize import check_grad
 from ase.atoms import Atoms
@@ -295,13 +295,19 @@ class Model:
 
     def get_labels(self, coords=None):
         labels = []
-        directory = self.directory or ''
-        prefix = self.prefix or ''
+        directory = self.directory or '.'
+        prefix = self.prefix or self.__class__.__name__
 
         for positions in coords.T:
             unique_hash = self.generate_unique_hash(positions)
             labels.append(directory + '/' + unique_hash + '/' + prefix)
         return labels
+
+    def get_label(self, coord=None):
+        directory = self.directory or '.'
+        prefix = self.prefix or self.__class__.__name__
+        unique_hash = self.generate_unique_hash(coord)
+        return directory + '/' + unique_hash + '/' + prefix
 
     def check_grad(self, paths=None, index=np.s_[:], epsilon=1e-4,
                    debug=False):

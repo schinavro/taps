@@ -27,7 +27,7 @@ class SBAO(PathFinder):
         cds = paths.coords
         epoch, Nk, D, init, fin = cds.epoch, cds.Nk, cds.D, cds.init, cds.fin
         np.savez(filename, epoch=epoch, Nk=Nk, D=D, init=init.T,
-                 fin=fin.T, ak=cds.rcoords.T)
+                 fin=fin.T, ak=cds.rcoords.T, L=2)
         con = subprocess.Popen(command, shell=True,
                                stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT,

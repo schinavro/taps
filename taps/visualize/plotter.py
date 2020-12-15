@@ -136,9 +136,9 @@ class Plotter:
         'ylbl3dftsz': {dflt: "13", 'assert': isint + ' or ' + isStr},
         'zlbl3dftsz': {dflt: "13", 'assert': isint + ' or ' + isStr},
 
-        'xlim3d': {'default': "np.array([0, 1])", 'assert': "True"},
-        'ylim3d': {'default': "np.array([0, 1])", 'assert': 'True'},
-        'zlim3d': {'default': "np.array([0, 1])", 'assert': 'True'},
+        'xlim3d': {'default': "None", 'assert': "True"},
+        'ylim3d': {'default': "None", 'assert': 'True'},
+        'zlim3d': {'default': "None", 'assert': 'True'},
     }
 
     def __init__(self, filename=None, prj=None, prjf=None,
@@ -188,17 +188,25 @@ class Plotter:
             dir = '.'
         if not os.path.exists(dir):
             os.makedirs(dir)
-        p = paths.coords
-        if self.xlim2d is None:
-            self.xlim2d = np.array([p[0].min(), p[0].max()])
-        if self.ylim2d is None:
-            self.ylim2d = np.array([p[1].min(), p[1].max()])
-        D, M = self.get_shape(self.prj(paths.coords))
-        if D == 1:
+        p = self.prj(paths.coords)
+
+        dim, A = self.get_shape(self.prj(paths.coords))
+        if dim == 1:
             raise NotImplementedError('No 1D plot')
-        elif D == 2:
+        elif dim == 2:
+            if self.xlim2d is None:
+                self.xlim2d = np.array([p[0].min(), p[0].max()])
+            if self.ylim2d is None:
+                self.ylim2d = np.array([p[1].min(), p[1].max()])
             self.plot_2D(paths, savefig, filename)
-        elif D == 3:
+        elif dim == 3:
+            if self.xlim3d is None:
+                self.xlim3d = np.array([p[0].min(), p[0].max()])
+            if self.ylim3d is None:
+                self.ylim3d = np.array([p[1].min(), p[1].max()])
+            if self.zlim3d is None:
+                self.zlim3d = np.array([p[2].min(), p[2].max()])
+
             self.plot_3D(paths, savefig, filename)
         else:
             raise NotImplementedError("Can't plot ")
@@ -501,19 +509,19 @@ class Plotter:
     def plot_trajectory(self, paths, plt, ax, xlim=None, ylim=None, zlim=None,
                         forces=None):
         plotter_coords = self.prj(paths.coords)
-        D, M = self.get_shape(plotter_coords)
-        if D * M < 4:
-            M, D = 1, M * D
+        dim, A = self.get_shape(plotter_coords)
+        if dim == 2:
+            D = dim * A
             coords = plotter_coords.reshape(D, 1, -1)
             line_color = [self.line_color]
             scatter_color = [lighten_color(self.line_color, amount=0.5)]
             # scatter_color = ['orange']
         else:
             coords = plotter_coords
-            line_color = jmol_colors[paths._numbers]
+            line_color = jmol_colors[paths.model.image.symbols.numbers]
             scatter_color = [lighten_color(c) for c in line_color]
-        for i in range(M):
-            coord = coords[:, i, :]
+        for i in range(A):
+            coord = coords[..., i, :]
             d_coord = self.display_coord(coord, xlim=xlim, ylim=ylim, zlim=zlim)
             d_traj = self.periodic_masked_array(d_coord, xlim, ylim, zlim)
             # ax.plot(*d_path, color=color[i])
@@ -738,7 +746,7 @@ class Plotter:
     def get_shape(self, coords):
         if len(coords.shape) == 2:
             return coords.shape[0], 1
-        elif coords.shape == 3:
+        elif len(coords.shape) == 3:
             return coords.shape[:2]
         else:
             shape = ','.join([str(d) for d in coords.shape])

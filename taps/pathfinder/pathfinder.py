@@ -7,6 +7,7 @@ from numpy import newaxis as nax
 from numpy.linalg import norm
 from collections import OrderedDict
 from taps.utils.shortcut import isbool, isdct, isstr, isflt, issclr
+from taps.projector import Projector
 
 
 class PathFinder:
@@ -15,7 +16,8 @@ class PathFinder:
         'results': {'default': 'None', 'assert': isdct},
         'relaxed': {'default': 'None', 'assert': isbool},
         'prefix': {'default': 'None', 'assert': isstr},
-        'directory': {'default': 'None', 'assert': isstr}
+        'directory': {'default': 'None', 'assert': isstr},
+        'prj': {'default': 'Projector()', 'assert': 'True'},
     }
 
     display_map_parameters = OrderedDict()
@@ -23,11 +25,14 @@ class PathFinder:
     display_graph_title_parameters = OrderedDict()
     relaxed = False
 
-    def __init__(self, results={}, relaxed=None, label=None, **kwargs):
+    def __init__(self, results={}, relaxed=None, label=None, prj=None,
+                 **kwargs):
         self.results = results
         self.relaxed = relaxed
         self.label = label
+        self.prj = prj
         self._cache = {}
+
         for key, value in kwargs.items():
             setattr(self, key, value)
 
@@ -38,14 +43,7 @@ class PathFinder:
             super().__getattribute__(key)
 
     def __setattr__(self, key, value):
-        if key in self.finder_parameters:
-            default = self.finder_parameters[key]['default']
-            assertion = self.finder_parameters[key]['assert']
-            if value is None:
-                value = eval(default.format())
-            assert eval(assertion.format(name='value')), (key, value)
-            super().__setattr__(key, value)
-        elif key[0] == '_':
+        if key[0] == '_':
             super().__setattr__(key, value)
         elif key == 'real_finder':
             if value is None:
@@ -54,6 +52,13 @@ class PathFinder:
                 from_ = 'taps.pathfinder'
                 module = __import__(from_, {}, None, [value])
                 value = getattr(module, value)()
+            super().__setattr__(key, value)
+        elif key in self.finder_parameters:
+            default = self.finder_parameters[key]['default']
+            assertion = self.finder_parameters[key]['assert']
+            if value is None:
+                value = eval(default.format())
+            assert eval(assertion.format(name='value')), (key, value)
             super().__setattr__(key, value)
         elif isinstance(getattr(type(self), key, None), property):
             super().__setattr__(key, value)
@@ -194,3 +199,5 @@ class PathFinder:
         while isRunning(jobNum):
             time.sleep(30)
         return out
+
+    Projector()

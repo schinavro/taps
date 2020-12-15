@@ -3,314 +3,154 @@ from numpy import cos, sin, sum, cross, repeat, concatenate, newaxis
 from numpy import newaxis as nax
 from numpy import atleast_3d
 from numpy.linalg import norm
-from ase.data import atomic_masses
+
+from scipy.fftpack import idst, dst
+# from ase.data import atomic_masses
 # from ase.wyckoff.wyckoff import Wyckoff
 # from ase.wyckoff.xtal2 import parse_wyckoff_site
 
 
 class Projector:
-    dt = 0.1
-    moving_average = 2
-    mass_type = "invariant"
-    kinetic_unit = 'eV'
+    """
+    Coordinate transformation using projector function
+    projecting force requires to return forces and coordinate
+    because of double recursion problem
 
-    def __init__(self, X=None, F=None, X_inv=None, F_inv=None,
-                 **kwargs):
-        self.X = X
-        self.F = F
-        self.X_inv = X_inv
-        self.F_inv = F_inv
-        for key, value in kwargs.items():
-            setattr(self, key, value)
+    pipeline
+    --------
+      projector nested in the projector. It will recursively call the projector
+    """
+    def __init__(self, pipeline=None):
+        self.pipeline = pipeline
 
-    def __call__(self, positions=None, forces=None, coords=None):
-        if positions is not None and forces is not None:
-            return self.F(positions, forces)
-        elif positions is not None:
-            return self.X(positions)
-        elif coords is not None and forces is not None:
-            return self.F_inv(coords, forces)
-        elif coords is not None:
-            return self.X_inv(coords)
-        else:
-            raise AttributeError('please sepcify `positions` or `coords`')
+    def pipeline(prj):
+        name = prj.__name__
 
-    def __setattr__(self, key, value):
-        if key in ['X', 'F', 'X_inv', 'F_inv']:
-            if value is None and 'X' in key:
-                value = self.default_X
-            elif value is None and 'F' in key:
-                value = self.default_F
-            super().__setattr__(key, value)
-        elif key[0] == '_':
-            super().__setattr__(key, value)
-        elif key in self.prj_parameters.keys():
-            default = self.prj_parameters[key]['default']
-            assertion = self.prj_parameters[key]['assert']
-            if value is None:
-                value = eval(default.format())
-            assert eval(assertion.format(name='value')), assertion
-            if key == 'moving_average':
-                if value == 2:
-                    velocity = self.two_points_average_velocity
-                    gradient = self.two_points_velocity_gradient
-                    acceleration = self.three_points_acceleration
-                elif value == 3:
-                    velocity = self.three_points_average_veolicty
-                    gradient = self.three_points_velocity_gradient
-                    acceleration = self.three_pointse_acceleration
-                elif value == 4:
-                    velocity = self.four_points_average_veolicty
-                    gradient = self.four_points_velocity_gradient
-                    acceleration = self.four_points_acceleration
-                else:
-                    NotImplementedError('Select `2` or `3` with %s' % key)
-                super().__setattr__('_get_velocity', velocity)
-                super().__setattr__('_get_velocity_gradient', gradient)
-                super().__setattr__('_get_acceleration', acceleration)
-            super().__setattr__(key, value)
-        else:
-            raise AttributeError('No such key can be justified, %s' % key)
+        def x(self, coords):
+            if self.pipeline is not None:
+                coords = getattr(self.pipeline, name)(coords)
+            return prj(self, coords)
 
-    def inv(self, coords=None, forces=None):
-        if coords is not None and forces is not None:
-            return self.F_inv(coords, forces)
-        elif coords is not None:
-            return self.X_inv(coords)
-        else:
-            raise NotImplementedError('please sepcify `coords`')
+        def x_inv(self, coords):
+            if self.pipeline is not None:
+                coords = prj(self, coords)
+                return getattr(self.pipeline, name)(coords)
+            return prj(self, coords)
 
-    def get_displacements(self, paths, index=np.s_[:], coords=None):
-        p = paths.coords
-        if coords is not None:
-            p = coords
-        d = norm(np.diff(p), axis=0).sum(axis=0)
-        d = concatenate([[0], d])
-        return np.add.accumulate(d)[index]
+        def f(self, forces, coords):
+            if self.pipeline is not None:
+                forces, coords = getattr(self.pipeline, name)(forces, coords)
+            return prj(self, forces, coords)
 
-    @property
-    def get_velocity(self):
-        if self.__dict__.get('_get_velocity') is None:
-            return self.two_points_average_velocity
-        return self._get_velocity
+        def f_inv(self, forces, coords):
+            if self.pipeline is not None:
+                forces, coords = prj(self, forces, coords)
+                return getattr(self.pipeline, name)(forces, coords)
+            return prj(self, forces, coords)
 
-    @property
-    def get_acceleration(self):
-        if self.__dict__.get('_get_acceleration') is None:
-            return self.three_points_acceleration
-        return self._get_acceleration
+        return locals()[name]
 
-    @property
-    def get_velocity_gradient(self):
-        if self.__dict__.get('_get_velocity_gradient') is None:
-            return self.two_points_velocity_gradient
-        return self._get_velocity_gradient
+    @pipeline
+    def x(self, coords):
+        return coords
 
-    def two_points_average_velocity(self, paths, index=np.s_[:], coords=None):
-        """
-        Returns Dim x M x P array
-        """
-        p = paths.coords.copy()
-        dt = self.dt
-        if coords is not None:
-            p = coords
-        if index == np.s_[:]:
-            p = concatenate([p, p[..., -1, nax]], axis=2)
-            return (p[..., 1:] - p[..., :-1]) / dt
-        elif index == np.s_[1:-1]:
-            return (p[..., 2:] - p[..., 1:-1]) / dt
-        i = np.arange(paths.P)[index]
-        if i[-1] == paths.P - 1:
-            p = concatenate([p, p[..., -1, nax]], axis=2)
-        return (p[..., i] - p[..., i - 1]) / dt
+    @pipeline
+    def f(self, forces, coords):
+        return forces, coords
 
-    def three_points_average_velocity(self, paths, index=np.s_[:], coords=None):
-        """
-        Returns Dim x M x P - 2 array
-        """
-        dt = self.dt
-        p = paths.coords.copy()
-        if coords is not None:
-            p = coords
-        if index == np.s_[:]:
-            D, M = paths.DM
-            p = concatenate([p[..., 0, nax], p, p[..., -1, nax]], axis=2)
-            return (p[..., 2:] - p[..., :-2]) / (2 * dt)
-        elif index == np.s_[1:-1]:
-            return (p[..., 2:] - p[..., :-2]) / (2 * dt)
-        P = paths.P
-        i = np.arange(P)[index]
-        if i[0] == 0:
-            p = concatenate([p[..., 0, nax], p], axis=2)
-            i += 1
-        if i[-1] == P - 1:
-            p = concatenate([p, p[..., -1, nax]], axis=2)
-        return (p[..., i + 1] - p[..., i - 1]) / dt
+    @pipeline
+    def x_inv(self, coords):
+        return coords
 
-    def four_points_average_velocity(self, paths, index=np.s_[1:-1],
-                                     coords=None):
-        dt = self.dt
-        p = paths.coords
-        if index == np.s_[1:-1]:
-            return (p[..., 2:] - p[..., :-2]) / (2 * dt)
-        elif index == np.s_[:]:
-            D, M = paths.DM
-            v = (p[..., 2:] - p[..., :-2]) / (2 * dt)
-            v0 = (p[..., 1] - p[..., 0])[..., newaxis] / (2 * dt)
-            vf = (p[..., -1] - p[..., -2])[..., newaxis] / (2 * dt)
-            return np.concatenate([v0, v, vf], axis=2)
-        attatch_initial = False
-        attatch_final = False
-        P = paths.P
-        i = np.arange(P)[index]
-        if i[0] == 0:
-            attatch_initial = True
-            i = i[1:]
-        if i[-1] == P - 1:
-            attatch_final = True
-            i = i[:-1]
-        if coords is not None:
-            p = coords
-        v = (p[..., i + 1] - p[..., i - 1]) / dt
-        if attatch_initial:
-            v = np.concatenate([v[:, :, 0, newaxis], v], axis=2)
-        if attatch_final:
-            v = np.concatenate([v, v[..., -1, newaxis]], axis=2)
-        return v
+    @pipeline
+    def f_inv(self, forces, coords):
+        return forces, coords
 
-    def two_points_velocity_gradient(self, paths, index=np.s_[:],
-                                     coords=None):
-        p = paths.coords
-        ddt = self.dt * self.dt
-        if coords is not None:
-            p = coords
-        if index == np.s_[:]:
-            p = concatenate([p[..., 0, nax], p, p[..., -1, nax]], axis=2)
-            return (2 * p[:, :, 1:-1] - p[:, :, :-2] - p[:, :, 2:]) / ddt
-        elif index == np.s_[1:-1]:
-            return (2 * p[:, :, 1:-1] - p[:, :, :-2] - p[:, :, 2:]) / ddt
-        P = paths.P
-        i = np.arange(P)[index]
-        if i[0] == 0:
-            p = concatenate([p[..., 0, nax], p], axis=2)
-            i += 1
-        if i[-1] == P - 1:
-            p = concatenate([p, p[..., -1, nax]], axis=2)
-        return (2 * p[..., i] - p[..., i - 1] - p[..., i + 1]) / ddt
-
-    def three_points_velocity_gradient(self):
-        return None
-
-    def four_points_velocity_gradient(self):
-        return None
-
-    def two_points_acceleration(self):
-        return None
-
-    def three_points_acceleration(self, paths, index=np.s_[:], coords=None):
-        """
-        Get D x N x P-2 ndarray
-        Returns 3 x N x P - 1 array
-        """
-        p = paths.coords
-        ddt = self.dt * self.dt
-        if coords is not None:
-            p = coords
-        if index == np.s_[:]:
-            p = concatenate([p[..., 0, nax], p, p[..., -1, nax]], axis=2)
-            return (2 * p[:, :, 1:-1] - p[:, :, :-2] - p[:, :, 2:]) / ddt
-        elif index == np.s_[1:-1]:
-            return (2 * p[:, :, 1:-1] - p[:, :, :-2] - p[:, :, 2:]) / ddt
-        P = paths.P
-        i = np.arange(P)[index]
-        if i[0] == 0:
-            p = concatenate([p[..., 0, nax], p], axis=2)
-            i += 1
-        if i[-1] == P - 1:
-            p = concatenate([p, p[..., -1, nax]], axis=2)
-        return (2 * p[..., i] - p[..., i - 1] - p[..., i + 1]) / ddt
-
-    def four_points_acceleration(self):
-        return None
-
-    def get_effective_mass(self, paths, index=None):
-        return atomic_masses[paths._numbers][:, np.newaxis]
-
-    def get_momentum(self, paths, index=None):
-        m = self.get_effective_mass(paths, index=index)
-        v = self.get_velocity(paths, index=index)
-        return m * v
-
-    def get_kinetic_energy(self, paths, index=None):
-        v = self.get_velocity(paths, index=index)
-        m = self.get_effective_mass(paths, index=index)
-        return np.sum(0.5 * m * v * v, axis=(0, 1))
-
-    def get_kinetic_energy_gradient(self, paths, index=None, reduced=None):
-        a = self.get_velocity_gradient(paths, index=index)
-        m = self.get_effective_mass(paths, index=index)
-        return m * a
-
-    def default_X(self, value):
-        return value
-
-    def default_F(self, paths=None, forces=None):
-        return forces
+    pipeline = staticmethod(pipeline)
 
 
 class Mask(Projector):
-    prj_parameters = {
-        'reference': {
-            'default': 'None',
-            'assert': 'True'
-        },
-        'mask': {
-            'default': 'None',
-            'assert': 'True'
-        },
-        'dimension': {
-            'default': '3',
-            'assert': '{name:s} in [1, 2, 3]'
-        },
-    }
-
-    def __init__(self, reference=None, mask=None, dimension=None,
-                 **kwargs):
-        prj_parameters = super().prj_parameters
-        prj_parameters.update(self.prj_parameters)
-        self.prj_parameters.update(prj_parameters)
-
-        self.reference = reference
+    def __init__(self, mask=None, orig_coord=None, **kwargs):
         self.mask = mask
-        self.dimension = dimension
+        self.orig_coord = orig_coord
 
-        self._cache = {'count': 0, 'I_phi': [], 'I_psi': []}
+        super().__init__(**kwargs)
 
-        for key, value in kwargs.items():
-            setattr(self, key, value)
+    @Projector.pipeline
+    def x(self, coords):
+        return coords[..., self.mask, :]
 
-    def X(self, coords):
-        return coords[:self.dimension, self.mask]
+    @Projector.pipeline
+    def x_inv(self, coords):
+        N = coords.shape[-1]
+        orig_coords = (self.orig_coord[..., np.newaxis] * np.ones(N))
+        orig_coords[..., self.mask, :] = coords
+        return orig_coords
 
-    def X_inv(self, coords_inv):
-        P = coords_inv.shape[-1]
-        reference = self.reference.T[..., np.newaxis] * np.ones((1, 1, P))
-        reference[:self.dimension, self.mask] = coords_inv
-        return reference
+    @Projector.pipeline
+    def f(self, forces, coords):
+        return coords[..., self.mask, :], forces[..., self.mask, :]
 
-    def F(self, coords, forces):
-        return forces[:self.dimension, self.mask]
+    @Projector.pipeline
+    def f_inv(self, forces, coords):
+        N = coords.shape[-1]
+        orig_forces = np.zeros((*self.orig_coord.shape, N))
+        orig_forces[..., self.mask, :] = forces
+        orig_coords = (self.orig_coord[..., np.newaxis] * np.ones(N))
+        orig_coords[..., self.mask, :] = coords
+        return orig_forces, orig_coords
 
-    def F_inv(self, coords, forces):
-        P = forces.shape[-1]
-        N, D = self.reference.shape
-        zero_pad_forces = np.zeros((D, N, P))
-        zero_pad_forces[:self.dimension, self.mask] = forces
-        return zero_pad_forces
 
-    def get_effective_mass2(self, paths, index=None):
-        # return np.array([[100]], [[75]])
-        return atomic_masses[paths._numbers][self.mask]
+class Sine(Projector):
+    def __init__(self, Nk=None, shape=None, **kwargs):
+        self.Nk = Nk
+        self.shape = shape
+        super().__init__(**kwargs)
+
+    @Projector.pipeline
+    def x(self, coords):
+        line = self.line(coords)
+        return dst((coords - line)[..., 1:-1], type=1, norm='ortho')
+
+    @Projector.pipeline
+    def x_inv(self, coords):
+        line = self.line(coords)
+        line = idst(coords, type=1, norm='ortho') + line[..., 1:-1]
+        return line.reshape(self.shape)
+
+    @Projector.pipeline
+    def f(self, forces, coords):
+        line = self.line(coords)
+        coords = dst((coords - line)[..., 1:-1], type=1, norm='ortho')
+        return dst(forces[..., 1:-1], type=1, norm='ortho'), coords
+
+    @Projector.pipeline
+    def f_inv(self, forces, coords):
+        line = self.line(coords)
+        line = idst(coords, type=1, norm='ortho') + line[..., 1:-1]
+        return idst(forces, type=1, norm='ortho'), line
+
+    def line(self, coords):
+        if self.__dict__.get('_N') is None:
+            self._N = coords.shape[-1]
+        N = coords.shape[-1]
+        if self.__dict__.get('_line') is not None and N == self._N:
+            return self._line
+        init, fin = coords[..., [0, -1]]
+        dir = fin - init
+        self._line = np.linspace(0, 1, N)[nax] * dir[..., nax] + init[..., nax]
+        return self._line
+
+    def fine(self, forces):
+        if self.__dict__.get('_Nf') is None:
+            self._Nf = forces.shape[-1]
+        Nf = forces.shape[-1]
+        if self.__dict__.get('_fine') is not None and Nf == self._Nf:
+            return self._fine
+        init, fin = forces[..., [0, -1]]
+        dir = fin - init
+        self._fine = np.linspace(0, 1, Nf)[nax] * dir[..., nax] + init[..., nax]
+        return self._fine
 
 
 class WyckoffProjector(Projector):
