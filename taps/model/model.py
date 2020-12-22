@@ -9,14 +9,7 @@ from numpy.linalg import norm
 from scipy.optimize import check_grad
 from ase.atoms import Atoms
 from taps.utils.shortcut import isdct, isstr
-
-
-def default_prj(x):
-    return x
-
-
-def default_prjf(f, x):
-    return f
+from taps.projector import Projector
 
 
 class Model:
@@ -29,19 +22,18 @@ class Model:
         'pbc': {'default': 'None', 'assert': 'True'},
         'potential_unit': {'default': '"eV"', 'assert': isstr},
         'data_ids': {'default': 'None', 'assert': isdct},
-        'optimized': {'default': 'True', 'assert': 'True'}
+        'optimized': {'default': 'True', 'assert': 'True'},
+        'prj': {'default': 'Projector()', 'assert': 'True'}
     }
     potential_unit = 'eV'
     name = 'Model'
 
-    def __init__(self, results={}, label=None, prj=None,
-                 prjf=None, **model_kwargs):
-        OrderedDict
+    def __init__(self, results={}, label=None, prj=None, **model_kwargs):
+        OrderedDict, Projector
         # silence!
         self.results = results
         self.label = label
         self.prj = prj
-        self.prjf = prjf
         self._cache = {}
 
         for key, value in model_kwargs.items():
@@ -55,14 +47,6 @@ class Model:
                 value = getattr(module, value)()
             super().__setattr__(key, value)
 
-        elif key == 'prj':
-            if value is None:
-                value = default_prj
-            super().__setattr__(key, value)
-        elif key == 'prjf':
-            if value is None:
-                value = default_prjf
-            super().__setattr__(key, value)
         elif key in self.model_parameters:
             attribute = self.model_parameters[key]
             default = attribute['default']
@@ -131,7 +115,7 @@ class Model:
             if property not in model.implemented_properties:
                 raise NotImplementedError('Can not calaculate %s' % property)
         if coords is None:
-            coords = model.prj(paths.coords(index=index))
+            coords = model.prj.x(paths.coords(index=index))
         new_coords = None
         new_properties = []
         results = {}
@@ -165,9 +149,12 @@ class Model:
             else:
                 results[new_property] = new_result
 
-            # if new_property == 'forces':
-            #    positionss = model.results.get('positions', None)
-            #    results['gradients'] = model.prjf(new_result, positionss)
+            if new_property == 'gradients':
+                res = results[new_property]
+                results[new_property] = model.prj.f_inv(res, new_coords)[0]
+            if new_property == 'hessian':
+                res = results[new_property]
+                results[new_property] = model.prj.h_inv(res, new_coords)[0]
 
         if caching:
             model._cache[coords.tobytes()] = copy.deepcopy(results)
@@ -189,7 +176,11 @@ class Model:
 
         if coords is None:
             # Kinetic calculation is fixed length calculation
-            coords = model.prj(paths.coords)
+            ########
+            # Need to dynamically allocate index
+            coords = model.prj.x(paths.coords(index=np.s_[:]))
+            _coords = coords[..., index]
+            ########
         required = {}
         for property in properties:
             if property in ['displacements']:
@@ -203,8 +194,8 @@ class Model:
                 if property in ['kinetic_grad']:
                     required['mass'] = True
         if required.get('mass'):
-            _coords = model.prj(paths.coords(index=index))
-            m = model.get_effective_mass(paths, coords=_coords, **kwargs)
+            _coords = model.prj.x(paths.coords(index=index))
+            m = model.get_mass(paths, coords=_coords, **kwargs)
         if required.get('velocity'):
             v = coords.get_velocity(index=index)
         if required.get('acceleration'):
@@ -214,24 +205,24 @@ class Model:
 
         results = {}
         if 'velocity' in properties:
-            results['velocity'] = v
+            results['velocity'] = model.prj.f_inv(v, _coords)[0]
         if 'acceleration' in properties:
-            results['acceleration'] = a
+            results['acceleration'] = model.prj.f_inv(a, _coords)[0]
         if 'displacements' in properties:
             results['displacements'] = d
         if 'kinetic_energy' in properties:
             axis = tuple(np.arange(len(v.shape) - 1))         # 0     or (0, 1)
             results['kinetic_energy'] = np.sum(0.5 * m * v * v, axis=axis)
         if 'momentum' in properties:
-            results['momentum'] = m * v
+            results['momentum'] = model.prj.f_inv(m * v, _coords)[0]
         if 'kinetic_grad' in properties:
-            results['kinetic_energy_gradient'] = m * a
+            results['kinetic_energy_gradient'] = model.prj.f_inv(m * a, _coords)[0]
         if len(properties) == 1:
             property = list(results.keys())[0]
             return results[property]
         return results
 
-    def get_effective_mass(self, paths, coords=None, **kwargs):
+    def get_mass(self, paths, coords=None, **kwargs):
         """
         Return one as a default mass
 
@@ -244,6 +235,19 @@ class Model:
         coords = coords or paths.coords
         return np.ones((coords.A, 1))
 
+    def get_effective_mass(self, paths, coords=None, **kwargs):
+        """
+        Return mass per dimension
+
+        coords
+        ------
+              Array with shape DxN or 3xAxN
+        if DxN, return 1x1
+        else, return Ax1
+        """
+        coords = coords or paths.coords
+        return np.ones((coords.D, 1))
+
     def get_potential(self, paths, **kwargs):
         return self.get_properties(paths, properties='potential', **kwargs)
 
@@ -254,7 +258,7 @@ class Model:
         return self.get_properties(paths, properties='potential', **kwargs)
 
     def get_potential_energies(self, paths, **kwargs):
-        return self.get_properties(paths, properties='energies', **kwargs)
+        return self.get_properties(paths, properties='potentials', **kwargs)
 
     def get_forces(self, paths, **kwargs):
         return self.get_properties(paths, properties='forces', **kwargs)

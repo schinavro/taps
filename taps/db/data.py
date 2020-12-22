@@ -547,19 +547,24 @@ class ImageData:
 
                 else:
                     M = len(new_data)
-                    new_coord, new_ids = [], []
+                    new_coords, new_coords_flat, new_ids = [], [], []
                     for i in range(M):
                         _coord, _id = new_data[i]
-                        new_coord.append(_coord)
+                        new_coords.append(_coord)
+                        new_coords_flat.append(_coord.flatten())
                         new_ids.append(_id)
                     cache['ids'] = cache.get('ids', [])
                     cache['coords'] = cache.get('coords', [])
+                    cache['coords_flat'] = cache.get('coords_flat', [])
+
                     cache['ids'].extend(new_ids)
-                    cache['coords'].extend(new_coord)
-                    cache['kdtree'] = KDTree(cache['coords'])
+                    cache['coords'].extend(new_coords)
+                    cache['coords_flat'].extend(new_coords_flat)
+
+                    cache['kdtree'] = KDTree(cache['coords_flat'])
 
                     kdtree = cache['kdtree']
-                    res = kdtree.query_ball_point(coord, tol)
+                    res = kdtree.query_ball_point(coord.flatten(), tol)
                     if res is None or res == []:
                         exist_similar = False
                     else:
@@ -833,7 +838,7 @@ class ImageData:
         # paths.real_model.update_implemented_properties(paths)
         model_properties = paths.real_model.implemented_properties
         props = [p for p in properties if p in model_properties]
-        if len(coords.shape) == 1:
+        if np.all(coords.shape == self.coord_shape):
             coords = coords[..., np.newaxis]
         M = coords.shape[-1]
 

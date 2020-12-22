@@ -1,3 +1,4 @@
+import copy
 import numpy as np
 from numpy import concatenate
 from numpy import newaxis as nax
@@ -90,26 +91,22 @@ class Coords:
         """
         Total dimension
         """
-        if self.__dict__.get('_D') is None:
-            shape = self.coords.shape
-            if len(shape) == 3:
-                self._D = shape[0] * shape[1]
-            else:
-                self._D = shape[0]
-        return self._D
+        shape = self.coords.shape
+        if len(shape) == 3:
+            return shape[0] * shape[1]
+        else:
+            return shape[0]
 
     @property
     def A(self):
         """
         Number of individual components
         """
-        if self.__dict__.get('_A') is None:
-            shape = self.coords.shape
-            if len(shape) == 3:
-                self._A = shape[1]
-            else:
-                self._A = 1
-        return self._A
+        shape = self.coords.shape
+        if len(shape) == 3:
+            return shape[1]
+        else:
+            return 1
 
     def get_displacements(self, coords=None, epoch=None, index=np.s_[:]):
         p = coords or self.coords
@@ -184,6 +181,9 @@ class Coords:
     def flat(self):
         N = self.N
         return self.coords.reshape((-1, N))
+
+    def copy(self):
+        return copy.deepcopy(self)
 
 
 class AlanineDipeptideCoords(Coords):

@@ -12,31 +12,36 @@ from ase.data import atomic_masses
 
 
 class AtomicModel(Model):
-    implemented_properties = ['stresses', 'potentials', 'potential',
+    implemented_properties = ['stresses', 'potential',
                               'gradients', 'positions', 'forces']
 
     calculation_properties = OrderedDict(
         stresses='{image}.get_stress()',
         potentials='{image}.get_potential_energies()',
         potential='{image}.get_potential_energy()',
-        gradients='-{image}.get_forces()',
+        gradients='self.prj.f_inv(-{image}.get_forces().T[..., np.newaxis],'
+                  ' {image}.positions.T[..., np.newaxis])[0][..., 0].T',
         positions='{image}.positions',
-        forces='self.prjf({image}.get_forces(), {image}.positions)'
+        forces='{image}.get_forces()'
     )
     model_parameters = {
-        'image': {'default': 'None', 'assert': 'True'}
+        'image': {'default': 'None', 'assert': 'True'},
+        'set_label': {'default': 'False', 'assert': 'True'}
     }
 
-    def __init__(self, image=None, **kwargs):
+    def __init__(self, image=None, set_label=None, **kwargs):
         super().model_parameters.update(self.model_parameters)
         self.model_parameters.update(super().model_parameters)
 
         self.image = image
+        self.set_label = set_label
 
         super().__init__(**kwargs)
 
     def calculate(self, paths, coords, properties=['potential'], **kwargs):
         results_raw = {}
+        if len(coords.shape) == 2:
+            coords = coords[..., np.newaxis]
         for positions in coords.T:
             image = self.coord2image(positions)
             if False:
@@ -65,15 +70,22 @@ class AtomicModel(Model):
                 results[key] = np.array(value).T
         return results
 
-    def get_effective_mass(self, paths, coords=None, image=None, **kwargs):
+    def get_mass(self, paths, coords=None, image=None, **kwargs):
         image = image or self.image
         return atomic_masses[image.symbols.numbers, np.newaxis]
 
-    def coord2image(self, coord=None, image=None):
+    def get_effective_mass(self, paths, coords=None, image=None, **kwargs):
         image = image or self.image
-        image.set_positions(coord)
-        label = self.get_label(coord)
-        image.calc.label = label
+        m = atomic_masses[image.symbols.numbers]
+        return np.repeat(m, 3)[..., np.newaxis]
+
+    def coord2image(self, coord=None, image=None, set_label=None):
+        image = image or self.image
+        set_label = set_label or self.set_label
+        image.positions = coord
+        if set_label:
+            label = self.get_label(coord)
+            image.calc.label = label
         return copy.deepcopy(image)
 
     @classmethod

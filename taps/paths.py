@@ -170,6 +170,9 @@ class Paths:
     def get_accelerations(self, **kwargs):
         return self.model.get_acceleration(self, **kwargs)
 
+    def get_mass(self, **kwargs):
+        return self.model.get_mass(self, **kwargs)
+
     def get_effective_mass(self, **kwargs):
         return self.model.get_effective_mass(self, **kwargs)
 

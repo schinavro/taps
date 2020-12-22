@@ -110,14 +110,17 @@ class DAO(PathFinder):
         if muE is None:
             muE = self.muE
         muT, muP, muL = self.muT, self.muP, self.muL
+
+        shape = self.prj._x(paths.coords(index=np.s_[1:-1])).shape
         D, Nk, N = paths.D, paths.Nk, paths.N
-        shape = self.prj.x(paths.coords)
+        # D, N = np.prod(shape[:-1]), shape[-1] + 2
         dt = paths.coords.epoch / N
         gam = self.gam
 
         def prj_handler(S):
             def action(coords):
-                paths.coords = self.prj.x_inv(coords.reshape(shape))
+                coords = self.prj._x_inv(coords.reshape(shape))
+                paths.coords[..., 1:-1] = coords
                 return S()
             return action
 
@@ -154,12 +157,13 @@ class DAO(PathFinder):
             2qj 2qj21 2qj11 2D2
             """
             # Vi, Vf = paths.get_potential_energy(index=[0, -1])
-            F = -paths.get_gradients(index=np.s_[:])
+            F = -paths.get_gradients(index=np.s_[:]).reshape((D, N))
             dV = -np.concatenate([F, F[..., -1, np.newaxis]], axis=-1)
-            v = paths.get_velocity(index=np.s_[:])
+            v = paths.get_velocity(index=np.s_[:]).reshape((D, N))
             m = paths.get_effective_mass(index=np.s_[:])
             _gam = gam * m
-            ldVl2 = (dV * dV).sum(axis=0)
+            # ldVl2 = (dV * dV).sum(axis=0)
+            ldVl2 = dV * dV
             # DxMx(P-1) -> P
             Som = (_gam * (v * v)
                    + (ldVl2[..., 1:] + ldVl2[..., :-1]) / 2 / _gam
@@ -197,17 +201,22 @@ class DAO(PathFinder):
         prj_search = prj_search or self.prj_search
 
         D, Nk, N = paths.D, paths.Nk, paths.N
+
+        shape = paths.coords(index=np.s_[1:-1]).shape
+        prj_shape = self.prj._x(paths.coords(index=np.s_[1:-1])).shape
+        # D, N = np.prod(shape[:-1]), shape[-1] + 2
+
         muT, muP, muL = self.muT, self.muP, self.muL
         dt = paths.coords.epoch / N
-        shape = self.prj.x(paths.coords)
         # energy_conservation_grad = two_points_e_grad
         gam = self.gam
 
         def prj_handler(dS):
-            def grad_action(coords):
-                paths.coords = self.prj.x_inv(coords.reshape(shape))
-                ds = self.prj.f(dS(), coords)
-                return ds
+            def grad_action(rcoords):
+                coords = self.prj._x_inv(rcoords.reshape(prj_shape))
+                paths.coords[..., 1:-1] = coords
+                ds, c = self.prj.f(dS().reshape(shape), coords)
+                return ds.flatten()
             return grad_action
 
         def sin_handler(dS):
@@ -264,7 +273,7 @@ class DAO(PathFinder):
         @handler
         def energy_conservation():
             F = -paths.get_gradients(index=np.s_[:])
-            p = paths.get_momentum(index=np.s_[:])                 # D x M x P
+            p = paths.get_momentum(index=np.s_[:])                 # D x M x N
             K = paths.get_kinetic_energy(index=np.s_[:])           # P
             V = paths.get_potential_energy(index=np.s_[:])         # P
             H = K + V                                        # P
@@ -321,7 +330,7 @@ class DAO(PathFinder):
             if self.sin_search:
                 x0 = paths.coords.rcoords.flatten()
             elif self.prj_search:
-                x0 = self.prj.x(paths.coords)
+                x0 = self.prj.x(paths.coords(index=np.s_[1:-1]))
             else:
                 x0 = paths.coords[..., 1:-1].flatten()
             res = minimize(act, x0, jac=jac, **search_kwargs)
@@ -344,7 +353,7 @@ class DAO(PathFinder):
             if self.sin_search:
                 x0 = paths.coords.rcoords.flatten()
             elif self.prj_search:
-                x0 = self.prj.x(paths.coords)
+                x0 = self.prj._x(paths.coords[..., 1:-1])
             else:
                 x0 = paths.coords[..., 1:-1].flatten()
             print("jac_max > tol(%.2f); Run without gradient" % self.tol)
@@ -366,7 +375,8 @@ class DAO(PathFinder):
             paths.coords.rcoords = res.x.reshape((paths.D, paths.Nk))
             return paths.copy()
         elif self.prj_search:
-            paths.coords = self.prj.x_inv(res.x)
+            paths.coords[..., 1:-1] = self.prj._x_inv(res.x)
+            return paths.copy()
         else:
             p = res.x.reshape((paths.D, paths.N - 2))
             paths.coords[..., 1:-1] = p

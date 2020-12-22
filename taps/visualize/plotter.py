@@ -518,7 +518,8 @@ class Plotter:
             # scatter_color = ['orange']
         else:
             coords = plotter_coords
-            line_color = jmol_colors[paths.model.image.symbols.numbers]
+            # line_color = jmol_colors[paths.model.image.symbols.numbers]
+            line_color = jmol_colors[[13]*12 + [79]]
             scatter_color = [lighten_color(c) for c in line_color]
         for i in range(A):
             coord = coords[..., i, :]
