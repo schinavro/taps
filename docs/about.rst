@@ -13,7 +13,6 @@ Environment (ASE). Hence, our principle shares it of ASE, namely
 
 
 - **Flexible**:
-
 Purpose of TAPS is not limited only for atomic system, but rather user defined
 model system. User can add
 
