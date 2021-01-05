@@ -32,7 +32,9 @@ release = '0.01'
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 # ['sphinx.ext.autodoc, doctest, intershpinx, todo, coverage, imgmath, mathjax]
-extensions = ['sphinx.ext.mathjax']
+extensions = ['sphinx.ext.mathjax', 'sphinx.ext.autodoc',
+              'sphinx.ext.doctest', 'sphinx.ext.coverage',
+              'numpydoc', 'sphinx.ext.napoleon']
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']

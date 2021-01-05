@@ -1,3 +1,11 @@
+"""
+Coords
+========
+Coordinate representaion of transition pathway
+
+"""
+
+
 import copy
 import numpy as np
 from numpy import concatenate
@@ -9,7 +17,21 @@ from taps.utils.arraywrapper import arraylike
 @arraylike
 class Coords:
     """
-    Default - descretized coordinate representation.
+    Discretized coordinate representaion of a system. In default, system is
+    considered as Cartesian.
+
+    Parameters
+    ----------
+
+    coords: numpy array shape of DxN or 3xAxN
+
+    epoch: float
+       Total transition time of a system
+    Nk: int
+       Number of sine component representation of a system
+    unit: string
+      length unit of a system. Currently it is only for a display purpose.
+      (TODO: automatic unit matching with Model class)
     """
     def __init__(self, coords=None, epoch=3, _Nk=None, Nk=None, unit=None,
                  **kwargs):

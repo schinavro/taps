@@ -5,7 +5,6 @@ from taps.coords import Coords
 
 # Parameters that will be saved
 paths_parameters = {
-    'Pk': {'default': '{N:d}', 'assert': '{name:s} > 0'},
     'prefix': {'default': "'paths'", 'assert': 'len({name:s}) > 0'},
     'directory': {'default': "'.'", 'assert': 'len({name:s}) > 0'},
     'tag': {'default': "dict()", 'assert': 'True'}
@@ -20,14 +19,45 @@ class_objects = {
 
 class Paths:
     """
-    coords : coordinate representation of atomic configuration
-    epoch : total time spent from initial state to final state
-    images : Atoms containing full cartesian coordinate
-    prj : coordinate projector, function maps between reduced coordinate and
-          full cartesian coordinate
-    pk : fourier represenation of coords
-    label : name
+    Paths object
 
+    Centeral class for pathway calculation.
+    Object contains coordinates class and potential class and database
+
+    parameters
+    ----------
+
+    coords  : Coords class
+        Coordinate representation that connect initial state to final state.
+        Calculation involving intermediate states, such as, kinetic energy
+        or momentum, can be found in the Coords class.
+    label   : string
+        Set of character that distinguish from other Paths classes. This can be
+        use in other module as default filename.
+    model   : Model class
+        Model that calculates potential energy of intermediate coordinates.
+    finder  : PathFinder class
+        Class that optimize the coordinates suitable for the finder class.
+    imgdata : Database class
+        Class made to easily accessible to the calculated database.
+    tag     : dict
+        Auxilary parameters for external use.
+
+    Example
+    -------
+
+    >>> import numpy as np
+    >>> from taps.paths import Paths
+    >>> x = np.linspace(-0.55822365, 0.6234994, 300)
+    >>> y = np.linspace(1.44172582, 0.02803776, 300)
+    >>> paths = Paths(coords = np.array([x, y]))
+
+    >>> from taps.model.mullerbrown import MullerBrown
+    >>> paths.model = MullerBrown()
+
+    >>> from taps.visualize import view
+    >>> view(paths, calculate_map=True, viewer='MullerBrown')
+    [Map should be shown]
     """
 
     def __init__(self, coords=None, label=None, model='Model',

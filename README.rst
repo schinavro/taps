@@ -7,6 +7,4 @@ Totally Accurate Pathway Simulator
     :target: https://seoul-national-university-taps.readthedocs-hosted.com/en/latest/?badge=latest
     :alt: Documentation Status
 
-Read the doc at : https://seoul-national-university-taps.readthedocs-hosted.com/en/latest/?
-
-
+Read the doc at : https://seoul-national-university-taps.readthedocs-hosted.com/
