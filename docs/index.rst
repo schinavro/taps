@@ -1,17 +1,22 @@
-.. Totally Accurate Pathway Simulator (TAPS) documentation master file,
-   created by
-   sphinx-quickstart on Thu Dec 31 20:59:06 2020.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+==================================
+Totally Accurate Pathway Simulator
+==================================
 
-Welcome to Totally Accurate Pathway Simulator (TAPS)'s documentation!
-====================================================================
+Totally Accurate Pathway Simulator (TAPS) is a pathway simulation tool contains
+coordinate representation tools, projection tools, model for potential energy
+surface, modularized pathway optimization tools, database for machine learning,
+data driven potential energy surface etc.
+
+
+Contents
+========
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Contents:
 
-   pages/test_page
+    about
+    install
+    examples/tutorial
+    taps/taps
 
 
 
