@@ -18,7 +18,7 @@ master_doc = 'index'
 
 # -- Project information -----------------------------------------------------
 
-project = 'Totally Accurate Pathway Simulator (TAPS)'
+project = 'TAPS'
 copyright = '2020, schinavro'
 author = 'schinavro'
 
