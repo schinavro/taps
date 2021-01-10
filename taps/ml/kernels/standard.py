@@ -11,20 +11,39 @@ class Standard(Kernel):
     def __call__(self, Xn=None, Xm=None, orig=False, noise=False,
                  hyperparameters=None, gradient_only=False, hessian_only=False,
                  potential_only=False):
-        """Return the kernel k(X, Y) and optionally its gradient.
+        """
+        anisotropic squared exponential kernel
+
         Parameters
         ----------
-        X : array, shape (n_samples_X, n_features)
-            Left argument of the returned kernel k(X, Y)
-        Y : array, shape (n_samples_Y, n_features), (optional, default=None)
-            Right argument of the returned kernel k(X, Y). If None, k(X, X)
-            if evaluated instead.
+        Xn : array size of DxN
+           Suppose to be a matrix contains points to be estimated.
+        Xm : array size of DxM
+           Suppose to be a matrix contains data points have been calculated.
+        orig: bool
+           Whether return non extended kerenl or not
+        noise: bool
+           wether it will use noise parameter or not
+        hyperparameters: dict
+           use custom hyperparameters set if given
+        gradient_only: bool
+           If one want to calculate gradient.
+           If it is true, it will return only gradient part of kernel matrix
+        hessian_only: bool
+           If it is true, it will return the hessian kernel matrix
+        potential_only: bool
+           If it is true, it will return only potential part of kernel matrix
+
         Returns
         -------
-        K : array, shape (n_samples_X, n_samples_Y)
-            Kernel k(X, Y)
-        http://home.zcu.cz/~jacobnzw/pdf/2016_mlsp_gradients.pdf
-        978-1-5090-0746-2/16/$31.00 c 2016 IEE
+        orig:
+             M x N array
+        potential_only:
+             DN x M array
+        gradient_only:
+             DN x DM array
+        hessian_only:
+             DN x DDM array
         """
         if hyperparameters is None:
             hyperparameters = self.hyperparameters

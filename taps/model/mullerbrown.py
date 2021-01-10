@@ -3,6 +3,31 @@ from taps.model.model import Model
 
 
 class MullerBrown(Model):
+    """ Muller Brown Potential
+
+    .. math::
+
+       \\begin{equation}
+       V\\left(x,y\\right) =
+       \\sum_{\\mu=1}^{4}{A_\\mu e^{a_\\mu \\left(x-x_\\mu^0\\right)^2
+       + b_\\mu \\left(x-x_\\mu^0\\right) \\left(y-y_\\mu^0\\right)
+       + c_\\mu\\left(y-y_\\mu^0\\right)^2}}
+       \\end{equation}
+
+    * Initial position = (-0.55822365, 1.44172582)
+
+    * Final position = (0.6234994, 0.02803776)
+
+    Example
+    -------
+
+    >>> import numpy as np
+    >>> N = 300
+    >>> x = np.linspace(-0.55822365, 0.6234994, N)
+    >>> y = np.linspace(1.44172582, 0.02803776, N)
+    >>> paths.coords = np.array([x, y])
+
+    """
     implemented_properties = {'potential', 'gradients', 'hessian'}
 
     model_parameters = {

@@ -12,17 +12,32 @@ from taps.ml.neural import Mean
 
 
 class Gaussian(Model):
+    """
+    Gaussian Potential Energy Surface model
+
+    Using the given data, estimate the potential. Additionally, it can estimate
+    the covariance
+
+    Parameters
+    ----------
+
+    'real_model': Model class
+        Actuall model that Gaussian PES supposed to be approximate
+    'kernel': Kernel class
+        kernel function for the Gaussian process
+    'mean': Mean class
+        User define Mean function used in GP
+
+    """
+
     implemented_properties = {'covariance', 'potential', 'gradients',
                               'hessian'}
     model_parameters = {
-        'real_model': {'default': "'Model'", 'assert': 'True',
-                       'class': True, 'from': 'taps.model'},
         'kernel': {'default': "'Kernel'", 'assert': 'True',
                    'class': True, 'from': 'taps.ml.gaussian'},
         'mean': {'default': "'Mean'", 'assert': 'True',
                  'class': True, 'from': 'taps.ml.gaussian'},
         'mean_type': {'default': "'average'", 'assert': isstr},
-        'kernel_type': {'default': "'Total'", 'assert': isstr},
         'optimized': {'default': 'None', 'assert': isbool},
         'hyperparameters': {'default': 'dict()', 'assert': isDct},
         'hyperparameters_bounds': {'default': 'dict()', 'assert': isDct},
@@ -42,7 +57,8 @@ class Gaussian(Model):
         # Silence!
         Kernel, Mean
         self.real_model = real_model
-        self.model_parameters.update(self.real_model.model_parameters)
+        super().model_parameters.update(self.model_parameters)
+        self.model_parameters.update(super().model_parameters)
 
         self.kernel = kernel
         self.kernel_type = kernel_type

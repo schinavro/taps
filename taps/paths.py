@@ -18,13 +18,12 @@ class_objects = {
 
 
 class Paths:
-    """
-    Paths object
+    """ Paths class infterfacing other modules
 
     Centeral class for pathway calculation.
     Object contains coordinates class and potential class and database
 
-    parameters
+    Parameters
     ----------
 
     coords  : Coords class
@@ -152,6 +151,7 @@ class Paths:
 
     @property
     def label(self):
+        """ string used for default name of calculation """
         if self.directory == '.':
             return self.prefix
 
@@ -180,65 +180,99 @@ class Paths:
         self.prefix = prefix
 
     def get_displacements(self, **kwargs):
+        """ Calculate the distances of the pathway (accumulative)
+
+        It usually used for plotting, i.e. potential energy / distance
+        Calls the :meth:`get_displacements` at the ``paths.model``.
+        Model calls the :meth:`get_displacements` in the ``paths.coords``.
+        """
         return self.model.get_displacements(self, **kwargs)
 
     def get_momentum(self, **kwargs):
+        """ Calculate momentum of the pathway"""
         return self.model.get_momentum(self, **kwargs)
 
     def get_kinetic_energy(self, **kwargs):
+        """ Calculate kinetic energy of the pathway"""
         return self.model.get_kinetic_energy(self, **kwargs)
 
     def get_kinetic_energy_gradient(self, **kwargs):
+        """ Calculate kinetic energy gradient. 
+        differentiate Kinetic energy w.r.t. each point, That is we calculate 
+	:math:`\partial_{\mathbf{x}}E_{\mathrm{kin}}`
+        """
         return self.model.get_kinetic_energy_gradient(self, **kwargs)
 
     def get_velocity(self, **kwargs):
+        """ Calculate velocity
+        If :class:`Coords` is cartesian, velocity is calculated via
+        :math:`\mathbf{x}_{i+1} - \mathbf{x}_{i}`"""
         return self.model.get_velocity(self, **kwargs)
 
     def get_acceleration(self, **kwargs):
+        """ Calculate acceleration 
+        If :class:`Coords` is cartesian, velocity is calculated via
+        """
         return self.model.get_acceleration(self, **kwargs)
 
     def get_accelerations(self, **kwargs):
+        """ Calculate acceleration(s)
+        If :class:`Coords` is cartesian, velocity is calculated via
+        """
         return self.model.get_acceleration(self, **kwargs)
 
     def get_mass(self, **kwargs):
+        """ Calculate mass """
         return self.model.get_mass(self, **kwargs)
 
     def get_effective_mass(self, **kwargs):
+        """ Calculate effective mass"""
         return self.model.get_effective_mass(self, **kwargs)
 
     def get_properties(self, **kwargs):
+        """ Directly calls the :meth:`get_properties` in ``paths.model``"""
         return self.model.get_properties(self, **kwargs)
 
     def get_potential_energy(self, **kwargs):
+        """ Calculate potential( energy) """
         return self.model.get_potential_energy(self, **kwargs)
 
     def get_potential(self, **kwargs):
+        """ Calculate potential """
         return self.model.get_potential(self, **kwargs)
 
     def get_potential_energies(self, **kwargs):
+        """ Equivalanet to Calculate potentials"""
         return self.model.get_potential_energies(self, **kwargs)
 
     def get_potentials(self, **kwargs):
+        """ Calculate potentials, individual energy of each atoms"""
         return self.model.get_potentials(self, **kwargs)
 
     def get_forces(self, **kwargs):
+        """ Calculate - potential gradient"""
         return self.model.get_forces(self, **kwargs)
 
     def get_gradient(self, **kwargs):
+        """ Calculate potential gradient"""
         return self.model.get_gradient(self, **kwargs)
 
     def get_gradients(self, **kwargs):
+        """ Calculate potential gradient(s)"""
         return self.model.get_gradients(self, **kwargs)
 
     def get_hessian(self, **kwargs):
+        """ Calculate Hessian of a potential"""
         return self.model.get_hessian(self, **kwargs)
 
     def get_total_energy(self, **kwargs):
+        """ Calculate kinetic + potential energy"""
         V = self.model.get_potential_energy(self, **kwargs)
         T = self.model.get_kinetic_energy(self, **kwargs)
         return V + T
 
     def get_covariance(self, index=np.s_[1:-1]):
+        """ Calculate covariance. It only applies when potential is guassian"""
         cov_coords = self.model.get_covariance(self, index=np.s_[1:-1])
         _ = np.diag(cov_coords)
         cov_coords = _.copy()
@@ -247,18 +281,22 @@ class Paths:
         return 1.96 * np.sqrt(cov_coords) / 2 / sigma_f
 
     def get_higest_energy_idx(self):
+        """ Get index of highest potential energy simplified"""
         E = self.get_potential_energy()
         return np.argmax(E)
 
     def get_lowest_confident_idx(self):
+        """ Get index of lowest of covariance simplified"""
         cov = self.model.get_covariance(self)
         return np.argmax(np.diag(cov))
 
     def get_data(self, **kwargs):
+        """" list of int; Get rowid of data"""
         return self.model.get_data(self, **kwargs)
 
     def add_data(self, index=None, coords=None, cache_model=True):
-        """
+        """ Adding a calculation data to image database
+
         if index given -> create coords -> add_data
         if coords given -> add_data
         coords : atomic configuration
@@ -279,6 +317,7 @@ class Paths:
         return ids
 
     def simple_coords(self, index=np.s_[:]):
+        """Simple line connecting between init and fin"""
         coords = np.zeros(self.DMP)
         endpoint = self.coords[..., [0, -1]]
         for d in range(self.D):
@@ -287,6 +326,7 @@ class Paths:
         return coords[..., index]
 
     def fluctuate(self, initialize=True, cutoff_f=70, temperature=0.03):
+        """Give random fluctuation"""
         if initialize:
             self.coords = self.simple_coords()
         fluc = np.zeros(self.Pk)
@@ -294,14 +334,17 @@ class Paths:
         self.rcoords += fluc * (np.random.rand(*self.rcoords.shape) - 0.5)
 
     def search(self, **kwargs):
+        """ Calculate optimized pathway"""
         self.finder.search(self, **kwargs)
 
     @property
     def N(self):
+        """ Return number of steps. Usually, coords.shape[-1]"""
         return self.coords.N
 
     @property
     def D(self):
+        """ Return dimension of the system. Usually, coords.shape[0]"""
         return self.coords.D
 
     @property
@@ -310,29 +353,25 @@ class Paths:
 
     @property
     def A(self):
+        """ Return a number of atoms. It only applies coords is rank 3"""
         return self.coords.A
 
-    @property
-    def masses(self):
-        return self.model.get_mass()
-
-    def plot(self, filename=None, savefig=False, gaussian=False, **kwargs):
-        self.plotter.plot(self, filename=filename, savefig=savefig,
-                          gaussian=gaussian, **kwargs)
-
     def reset_cache(self):
+        """ Delete current cache on all modules"""
         self.model._cache = {}
         self.real_model._cache = {}
         self.imgdata._cache = {}
         self.prj._cache = {}
 
     def reset_results(self):
+        """ Delete current results on all modules"""
         self.model.results = {}
         self.real_model.results = {}
         self.finder.results = {}
         self.real_finder.results = {}
 
     def to_pickle(self, filename=None, simple=True):
+        """ Saving pickle simplified"""
         if simple:
             filename = filename or self.label + '.pkl'
             with open(filename, 'wb') as f:
