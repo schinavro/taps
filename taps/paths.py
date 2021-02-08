@@ -197,9 +197,9 @@ class Paths:
         return self.model.get_kinetic_energy(self, **kwargs)
 
     def get_kinetic_energy_gradient(self, **kwargs):
-        """ Calculate kinetic energy gradient. 
-        differentiate Kinetic energy w.r.t. each point, That is we calculate 
-	:math:`\partial_{\mathbf{x}}E_{\mathrm{kin}}`
+        """ Calculate kinetic energy gradient.
+        differentiate Kinetic energy w.r.t. each point, That is we calculate
+        :math:`\partial_{\mathbf{x}}E_{\mathrm{kin}}`
         """
         return self.model.get_kinetic_energy_gradient(self, **kwargs)
 
@@ -210,7 +210,7 @@ class Paths:
         return self.model.get_velocity(self, **kwargs)
 
     def get_acceleration(self, **kwargs):
-        """ Calculate acceleration 
+        """ Calculate acceleration
         If :class:`Coords` is cartesian, velocity is calculated via
         """
         return self.model.get_acceleration(self, **kwargs)
@@ -271,14 +271,9 @@ class Paths:
         T = self.model.get_kinetic_energy(self, **kwargs)
         return V + T
 
-    def get_covariance(self, index=np.s_[1:-1]):
+    def get_covariance(self, **kwargs):
         """ Calculate covariance. It only applies when potential is guassian"""
-        cov_coords = self.model.get_covariance(self, index=np.s_[1:-1])
-        _ = np.diag(cov_coords)
-        cov_coords = _.copy()
-        cov_coords[_ < 0] = 0
-        sigma_f = self.model.hyperparameters.get('sigma_f', 1)
-        return 1.96 * np.sqrt(cov_coords) / 2 / sigma_f
+        return self.model.get_covariance(self, **kwargs)
 
     def get_higest_energy_idx(self):
         """ Get index of highest potential energy simplified"""

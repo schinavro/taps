@@ -16,17 +16,15 @@ class Projector:
     projecting force requires to return forces and coordinate
     because of double recursion problem
 
-    domain
-    ------
+    Parameters
+    ----------
+
+    domain: Coords class
      `Coord` class object containing information about the coordinates before
      projection
-
-    codomain
-    ------
+    codomain: Coords class
      `Coord` class object containing information about projected coordinates
-
-    pipeline
-    --------
+    pipeline: Projector class
       projector nested in the projector. It will recursively call the projector
     """
 
@@ -37,15 +35,6 @@ class Projector:
 
     def pipeline(prj):
         """
-        coords
-        ------
-
-         class
-
-        crds
-        ----
-
-          numpy array
         """
         name = prj.__name__
 

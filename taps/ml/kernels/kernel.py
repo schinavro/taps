@@ -5,8 +5,7 @@ from numpy import vstack, atleast_3d
 
 
 class Kernel:
-    """
-    Function like class that generate kernel matrix.
+    """ Function like class that generate kernel matrix.
 
     Parameters
     ----------
@@ -24,8 +23,7 @@ class Kernel:
     def __call__(self, Xn=None, Xm=None, orig=False, noise=False,
                  hyperparameters=None, gradient_only=False, hessian_only=False,
                  potential_only=False):
-        """
-        Isotropic squared exponential kernel
+        """ Isotropic squared exponential kernel
 
         Parameters
         ----------

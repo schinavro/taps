@@ -799,10 +799,7 @@ class Plotter:
             ave_map = paths.get_potential_energy(coords=coords)
             return ave_map.reshape(shape)
         elif model_type == 'cov_map':
-            cov = paths.model.get_covariance(paths, coords=coords)
-            cov_m = np.copy(np.diag(cov))
-            cov_m[cov_m < 0] = 0
-            cov_map = 1.96 * np.sqrt(cov_m) / 2
+            cov_map = paths.get_covariance(coords=coords)
             return cov_map.reshape(shape)
 
     def display_float(self, f, display_range=None, display_digit=None,

@@ -164,7 +164,13 @@ class Gaussian(Model):
             self.results['covariance'] = K - (K_s_T @ K_y_inv @ K_s)[:N, :N]
 
     def get_covariance(self, paths, **kwargs):
-        return self.get_properties(paths, properties=['covariance'], **kwargs)
+        cov_coords = self.get_properties(paths, properties='covariance',
+                                         **kwargs)
+        _ = np.diag(cov_coords)
+        cov_coords = _.copy()
+        cov_coords[_ < 0] = 0
+        sigma_f = self.model.hyperparameters.get('sigma_f', 1)
+        return 1.96 * np.sqrt(cov_coords) / 2 / sigma_f
 
     def regression(self, paths, likelihood_type=None, dx=1e-2,
                    **reg_kwargs):

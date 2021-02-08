@@ -18,6 +18,16 @@ class MullerBrown(Model):
 
     * Final position = (0.6234994, 0.02803776)
 
+    Parameters
+    ----------
+    A = np.array([-200, -100, -170, 15])
+    a = np.array([-1, -1, -6.5, 0.7])
+    b = np.array([0, 0, 11, 0.6])
+    c = np.array([-10, -10, -6.5, 0.7])
+    x0 = np.array([1, 0, -0.5, -1])
+    y0 = np.array([0, 0.5, 1.5, 1])
+    potential_unit = 'unitless'
+
     Example
     -------
 

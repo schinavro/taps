@@ -13,17 +13,45 @@ from taps.projector import Projector
 
 
 class Model:
+    """ Model for static property calculation
+
+    Parameters
+    ----------
+
+    real_model: Model class
+       Model for gaining data for machine learning purpose.
+    results: dict
+       dictionary saves calculated results.
+    label: str
+       name of calculation
+    directory: str
+       directory of the label
+    prefix: str
+       name of the label
+    potential_unit: str
+       default; eV
+    data_ids: dict
+       dictionary contains id of the data.
+       In order to save the data, use
+       >>> paths.add_data(index=[0, -1]) # create & save initial and final image
+       >>> paths.model.data_ids["image"]
+       [1, 2, 15, ...]
+    optimized: bool
+       Bool check hyperparameters
+    prj: Projector class
+
+    """
     implemented_properties = {'potential'}
     model_parameters = {
         'real_model': {'default': "None", 'assert': 'True'},
         'results': {'default': "dict()", 'assert': isdct},
         'directory': {'default': 'None', 'assert': isstr},
         'prefix': {'default': 'None', 'assert': isstr},
-        'pbc': {'default': 'None', 'assert': 'True'},
         'potential_unit': {'default': '"eV"', 'assert': isstr},
         'data_ids': {'default': 'None', 'assert': isdct},
         'optimized': {'default': 'True', 'assert': 'True'},
-        'prj': {'default': 'Projector()', 'assert': 'True'}
+        'prj': {'default': 'Projector()', 'assert': 'True'},
+        'debug': {'default': 'False', 'assert': 'True'}
     }
     potential_unit = 'eV'
     name = 'Model'
@@ -104,6 +132,22 @@ class Model:
     def get_properties(self, paths, properties=['potential'],
                        index=np.s_[1:-1], coords=None, caching=False,
                        real_model=False, **kwargs):
+        """ pre-calculation rutine.
+
+        Calculate static related properties.
+
+        Parameters
+        ----------
+
+        properties: list of str
+            'potential', 'potentials', 'gradients' and 'hessian'.
+        index: slice obj
+            default; np.s_[1:-1]
+        coords: Coords class
+        caching: bool; default false
+        real_model: bool; default False
+           choose use real_model or not
+        """
         if type(properties) == str:
             properties = [properties]
         # For machine learning purpose we put real_model in model
@@ -272,6 +316,9 @@ class Model:
     def get_hessian(self, paths, **kwargs):
         return self.get_properties(paths, properties='hessian', **kwargs)
 
+    def get_covariance(self, paths, **kwargs):
+        return self.get_properties(paths, properties='covariance', **kwargs)
+
     def get_velocity(self, paths, **kwargs):
         return self.get_kinetics(paths, properties='velocity', **kwargs)
 
@@ -381,6 +428,66 @@ class Model:
                                   paths0.flatten(), epsilon=epsilon)
             paths.coords[..., index] = paths0.copy()
         prind('Total hessian error :', err)
+
+    def get_data(self, paths, coords=None, data_ids=None,
+                 keys=['coords', 'potential', 'gradients']):
+        """
+        data_ids : dictionary of lists
+            {'image': [...], 'descriptor': [...]}
+        for each key, return
+         'coords' -> 'X'; D x M x P
+         'potential'    -> 'V'; P
+         'gradient'    -> 'F'; D x M x P
+        return : dictionary contain X, V, F
+            {'X' : np.array(D x M x P), 'V': np.array(P), }
+        """
+        nax = np.newaxis
+        data_ids = data_ids or getattr(self, 'data_ids', None)
+        if data_ids is None or len(data_ids.get('image', [])) == 0:
+            return None
+        # shape = coords.shape[:-1]
+        shape = self.prj.x(paths.coords(index=[0])).shape[:-1]
+        # shape = (3, 5)
+        M = len(data_ids['image'])
+        if self._cache.get('data_ids_image') is None:
+            self._cache['data_ids_image'] = []
+            self._cache['data'] = {'X': np.zeros((*shape, 0), dtype=float),
+                                   'V': np.zeros(0, dtype=float),
+                                   'F': np.zeros((*shape, 0), dtype=float)}
+        if self._cache.get('data_ids_image') == data_ids['image']:
+            return self._cache['data']
+        else:
+            new_data_ids_image = []
+            for id in data_ids['image']:
+                if id not in self._cache['data_ids_image']:
+                    new_data_ids_image.append(id)
+        atomdata = paths.imgdata
+        name2idx = atomdata.name2idx
+        n2i = name2idx['image']
+        new_data = atomdata.read({'image': new_data_ids_image})['image']
+        M = len(new_data_ids_image)
+        data = self._cache['data']
+        if 'coords' in keys:
+            coords_raw = np.zeros((*shape, M), dtype=float)
+            for i in range(M):
+                coord_raw = new_data[i][n2i['coord']][..., nax]
+                coords_raw[..., i] = self.prj._x(coord_raw)[..., 0]
+            data['X'] = np.concatenate([data['X'], coords_raw], axis=-1)
+        if 'potential' in keys:
+            potential = np.zeros(M, dtype=float)
+            for i in range(M):
+                potential[i] = new_data[i][n2i['potential']]
+            data['V'] = np.concatenate([data['V'], potential])
+        if 'gradients' in keys:
+            gradients = np.zeros((*shape, M), dtype=float)
+            for i in range(M):
+                coords_raw = new_data[i][n2i['coord']][..., nax]
+                gradients_raw = new_data[i][n2i['gradients']][..., nax]
+                gradients_prj, _ = self.prj.f(gradients_raw, coords_raw)
+                gradients[..., i] = gradients_prj[..., 0]
+            data['F'] = np.concatenate([data['F'], -gradients], axis=-1)
+        self._cache['data_ids_image'].extend(new_data_ids_image)
+        return data
 
     def add_data_ids(self, ids, overlap_handler=True):
         """

@@ -1,11 +1,3 @@
-"""
-Coords
-========
-Coordinate representaion of transition pathway
-
-"""
-
-
 import copy
 import numpy as np
 from numpy import concatenate
@@ -56,25 +48,16 @@ class Coords:
 
     @classmethod
     def ascoords(cls, coords):
-        """Return argument as a Cell object.  See :meth:`ase.cell.Cell.new`.
+        """Return argument as a Coords object.
 
-        A new Cell object is created if necessary."""
+        A new Coords object is created if necessary."""
         if isinstance(coords, cls):
             return coords
         return cls.new(coords)
 
     @classmethod
     def new(cls, coords=None):
-        """Create new coords from any parameters.
-
-        If cell is three numbers, assume three lengths with right angles.
-
-        If cell is six numbers, assume three lengths, then three angles.
-
-        If cell is 3x3, assume three cell vectors."""
-
-        if coords is None:
-            coords = np.zeros((3, 3))
+        """Create new Coords"""
 
         coords = np.array(coords, float)
 
@@ -82,9 +65,6 @@ class Coords:
         return coordsobj
 
     def __array__(self, dtype=float):
-        if dtype != float:
-            raise ValueError('Cannot convert cell to array of type {}'
-                             .format(dtype))
         return self.coords
 
     def __bool__(self):
@@ -95,13 +75,12 @@ class Coords:
 
     @property
     def N(self):
-        """
-        Number of steps
-        """
+        """ Number of steps; coords.shape[-1]"""
         return self.coords.shape[-1]
 
     @property
     def Nk(self):
+        """ Number of sine components. Default is N - 2"""
         return self._Nk or self.N - 2
 
     @Nk.setter
@@ -110,9 +89,7 @@ class Coords:
 
     @property
     def D(self):
-        """
-        Total dimension
-        """
+        """ Total dimension of coords. """
         shape = self.coords.shape
         if len(shape) == 3:
             return shape[0] * shape[1]
@@ -121,9 +98,7 @@ class Coords:
 
     @property
     def A(self):
-        """
-        Number of individual components
-        """
+        """ Number of individual atoms or components """
         shape = self.coords.shape
         if len(shape) == 3:
             return shape[1]
@@ -131,6 +106,18 @@ class Coords:
             return 1
 
     def get_displacements(self, coords=None, epoch=None, index=np.s_[:]):
+        """Return displacements of each steps.
+        Get coords(array) and return length N array. Useful for plotting E/dist
+
+        Parameters
+        ----------
+        coords : array
+            size of DxN or 3xAxN
+        epoch : float
+            total time spend during transition
+        index : slice obj; Default `np.s_[:]`
+            Choose the steps want it to be returned. Default is all steps.
+        """
         p = coords or self.coords
         normaxis = np.arange(len(p.shape))[:-1]
         d = np.linalg.norm(np.diff(p), axis=tuple(normaxis))
@@ -138,8 +125,19 @@ class Coords:
         return np.add.accumulate(d)[index]
 
     def get_velocity(self, coords=None, epoch=None, index=np.s_[:]):
-        """
-        Returns Dim x M x P array, two point
+        """ Return velocity at each step
+        Get coords and return DxN or 3xAxN array, two point moving average.
+
+        :math:`v[i] = (x[i+1] - x[i]) / dt`
+
+        Parameters
+        ----------
+        coords : array
+            size of DxN or 3xAxN
+        epoch : float
+            total time step.
+        index : slice obj; Default `np.s_[:]`
+            Choose the steps want it to be returned. Default is all steps.
         """
         p = coords or self.coords.copy()
         epoch, N = epoch or self.epoch, self.N
@@ -155,9 +153,20 @@ class Coords:
         return (p[..., i] - p[..., i - 1]) / dt
 
     def get_acceleration(self, coords=None, epoch=None, index=np.s_[:]):
-        """
-        Get D x N x P-2 ndarray
-        Returns 3 x N x P - 1 array
+        """ Return acceleration at each step
+        Get Dx N ndarray, Returns 3xNxP - 1 array, use three point to get
+        acceleration
+
+        :math:`a[i] = (2x[i] - x[i+1] - x[i-1]) / dtdt`
+
+        Parameters
+        ----------
+        coords : array
+            size of DxN or 3xAxN
+        epoch : float
+            total time step.
+        index : slice obj; Default `np.s_[:]`
+            Choose the steps want it to be returned. Default is all steps.
         """
         p = coords or self.coords.copy()
         epoch, N = epoch or self.epoch, self.N
@@ -180,7 +189,7 @@ class Coords:
     def rcoords(self):
         """ Recieprocal representation of a pathway
             Returns rcoords array
-            D x M x (P - 2) array
+            DxNk array
         """
         # return dst(self.coords - self.init_image, type=4)[..., :self.Pk]
         ## return dst(self.coords[..., 1:-1], type=4)[..., :self.Pk]
@@ -188,9 +197,8 @@ class Coords:
 
     @rcoords.setter
     def rcoords(self, rcoords):
-        """
-            For numerical purpose, set rpath.
-            D x M x (P - 2)  array
+        """ For numerical purpose, set rpath.
+            D x Nk array
         """
         # P = self.P
         # coords = idst(rcoords, type=4, n=P) / (2 * P) + self.init_image
@@ -201,10 +209,12 @@ class Coords:
         self.coords[..., 1:-1] = idst(rcoords, type=1, norm='ortho')
 
     def flat(self):
+        """ Return flat version of paths"""
         N = self.N
         return self.coords.reshape((-1, N))
 
     def copy(self):
+        """ Return deep copy of itself"""
         return copy.deepcopy(self)
 
 
