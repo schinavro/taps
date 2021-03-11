@@ -32,7 +32,8 @@ class DAO(PathFinder):
         'Et': {'default': 'None', 'assert': issclr},
         'dEt': {'default': 'None', 'assert': issclr},
         'dH': {'default': 'None', 'assert': issclr},
-        'res': {'default': 'None', 'assert': 'True'}
+        'res': {'default': 'None', 'assert': 'True'},
+        'search_kwargs': {'default': 'None', 'assert': 'True'}
     }
     display_map_parameters = OrderedDict({
         'results': {
@@ -76,7 +77,7 @@ class DAO(PathFinder):
     def __init__(self, action_name=None, muE=None, muT=None, muP=None, muL=None,
                  T=None, tol=None, method=None, eps=None, disp=None,
                  gam=None, sin_search=None, prj_search=None, use_grad=None,
-                 maxiter=None, Et_opt_tol=None, **kwargs):
+                 maxiter=None, Et_opt_tol=None, search_kwargs=None, **kwargs):
         super().finder_parameters.update(self.finder_parameters)
         self.finder_parameters.update(super().finder_parameters)
         self.action_name = action_name
@@ -94,6 +95,7 @@ class DAO(PathFinder):
         self.method = method
         self.maxiter = maxiter
         self.Et_opt_tol = Et_opt_tol
+        self.search_kwargs = search_kwargs
 
         super().__init__(**kwargs)
 
@@ -297,34 +299,35 @@ class DAO(PathFinder):
         return lambda x: np.array([df(x) for df in dS]).sum(axis=0)
 
     def optimize(self, paths=None, logfile=None, Et=None, Et_type=None,
-                 action_name=None, **args):
-        if logfile is not None:
-            stdout = sys.stdout
-            if isinstance(logfile, str):
-                close_log = True
-                logfile = open(logfile, 'a')
-                sys.stdout = logfile
-            else:
-                close_log = False
-                sys.stdout = logfile
+                 action_name=None, search_kwargs=None, **args):
+        close_log = False
+        search_kwargs = search_kwargs or self.search_kwargs
+        if logfile is None:
+            printt = lambda line: print(line)
+        elif isinstance(logfile, str):
+            close_log = True
+            logfile = open(logfile, 'a')
+            printt = logfile.write
+        elif logfile.__class__.__name__ == "TextIOWrapper":
+            printt = lambda line: logfile.write(line + '\n')
         action_name = action_name or self.action_name
         if type(action_name) == str:
             action_name = [action_name]
-
-        print('Action name  : ', ' + '.join(action_name))
+        printt('Action name  : ' + ' + '.join(action_name))
         Et = self.get_target_energy(paths, Et=Et, Et_type=Et_type)
         action_name_lower = [action.lower() for action in action_name]
         if 'energy conservation' in action_name_lower:
-            print('Target energy: ', Et)
-            print('Target type  : ', self.Et_type)
-            print('muE          : ', self.muE)
+            printt('Target energy: ' + str(Et))
+            printt('Target type  : ' + str(self.Et_type))
+            printt('muE          : ' + str(self.muE))
         if 'onsager machlup' in action_name_lower:
-            print('gamma        : ', self.gam)
+            printt('gamma        : ' + str(self.gam))
 
         act = self.action(paths, Et=Et)
         jac = self.grad_action(paths, Et=Et)
-        search_kwargs = self.get_search_kwargs(**args)
-        print('            Iter   nfev   njev        S   dS_max')
+        search_kwargs = self.get_search_kwargs(search_kwargs=search_kwargs,
+                                               **args)
+        printt('            Iter   nfev   njev        S   dS_max')
         while True:
             # print(res.message)
             if self.sin_search:
@@ -335,7 +338,7 @@ class DAO(PathFinder):
                 x0 = paths.coords[..., 1:-1].flatten()
             res = minimize(act, x0, jac=jac, **search_kwargs)
             self.set_results(res)
-            print('{msg} : {nit:6d} {nfev:6d} {njev:6d} '
+            printt('{msg} : {nit:6d} {nfev:6d} {njev:6d} '
                   '{fun:8.4f} {jac_max:8.4f}'.format(**self.results))
             if res.nit < 4:
                 break
@@ -356,10 +359,10 @@ class DAO(PathFinder):
                 x0 = self.prj._x(paths.coords[..., 1:-1])
             else:
                 x0 = paths.coords[..., 1:-1].flatten()
-            print("jac_max > tol(%.2f); Run without gradient" % self.tol)
+            printt("jac_max > tol(%.2f); Run without gradient" % self.tol)
             res = minimize(act, x0, jac=jac, **search_kwargs)
             self.set_results(res)
-            print('{msg} : {nit:6d} {nfev:6d} {njev:6d} '
+            printt('{msg} : {nit:6d} {nfev:6d} {njev:6d} '
                   '{fun:8.4f} {jac_max:8.4f}'.format(**self.results))
             if res.nit < 3:
                 break
@@ -367,16 +370,15 @@ class DAO(PathFinder):
         om = 'Onsager Machlup'
         self.results[om] = self.action(paths, action_name=om,
                                        muE=0.)(paths.coords.rcoords)
-        if logfile is not None:
-            sys.stdout = stdout
-            if close_log:
-                logfile.close()
+        if close_log:
+            logfile.close()
         if self.sin_search:
             paths.coords.rcoords = res.x.reshape((paths.D, paths.Nk))
             return paths.copy()
         elif self.prj_search:
             paths.coords[..., 1:-1] = self.prj._x_inv(res.x)
-            return paths.copy()
+            # return paths.copy()
+            return paths
         else:
             p = res.x.reshape((paths.D, paths.N - 2))
             paths.coords[..., 1:-1] = p
@@ -393,13 +395,18 @@ class DAO(PathFinder):
         self.results['message'] = res.message
         self.results['success'] = res.success
         self.results['status'] = res.status
-        msg_lower = res.message.lower()
+        msg_lower = str(res.message).lower()
         if 'desired' in msg_lower:
             self.results['msg'] = 'Warning'
         elif 'maximum' in msg_lower:
             self.results['msg'] = 'Max out'
         elif 'successfully' in msg_lower:
             self.results['msg'] = 'Success'
+        else:
+            if len(msg_lower) > 7:
+                self.results['msg'] = msg_lower[:7]
+            else:
+                self.results['msg'] = msg_lower + ' ' * (7-len(msg_lower))
         if mode == 'w':
             self.results['nfev'] = res.nfev
             self.results['nit'] = res.nit
@@ -471,7 +478,9 @@ class DAO(PathFinder):
         self.Et = Et
         return Et
 
-    def get_search_kwargs(self, **args):
+    def get_search_kwargs(self, search_kwargs=None, **args):
+        if search_kwargs is not None:
+            return search_kwargs
         method = args.get('method')
         tol = args.get('tol')
         disp = args.get('disp')
@@ -488,10 +497,10 @@ class DAO(PathFinder):
         if eps is None:
             eps = self.eps
 
-        search_kwargs = {'method': method, 'tol': tol,
-                         'options': {'disp': disp,
-                                     'maxiter': maxiter,
-                                     'eps': eps}}
+        search_kwargs = {
+            'method': method, 'tol': tol,
+            'options': {'disp': disp, 'maxiter': maxiter,
+                        'eps': eps}}
         # search_kwargs.update(args)
         return search_kwargs
 
@@ -499,6 +508,7 @@ class DAO(PathFinder):
         if len(paths.get_data()['V']) < 2:
             print('Need to set up data first')
             return
+        search_kwargs = search_kwargs or self.search_kwargs
         if self.sin_search:
             x0 = paths.coords.rcoords.flatten()
         else:

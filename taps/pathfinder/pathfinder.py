@@ -108,8 +108,8 @@ class PathFinder:
         else:
             new_paths = finder.optimize_pbs(paths=paths, pbs=pbs, **kwargs)
 
-        if paths is not new_paths:
-            paths.__dict__.update(new_paths.__dict__)
+        # if paths is not new_paths:
+        #     paths.__dict__.update(new_paths.__dict__)
 
     def isConverged(self, *args, **kwargs):
         return True

@@ -7,7 +7,7 @@ from taps.pathfinder import PathFinder
 from taps.utils.shortcut import isstr, isLst
 
 
-class GaussianSearch(PathFinder):
+class GPAO(PathFinder):
 
     finder_parameters = {
         'real_finder': {'default': '"DAO"', 'assert': 'True'},
@@ -115,9 +115,10 @@ class GaussianSearch(PathFinder):
         return self.convergence_checker
 
     def maximum_uncertainty(self, paths, gptol=None, iter=None):
-        cov = 1.96 * np.sqrt(np.diag(paths.model.get_covariance(paths)))
+        cov = paths.get_covariance()
         self._maximum_uncertainty_checked = True
-        self._cov_max = cov.max() / paths.model.hyperparameters['sigma_f']
+        # self._cov_max = cov.max() / paths.model.hyperparameters['sigma_f']
+        self._cov_max = cov.max()
         return np.argmax(cov)
 
     def check_maximum_uncertainty_convergence(self, paths, idx=None, **kwargs):
@@ -149,7 +150,8 @@ class GaussianSearch(PathFinder):
     def uncertain_or_maximum_energy(self, paths, iter=None, **kwargs):
         cov = paths.get_covariance(index=np.s_[:])
         self._maximum_uncertainty_checked = True
-        self._cov_max = cov.max() / paths.model.hyperparameters['sigma_f']
+        # self._cov_max = cov.max() / paths.model.hyperparameters['sigma_f']
+        self._cov_max = cov.max()
         if self._cov_max > self.cov_max_tol:
             return np.argmax(cov)
         E = paths.get_potential_energy(index=np.s_[:])
@@ -189,7 +191,8 @@ class GaussianSearch(PathFinder):
             self._muErr = np.abs(self._E_max - imgdata['V'][-1])
         # @@@@@@@@@@@@@@@@@@@@
         cov = paths.get_covariance(index=np.s_[:])
-        self._cov_max = cov.max() / paths.model.hyperparameters['sigma_f']
+        # self._cov_max = cov.max() / paths.model.hyperparameters['sigma_f']
+        self._cov_max = cov.max()
         if np.abs(V.max() - paths.real_finder.Et) < self.Et_opt_tol and \
                 self._cov_max > self.cov_max_tol:
             return 1
@@ -329,30 +332,45 @@ class GaussianSearch(PathFinder):
             logdir = '.'
         if not os.path.exists(logdir):
             os.makedirs(logdir)
-        logfile = open(log, 'a+')
-        dir = os.path.dirname(log)
-        if dir == '':
-            dir = '.'
-        if not os.path.exists(dir):
-            os.makedirs(dir)
-        if os.path.exists(label + '_pathsdata.db'):
-            logfile.write("\nReading %s \n" % (label + '_pathsdata.db'))
-            pathsdata = PathsData(label + '_pathsdata.db')
-            query = "rowid DESC LIMIT 1;"
-            where = " ORDER BY "
-            columns = ['rowid', 'paths']
-            data = pathsdata.read(query=query, where=where, columns=columns)[0]
-            paths = data['paths']
-            iter_number = data['rowid'] + 1
-        else:
-            filename = label + '_initial'
-            logfile.write("Writting %s \n" % (label + '_pathsdata.db'))
-            self._save(paths, filename=filename)
-            iter_number = 1
+        with open(log, 'a+') as logfile:
+            dir = os.path.dirname(log)
+            if dir == '':
+                dir = '.'
+            if not os.path.exists(dir):
+                os.makedirs(dir)
+            if os.path.exists(label + '_pathsdata.db'):
+                logfile.write("\nReading %s \n" % (label + '_pathsdata.db'))
+                pathsdata = PathsData(label + '_pathsdata.db')
+                query = "rowid DESC LIMIT 1;"
+                where = " ORDER BY "
+                columns = ['rowid', 'paths']
+                data = pathsdata.read(query=query, where=where, columns=columns)[0]
+                paths = data['paths']
+                iter_number = data['rowid'] + 1
+            else:
+                filename = label + '_initial'
+                logfile.write("Writting %s \n" % (label + '_pathsdata.db'))
+                self._save(paths, filename=filename)
+                iter_number = 1
 
-        logfile.flush()
-        i = iter_number
-        while not self.check_convergence(paths, iter=i, logfile=logfile):
+            logfile.flush()
+            i = iter_number
+            while not self.check_convergence(paths, iter=i, logfile=logfile):
+                dat = [str(d) for d in paths.model.data_ids['image']]
+                logfile.write("Iteration    : %d\n" % i)
+                logfile.write("Phase        : %s\n" % self.Phase)
+                logfile.write("Number of Dat: %d\n" % len(dat))
+                logfile.write("ImgData idx  : %s\n" % ', '.join(dat))
+                filename = label + '_{i:02d}'.format(i=i)
+                self.I_prepared_my_paths_in_various_ways(paths, logfile=logfile)
+                paths.search(real_finder=True, logfile=logfile, **search_kwargs)
+                self.results.update(paths.real_finder.results)
+                self._save(paths, filename=filename)
+                i += 1
+                if self.maxtrial < i:
+                    logfile.write("Max iteration, %d, reached! \n" % self.maxtrial)
+                    break
+
             dat = [str(d) for d in paths.model.data_ids['image']]
             logfile.write("Iteration    : %d\n" % i)
             logfile.write("Phase        : %s\n" % self.Phase)
@@ -363,27 +381,11 @@ class GaussianSearch(PathFinder):
             paths.search(real_finder=True, logfile=logfile, **search_kwargs)
             self.results.update(paths.real_finder.results)
             self._save(paths, filename=filename)
-            i += 1
-            if self.maxtrial < i:
-                logfile.write("Max iteration, %d, reached! \n" % self.maxtrial)
-                break
-
-        dat = [str(d) for d in paths.model.data_ids['image']]
-        logfile.write("Iteration    : %d\n" % i)
-        logfile.write("Phase        : %s\n" % self.Phase)
-        logfile.write("Number of Dat: %d\n" % len(dat))
-        logfile.write("ImgData idx  : %s\n" % ', '.join(dat))
-        filename = label + '_{i:02d}'.format(i=i)
-        self.I_prepared_my_paths_in_various_ways(paths, logfile=logfile)
-        paths.search(real_finder=True, logfile=logfile, **search_kwargs)
-        self.results.update(paths.real_finder.results)
-        self._save(paths, filename=filename)
-        logfile.close()
         return paths
 
     def _save(self, paths, filename=None):
         label = getattr(self, 'label', None) or paths.label
-        self.plot(paths, filename=filename, savefig=True, gaussian=True)
+        # self.plot(paths, filename=filename, savefig=True, gaussian=True)
         # paths.plot(filename=filename, savefig=True, gaussian=True)
         pathsdata = PathsData(label + '_pathsdata.db')
         data = [{'paths': paths}]
