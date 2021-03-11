@@ -289,7 +289,8 @@ class Paths:
         """" list of int; Get rowid of data"""
         return self.model.get_data(self, **kwargs)
 
-    def add_data(self, index=None, coords=None, cache_model=True):
+    def add_data(self, index=None, coords=None, cache_model=True,
+                 regression=True):
         """ Adding a calculation data to image database
 
         if index given -> create coords -> add_data
@@ -309,6 +310,8 @@ class Paths:
         ids = self.imgdata.add_data(self, coords, search_similar_image=True)
         if cache_model:
             self.model.add_data_ids(ids)
+        if regression:
+            self.model.regression()
         return ids
 
     def simple_coords(self, index=np.s_[:]):

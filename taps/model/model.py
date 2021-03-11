@@ -394,24 +394,24 @@ class Model:
     def check_hess(self, paths=None, index=None, epsilon=1e-4,
                    debug=False):
         if index is None:
-            index = paths.P // 2
+            index = paths.N // 2
         assert isinstance(index, (int, np.int64)), 'Index should be integer'
 
         def prind(*args):
             if debug:
                 print(*args)
 
-        def dV(paths, index=None, d=None, m=None):
+        def dV(paths, index=None, d=None, a=None):
             shape = paths.coords[..., index].shape
 
             def f(p):
                 paths.coords[..., index] = p.reshape(shape)
-                F = self.get_forces(paths, index=index)
+                F = self.get_gradient(paths, index=index)
                 prind('F', F.flatten())
-                return -F[d, m].sum()
+                return F[d, m].sum()
             return f
 
-        def ddV(paths, index=None, d=None, m=None):
+        def ddV(paths, index=None, d=None, a=None):
             H = self.get_hessian(paths, index=index)
             prind('H', H.flatten())
 
@@ -421,8 +421,10 @@ class Model:
 
         paths0 = paths.coords[..., index].copy()
         err = 0
-        for m in range(paths.M):
-            for d in range(paths.D):
+        for n in range(paths.N):
+            grads = paths.get_gradients(index=[n]).flatten()
+            dV = lambda i: grads[i]
+            for i in range(paths.D):
                 err += check_grad(dV(paths, index, d, m),
                                   ddV(paths, index, d, m),
                                   paths0.flatten(), epsilon=epsilon)
@@ -478,6 +480,7 @@ class Model:
             for i in range(M):
                 potential[i] = new_data[i][n2i['potential']]
             data['V'] = np.concatenate([data['V'], potential])
+
         if 'gradients' in keys:
             gradients = np.zeros((*shape, M), dtype=float)
             for i in range(M):
@@ -501,7 +504,7 @@ class Model:
             if overlap_handler:
                 for i in id:
                     if i not in self.data_ids[table_name]:
-                        self.data_ids[table_name].append(i)
+                        self.data_ids[table_name].append(int(i))
         self.optimized = False
 
 

@@ -347,7 +347,7 @@ class Gaussian(Model):
         return coords
 
 
-class AtomicGaussian(Model):
+class Atomic(Model):
     def calculate(self, paths, coords=None, properties=None, **kwargs):
         """
         Xm : M x A x Q

@@ -201,11 +201,11 @@ class Plotter:
             self.plot_2D(paths, savefig, filename)
         elif dim == 3:
             if self.xlim3d is None:
-                self.xlim3d = np.array([p[0].min(), p[0].max()])
+                self.xlim3d = np.array([p[0].min() - 0.1, p[0].max() + 0.1])
             if self.ylim3d is None:
-                self.ylim3d = np.array([p[1].min(), p[1].max()])
+                self.ylim3d = np.array([p[1].min() - 0.1, p[1].max() + 0.1])
             if self.zlim3d is None:
-                self.zlim3d = np.array([p[2].min(), p[2].max()])
+                self.zlim3d = np.array([p[2].min() - 0.1, p[2].max() + 0.1])
 
             self.plot_3D(paths, savefig, filename)
         else:
@@ -407,7 +407,6 @@ class Plotter:
         lns = ax.plot(dist, V, self.mrkrV, label='$V$')
         if gaussian:
             cov_coords = paths.get_covariance(index=np.s_[1:-1])
-            cov_coords[cov_coords < 0] = 0
             color = lighten_color(lns[0].get_color())
             ax.fill_between(dist, V + cov_coords, V - cov_coords,
                             color=color, label=r'$\Sigma$')
@@ -574,13 +573,13 @@ class Plotter:
         elif information == 'gaussian':
             param = r''
             # display_digit = min(np.log10(np.abs(values)))
-            for key, value in paths.model.hyperparameters.items():
-                if key == 'sigma_f':
-                    continue
-                number = self.display_float(value, force_latex=True,
-                                            significant_digit=2)
-                param += r'$\{key:s}: {n:s}$'.format(key=key, n=number)
-                param += '\n'
+            # for key, value in paths.model.hyperparameters.items():
+            #     if key == 'sigma_f':
+            #         continue
+            #     number = self.display_float(value, force_latex=True,
+            #                                 significant_digit=2)
+            #     param += r'$\{key:s}: {n:s}$'.format(key=key, n=number)
+            #     param += '\n'
         if param != r'':
             param = param[:-1]
 
@@ -607,7 +606,7 @@ class Plotter:
             fontsize = self.ftszGMuMx
         elif information == 'maximum_uncertainty':
             cov = paths.get_covariance()
-            cov[cov < 0] = 0
+            # cov[cov < 0] = 0
             string = r'$\Sigma^{(max)} : %s$' % self.display_float(
                                                 cov.max(), force_latex=True,
                                                 significant_digit=2)
