@@ -4,10 +4,12 @@ export Standard, SE, Perioidc
 
 using LinearAlgebra
 
-struct Standard
+abstract type Kernel end
+struct Standard <: Kernel
     hyperparameters::Dict{String, Float64}
+    data
     function Standard(hyperparameters)
-        new(hyperparameters)
+        new(hyperparameters, nothing)
     end
 end
 """
@@ -25,8 +27,6 @@ function (ker::Standard)(Xm::Array{Float64, 2}, Xn::Array{Float64, 2};
     hyperparameters = hyperparameters == nothing ? ker.hyperparameters :
                                                     hyperparameters
 
-    Xn = permutedims(Xn, [2, 1]) # DxN
-    Xm = permutedims(Xm, [2, 1]) # DxM
     println("Size of Xm, Xn: ", size(Xm), size(Xn))
     nax = [CartesianIndex()]
     ll = get(hyperparameters, "ll", 1.)
@@ -52,14 +52,14 @@ function (ker::Standard)(Xm::Array{Float64, 2}, Xn::Array{Float64, 2};
 
     # Derivative coefficient D x M x N
     dc_gd = -Xmn / ll
-    # DxMxN x 1xMxN -> DxMxN -> DMxN
+    # DxMxN x 1xMxN -> DxMxN -> MDxN
     Kgd = dc_gd .* K[nax, :, :]
     Kgd = vcat([Kgd[i, :, :] for i in 1:size(Kgd, 1)]...)
     println(size(Kgd))
     if potential_only
-        return vcat(K, Kgd)                  # (D+1)M x N
+        return vcat(K, Kgd)                  # M(1+D) x N
     end
-    # DxMxN * 1xMxN -> MxDN
+    # DxMxN * 1xMxN -> MxND
     Kdg = -dc_gd .* K[nax, :, :]
     Kdg = hcat([Kdg[i, :, :] for i in 1:size(Kdg, 1)]...)
     # DxMxN -> MxDxN
@@ -155,20 +155,15 @@ function (ker::SE)(Xm::Array{Float64, 2}, Xn::Array{Float64, 2};
     hyperparameters = hyperparameters == nothing ? ker.hyperparameters :
                                                     hyperparameters
 
-    Xn = permutedims(Xn, [2, 1]) # DxN
-    Xm = permutedims(Xm, [2, 1]) # DxM
-    println("Size of Xm, Xn: ", size(Xm), size(Xn))
     nax = [CartesianIndex()]
     # Xn = Xn == nothing ? copy(Xm) : Xn
     D, M = size(Xm) # Xm : DxM
     N = size(Xn)[2] # Xn : DxN
     ll = [get(hyperparameters, "l$i", 1) for i in 1:D]
     σ_f = get(hyperparameters, "sigma_f", 1.)
-    println(size(Xm), size(Xn))
     Xmn = (Xm[:, :, nax] .- Xn[:, nax, :]) ./ ll        # DxMxN
     dists = dropdims(sum(Xmn.^2, dims=1), dims=1)      # MxN
     K = σ_f .* exp.(-0.5 * dists)      # M x N
-    println(size(K))
     # for m=1:M
     #     for n=1:N
     #         ll = l[m] * l[n]
@@ -185,7 +180,6 @@ function (ker::SE)(Xm::Array{Float64, 2}, Xn::Array{Float64, 2};
     # DxMxN x 1xMxN -> DxMxN -> DMxN
     Kgd = dc_gd .* K[nax, :, :]
     Kgd = vcat([Kgd[i, :, :] for i in 1:size(Kgd, 1)]...)
-    println(size(Kgd))
     if potential_only
         return vcat(K, Kgd)                  # (D+1)M x N
     end
@@ -202,7 +196,7 @@ function (ker::SE)(Xm::Array{Float64, 2}, Xn::Array{Float64, 2};
     # DxMxDxN - DxMxDxN
     Kdd = @. (dc_dd_glob + dc_dd_diag) * K[nax, :, nax, :]
     # DM x DN
-    Kdd = reshape(Kdd, D * M, D * N)
+    Kdd = reshape(permutedims(Kdd, [2, 1, 4, 3]), D * M, D * N)
     if gradient_only
         # (D+1)M x DN
         return vcat(Kdg, Kdd)
@@ -245,14 +239,13 @@ function (ker::SE)(Xm::Array{Float64, 2}, Xn::Array{Float64, 2};
         Khg .*= K[:, nax, nax, :]
         # DxMxDxDxN * 1xMx1x1xN
         Khd .*= K[nax, :, nax, nax, :]
-        # MxDDxN -> M x DDN
-        Khg = reshape(Khg, M, D * D * N)
-        # DxMxDDxN -> DM x DDN
-        Khd = reshape(Khd, D * M, D * D * N)
+        # MxDDxN -> MxNxDD -> M x NDD
+        Khg = reshape(permutedims(Khg, [1, 4, 3, 2]), M, D * D * N)
+        # DxMxDDxN -> MxDxNxDD -> MD x NDD
+        Khd = reshape(permutedims(Khd, [2, 1, 5, 4, 3]), D * M, D * D * N)
         # print(Khd.shape)
         return vcat(Khg, Khd)  # (D+1)M x DDN
     end
-    println("Sizes K, Kgd, Kdg, Kdd", size(K), size(Kgd), size(Kdg), size(Kdd))
     Kext = [K Kdg;
             Kgd Kdd]  # (D+1)M x (D+1)N
     if noise
@@ -264,9 +257,45 @@ function (ker::SE)(Xm::Array{Float64, 2}, Xn::Array{Float64, 2};
     return Kext
 end
 
+mutable struct Atomic <: Kernel
+    hyperparameters::Array{Float64, 2}
+    data
+    idx::Int64
+    function Atomic()
+        new([1 1 1; 1  1  1], 1)
+    end
+    function Atomic(hyperparameters::Array{Float64, 2})
+        new(hyperparameters, nothing, 1)
+    end
+end
+"""
+Xm : DxM
+Xn : DxN
+hyperparameters : A x A(A-1) + 2; [a, ll1, ll2, ..., σ, noise_f]
+"""
+function (ker::Atomic)(Xm::Array{Float64, 2}, Xn::Array{Float64, 2})
 
+    nax = [CartesianIndex()]
+    D, M = size(Xm) # Xm : DxM
+    N = size(Xn)[2] # Xn : DxN
 
+    hyperparameters = ker.hyperparameters[ker.idx, :]
+    ll = hyperparameters[1:end-2]
+    σ_f = hyperparameters[end-1]
 
+    Xmn = (Xm[:, :, nax] .- Xn[:, nax, :]) ./ ll        # DxMxN
+    dists = dropdims(sum(Xmn.^2, dims=1), dims=1)      # MxN
+    K = σ_f .* exp.(-0.5 * dists)                      # M x N
 
+    return K
+end
+
+function (ker::Atomic)(Xm::Array{Float64, 2}, Xn::Array{Float64, 2}, noise::Bool)
+    @assert noise
+    D, M = size(Xm)
+    noise_f =  ker.hyperparameters[ker.idx, end]
+    K = ker(Xm, Xn)
+    return K + (noise_f * I(M))
+end
 
 end

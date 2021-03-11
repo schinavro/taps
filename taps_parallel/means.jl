@@ -1,34 +1,44 @@
 module Means
 
-struct Mean
-    data_ids::Dict{Any, Any}
-    mean_type::String
+export Zero, Average, NNP
+
+mutable struct Zero
+    hyperparameters
+    data
+    idx::Int64
 end
 
-function (mean::Mean)(X;
-                      data=nothing, hess=true, mean_type=nothing)
-    mean_type = mean_type == nothing ? mean.mean_type : mean_type
-    data = data == nothing ? model.data : data
-
-    if mean_type == "zero"
-        return 0.
-    end
-
-    V = data["V"]
-    M, D = size(X)
-    F = zeros(D, M)
-    if type == "average"
-        e = zeros(N) .+ average(V)
-    elseif type == "min"
-        e = zeros(N) .+ min(V)
-    else
-        e = zeros(N) .+ max(V)
-    end
-    if !hess
-        return e
-    end
-    ef = hcat(e, F)
-    return vec(ef)
+function (mean::Zero)(X)
+    return 0.
 end
+
+mutable struct Average
+    hyperparameters
+    data
+    idx::Int64
+    function Average()
+        new(nothing, zeros(1, 1), 1)
+    end
+end
+
+function (mean::Average)(X)
+    potentials = mean.data[mean.idx, :]
+    return sum(potentials) / length(potentials)
+end
+
+
+struct NNP
+    hyperparameters
+    data
+    idx::Int64
+end
+
+"""
+Neural Network Potential
+"""
+function (nnp::NNP)(X, θ)
+    return W*θ .+ b
+end
+
 
 end
