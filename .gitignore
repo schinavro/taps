@@ -1,5 +1,6 @@
 .tags
 taps/__pycache__
 taps/*/__pycache__
+taps/*/*/__pycache__
 
 docs/_build
