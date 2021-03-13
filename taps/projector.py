@@ -241,6 +241,14 @@ class Mask(Projector):
 
 
 class Sine(Projector):
+    """
+    Tools for dimensional reducement.
+
+    Sine Projector
+    --------------
+    init : array; D or 3 x A
+    fin  : array; D or 3 x A
+    """
     def __init__(self, N=None, Nk=None, init=None, fin=None, **kwargs):
         self.N = N
         self.Nk = Nk

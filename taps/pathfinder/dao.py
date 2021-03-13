@@ -113,15 +113,16 @@ class DAO(PathFinder):
             muE = self.muE
         muT, muP, muL = self.muT, self.muP, self.muL
 
-        shape = self.prj._x(paths.coords(index=np.s_[1:-1])).shape
+        shape = paths.coords(index=np.s_[1:-1]).shape
+        prj_shape = self.prj._x(paths.coords(index=np.s_[1:-1])).shape
         D, Nk, N = paths.D, paths.Nk, paths.N
         # D, N = np.prod(shape[:-1]), shape[-1] + 2
         dt = paths.coords.epoch / N
         gam = self.gam
 
         def prj_handler(S):
-            def action(coords):
-                coords = self.prj._x_inv(coords.reshape(shape))
+            def action(rcoords):
+                coords = self.prj._x_inv(rcoords.reshape(prj_shape))
                 paths.coords[..., 1:-1] = coords
                 return S()
             return action
@@ -205,6 +206,7 @@ class DAO(PathFinder):
         D, Nk, N = paths.D, paths.Nk, paths.N
 
         shape = paths.coords(index=np.s_[1:-1]).shape
+        # prj_shape -> flatten
         prj_shape = self.prj._x(paths.coords(index=np.s_[1:-1])).shape
         # D, N = np.prod(shape[:-1]), shape[-1] + 2
 
@@ -356,7 +358,7 @@ class DAO(PathFinder):
             if self.sin_search:
                 x0 = paths.coords.rcoords.flatten()
             elif self.prj_search:
-                x0 = self.prj._x(paths.coords[..., 1:-1])
+                x0 = self.prj.x(paths.coords(index=np.s_[1:-1]))
             else:
                 x0 = paths.coords[..., 1:-1].flatten()
             printt("jac_max > tol(%.2f); Run without gradient" % self.tol)
@@ -367,9 +369,15 @@ class DAO(PathFinder):
             if res.nit < 3:
                 break
 
+        if self.sin_search:
+            x0 = paths.coords.rcoords.flatten()
+        elif self.prj_search:
+            x0 = self.prj.x(paths.coords(index=np.s_[1:-1]))
+        else:
+            x0 = paths.coords[..., 1:-1].flatten()
         om = 'Onsager Machlup'
         self.results[om] = self.action(paths, action_name=om,
-                                       muE=0.)(paths.coords.rcoords)
+                                       muE=0.)(x0)
         if close_log:
             logfile.close()
         if self.sin_search:

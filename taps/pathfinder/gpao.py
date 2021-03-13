@@ -22,7 +22,7 @@ class GPAO(PathFinder):
         'E_max_tol': {'default': '0.05', 'assert': 'True'},
         'distance_tol': {'default': '0.05', 'assert': 'True'},
         'plot': {'default': 'None', 'assert': 'True'},
-        'last_checker': {'default': "'Uncertain or Maximum energy'",
+        'last_checker': {'default': "'auto et'",
                          'assert': 'True'}
     }
 
@@ -228,7 +228,11 @@ class GPAO(PathFinder):
         # Et = (np.max(V) + self.Et - self.Et_opt_tol) / 2
         # Et = np.max(V)
         # Et = (np.max(V) + paths.real_finder.Et) / 2
-        Et = (np.max(V) + paths.real_finder.Et - self.Et_opt_tol / 2) / 2
+        maxV = np.max(V)
+        if paths.real_finder.Et > maxV:
+            Et = np.min(V)
+        else:
+            Et = (maxV + paths.real_finder.Et - self.Et_opt_tol / 2) / 2
         return Et
 
     def alternate_energy(self, paths, gptol=None, iter=None):

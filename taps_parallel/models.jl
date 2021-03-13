@@ -232,6 +232,7 @@ end
 mutable struct AtomicGaussian <: Model
     kernel::Any
     kernel_hyperparameters::Any
+    kernel_bounds::Any
     mean::Any
     mean_hyperparameters::Any
     imgdata_filename::String
@@ -240,7 +241,7 @@ mutable struct AtomicGaussian <: Model
     _cache::Dict
 
     function AtomicGaussian(;
-        kernel="Standard", kernel_hyperparameters=nothing,
+        kernel="Standard", kernel_hyperparameters=nothing, kernel_bounds=nothing,
         mean="Zero", mean_hyperparameters=nothing,
         imgdata_filename="imgdata.db",
         data_ids=Dict("image"=>[1, 2]),
@@ -249,7 +250,7 @@ mutable struct AtomicGaussian <: Model
 
         kernel = getfield(Kernels, Symbol(kernel))()
         mean = getfield(Means, Symbol(mean))()
-        new(kernel, kernel_hyperparameters, mean, mean_hyperparameters,
+        new(kernel, kernel_hyperparameters, kernel_bounds, mean, mean_hyperparameters,
             imgdata_filename, data_ids, optimized, Dict())
     end
 end

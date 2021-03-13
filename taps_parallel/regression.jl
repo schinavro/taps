@@ -52,22 +52,8 @@ function regression!(model::Model, MPI, comm)
     sendbuf = []
 
     optimizer = L_BFGS_B(1024, 17)
-    n = (A - 1) + 2
-    bounds = zeros(3, n)
-    for i = 1:n
-        bounds[1,i] = 2  # represents the type of bounds imposed on the variables:
-                         #  0->unbounded, 1->only lower bound, 2-> both lower and upper bounds, 3->only upper bound
-        if i == n  # noise
-            bounds[2,i] = 0     #  the lower bound on x, of length n.
-            bounds[3,i] = 1     #  the upper bound on x, of length n.
-        elseif i == n - 1 # sigma f
-            bounds[2,i] = 0.9
-            bounds[3,i] = 1.1
-        else
-            bounds[2,i] = 1e-1 #  the lower bound on x, of length n.
-            bounds[3,i] = 3    #  the upper bound on x, of length n.
-        end
-    end
+
+    bounds = _kernel_bounds(model.kernel_bounds)
 
     function likelihood2(hyperparameters, Xmn, Y⏦m)
         Σ⁻¹ = zeros(eltype(hyperparameters), 3(A-1), 3(A-1))
@@ -111,8 +97,8 @@ function regression!(model::Model, MPI, comm)
         for j = 1:A-1
             x0[j] = 𝐤.hyperparameters[i, 3j]
         end
-        fout, xout = optimizer(x -> likelihood(x, Xmn, Y⏦m), x0, bounds, m=10,
-                               factr=1e7, pgtol=1e-5,
+        fout, xout = optimizer(x -> likelihood(x, Xmn, Y⏦m), x0, bounds[i, :, :],
+                               m=10, factr=1e7, pgtol=1e-5,
                                iprint=-1, maxfun=15000, maxiter=15000)
 
         𝐤.hyperparameters[i, end] = xout[end]
@@ -127,8 +113,65 @@ function regression!(model::Model, MPI, comm)
 
     numbers = model.kernel_hyperparameters["numbers"]
     model.kernel_hyperparameters = Models._kernel_hyperparameters(𝐤.hyperparameters, numbers)
-    rank == root ? println("hyper", model.kernel_hyperparameters) : nothing
     model.optimized = false
 end
+
+"""
+kernel_bounds : Dict {"numbers" => [1, 2, 3], "sig_13" => [2, 3]} A x 3(A-1) + 2
+numbers : A
+return : Dict
+"""
+function _kernel_bounds(kernel_bounds)
+    numbers = kernel_bounds["numbers"]
+    A = length(numbers)
+    n = (A - 1) + 2
+    bounds = zeros(A, 3, n)
+    for (i, ni) in enumerate(numbers)
+        # represents the type of bounds imposed on the variables:
+        #  0->unbounded,
+        #  1->only lower bound
+        #  2-> both lower and upper bounds
+        #  3->only upper bound
+        bounds[i, 1, end] = kernel_bounds["noise_$ni"][i][1]  # Type
+        bounds[i, 2, end] = kernel_bounds["noise_$ni"][i][2]  # Lower
+        bounds[i, 3, end] = kernel_bounds["noise_$ni"][i][3]  # Upper
+        bounds[i, 1, end-1] = kernel_bounds["sig_$ni"][i][1]
+        bounds[i, 2, end-1] = kernel_bounds["sig_$ni"][i][2]
+        bounds[i, 3, end-1] = kernel_bounds["sig_$ni"][i][3]
+
+        masked = numbers[[i!=j for j in 1:A]]
+        for (j, nj) in enumerate(masked)
+            bounds[i, 1, j] = kernel_bounds["ll_$nj"][i][1]
+            bounds[i, 2, j] = kernel_bounds["ll_$nj"][i][2]
+            bounds[i, 3, j] = kernel_bounds["ll_$nj"][i][3]
+        end
+    end
+    return bounds
+end
+
+"""
+hyperparameters = {'numbers': [28, 79, 78],
+                       sig_28: [1, 1, 1], sig_79: [1, 1, 1], sig_78: [1, 1, 1],
+                       noise_28: [1e-4]*3, noise_79: [1e-4]*3, noise_78: [1e-4]*3,
+                       ll_28, 28): l1, (28, 79): l2, (28, 78): l3,
+                       (79, 79): l4, (79, 78): l5, (78, 78): l6}
+"""
+function _kernel_hyperparameters(hyperparameters::Dict)
+    numbers = hyperparameters["numbers"]
+    A = size(numbers)[1]
+    hyper_kernel = zeros(Float64, A, 3(A-1) + 2)
+    for (i, ni) in enumerate(numbers)
+        hyper_kernel[i, end-1] = hyperparameters["sig_$ni"][i]
+        hyper_kernel[i, end] = hyperparameters["noise_$ni"][i]
+        masked = numbers[[i!=j for j in 1:A]]
+        for (j, nj) in enumerate(masked)
+            ll = hyperparameters["ll_$nj"][i]
+            hyper_kernel[i, 3(j-1)+1:3(j)] .= ll
+        end
+    end
+    # A x A(A-1) + 2
+    return hyper_kernel
+end
+
 
 end

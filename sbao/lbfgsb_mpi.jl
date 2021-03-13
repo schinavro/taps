@@ -1,8 +1,8 @@
 module LBFGSBMPI
 
+using Base
 using LBFGSB
 using MPI
-using ForwardDiff
 
 export L_BFGS_B
 
@@ -36,12 +36,14 @@ struct L_BFGS_B
     end
 end
 
-function (obj::L_BFGS_B)(𝒮, ∂𝒮, x0,
-          comm; m=10, factr=1e7, pgtol=1e-5, iprint=-1, maxfun=15000,
-          maxiter=15000)
-    Nk, D = size(x0)
+using StringEncodings
+
+function (obj::L_BFGS_B)(𝒮, ∂𝒮, x0, comm;
+                         m=10, factr=1e7, pgtol=1e-5, iprint=-1, maxfun=200,
+                         maxiter=100)
+    Nk, D = Base.size(x0)
     x = vec(x0)
-    n = length(x)
+    n = Nk * D
     f = 0.0
     # clean up
     fill!(obj.task, Cuchar(' '))
@@ -57,37 +59,41 @@ function (obj::L_BFGS_B)(𝒮, ∂𝒮, x0,
     fill!(obj.u, zero(Cdouble))
     # set bounds
     for i = 1:n
-        obj.nbd[i] = bounds[1,i]
-        obj.l[i] = bounds[2,i]
-        obj.u[i] = bounds[3,i]
+        obj.nbd[i] = 0
+        obj.l[i] = -Inf
+        obj.u[i] = Inf
     end
     # start
     obj.task[1:5] = b"START"
-    size = MPI.Comm_size(comm)
+    nprc = MPI.Comm_size(comm)
     rank = MPI.Comm_rank(comm)
+    root = 0
 
     while true
         if rank == root
             setulb(n, m, x, obj.l, obj.u, obj.nbd, f, obj.g, factr, pgtol, obj.wa,
                    obj.iwa, obj.task, iprint, obj.csave, obj.lsave, obj.isave, obj.dsave)
+            println(decode(obj.task, "UTF-8"))
+
         end
         MPI.Bcast!(x, root, comm)
         MPI.Bcast!(obj.task, root, comm)
 
         if obj.task[1:2] == b"FG"
-            S = 𝒮(reshape(x, Nk, D), comm=comm)
-            MPI.reduce(S, (S1, S2) -> S1 + S2, root, comm)
-            dSi = ∂𝒮(reshape(x, Nk, D), comm=comm)
-            obj.g = MPI.Gather(dSi, root, comm=comm)
+            f = 𝒮(reshape(x, Nk, D))
+            ∂𝒮(obj.g, reshape(x, Nk, D))
         elseif obj.task[1:5] == b"NEW_X"
             MPI.Bcast!(obj.isave, root, comm)
             if obj.isave[30] ≥ maxiter
                 obj.task[1:43] = b"STOP: TOTAL NO. of ITERATIONS REACHED LIMIT"
+                return f, reshape(x, Nk, D)
             elseif obj.isave[34] ≥ maxfun
                 obj.task[1:52] = b"STOP: TOTAL NO. of f AND g EVALUATIONS EXCEEDS LIMIT"
+                return f, reshape(x, Nk, D)
             end
         else
-            return S, x
+            println(obj.dsave)
+            return f, reshape(x, Nk, D)
         end
     end
 end

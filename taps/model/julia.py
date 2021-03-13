@@ -193,7 +193,9 @@ class Julia(Model):
             results[key] = value
         return results
 
-    def _open_server(self, mpi, host='10.10.10.10', port=6543, debug=False):
+    def _open_server(self, mpi, host=None, port=None, debug=False):
+        host = host or self.server['host']
+        port = port or self.server['port']
 
         self._udp_queue = Queue()
         self._std_queue = Queue()
