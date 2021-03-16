@@ -252,6 +252,24 @@ while true
     elseif instruction == b"optimize\n"
         nothing
 
+    elseif instruction == b"retrive model input\n"
+        if rank == root
+            order_size = reinterpret(Int64, read(tcp, 8))[1]
+            order_bytes = read(tcp, order_size)
+            # order_bytes = MPI.bcast(order_bytes, root, comm)
+            orders = Array{String}(JSON.parse(String(order_bytes)))
+            coupang = Dict()
+            for order in orders
+                coupang[order] = getproperty(model, Symbol(order))
+            end
+            package = Array{UInt8, 1}(JSON.json(coupang))
+            weight = Int64(length(package))
+            weight = reinterpret(UInt8, [weight])
+            write(tcp, [weight; package])
+            # write(tcp, package)
+        end
+        MPI.Barrier(comm)
+
     elseif instruction == b"retrive_results\n"
         if rank == root
             for (key, value) in results

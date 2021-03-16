@@ -175,7 +175,10 @@ class Julia(Model):
         np.savez(filename + '.npz', coords=coords.T)
         with open(filename + '.pkl', 'wb') as f:
             pickle.dump(dic, f)
-        modeljl = '/home/schinavro/libCalc/taps/taps_parallel/taps.jl'
+        # modeljl = '/home/schinavro/libCalc/taps_v0.10/taps_parallel/taps.jl'
+        dir = os.path.dirname(__file__)
+        jldir = "../parallel/server.jl"
+        modeljl = dir + '/' + jldir
         command = 'julia --project %s %s' % (modeljl, filename)
         if mpi is not None:
             command = mpi['command'] + command
@@ -203,7 +206,12 @@ class Julia(Model):
         self._std_kill_sig = Event()
         self._std_poll = select.poll()
 
-        modeljl = '/home/schinavro/libCalc/taps/taps_parallel/server.jl'
+        # /djkad/.../taps/model/julia.py
+        dir = os.path.dirname(__file__)
+        jldir = "../parallel/server.jl"
+        modeljl = dir + '/' + jldir
+        # modeljl = '/home/schinavro/libCalc/taps/taps_parallel/server.jl'
+        print(modeljl)
         command = 'julia --project %s %s %s' % (modeljl, host, str(port))
         if mpi is not None:
             command = mpi['command'] + command
@@ -411,6 +419,50 @@ class Julia(Model):
                 continue
 
         return results
+
+    def _retrive_model_inputs(self, inputs):
+        """
+        inputs : list of strings
+        return : dict
+        """
+        toint = int.from_bytes
+        host = self.server['host']
+        port = self.server['port']
+        instruction = b'retrive model input\n'
+        while True:
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp:
+                    tcp.settimeout(5)
+                    tcp.connect((host, port))
+                    tcp.sendall(instruction)
+                    order = json.dumps(inputs).encode("utf-8")
+                    order_size = np.array(len(order), dtype=np.int64).tobytes()
+                    tcp.settimeout(None)
+                    tcp.sendall(order_size + order)
+                    # tcp.sendall(order)
+                    package_weight = toint(tcp.recv(8), 'little', signed=True)
+                    package, count = [], 0
+                    while count < package_weight:
+                        packet = tcp.recv(package_weight - count)
+                        count += len(packet)
+                        package.append(packet)
+                    coupang = json.loads((b''.join(package)).decode('utf-8'))
+                break
+            except socket.timeout:
+                continue
+            except OSError:
+                print("_retrive in can't assign requested address", host, port)
+                time.sleep(1)
+                continue
+        return coupang
+
+    def retrive_model_input(self, input):
+        """
+        Get string
+        return results
+        """
+        coupang = self._retrive_model_inputs([input])
+        return coupang[input]
 
     def add_data_ids(self, ids, overlap_handler=True):
         """
