@@ -437,7 +437,6 @@ class Julia(Model):
                     tcp.sendall(instruction)
                     order = json.dumps(inputs).encode("utf-8")
                     order_size = np.array(len(order), dtype=np.int64).tobytes()
-                    tcp.settimeout(None)
                     tcp.sendall(order_size + order)
                     # tcp.sendall(order)
                     package_weight = toint(tcp.recv(8), 'little', signed=True)
@@ -447,6 +446,7 @@ class Julia(Model):
                         count += len(packet)
                         package.append(packet)
                     coupang = json.loads((b''.join(package)).decode('utf-8'))
+                    tcp.settimeout(None)
                 break
             except socket.timeout:
                 continue
