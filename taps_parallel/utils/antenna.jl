@@ -76,7 +76,15 @@ function Base.eval(io::SocketIO, instruction::Instruction)
         instruct, args = split(inst[2:end], ",", limit=2)
         array = Utils.read_array(args)
         getfield(Mod, Symbol(instruct))(io, args)
-    elseif type == b"5"    # Arguments built with numpy arr and JSON arr
+    elseif type == b"5"    # Arguments built with a numpy arr and JSON arr
+        instruct, args = split(inst[2:end], ",", limit=2)
+        narr, njson = reinterpret(Int64, read(io.tcp, 16))
+        arrbytes = inst[16+2:njson]
+        jsonbytes = inst[16+2:njson]
+        kwargs = Utils.compactify(JSON.parse(String(jsonbytes)))
+        args = Utils.read_array(arrbytes)
+        getfield(Mod, Symbol(instruct))(io, args; kwargs...)
+    elseif type == b"6"    # N args with a JSON kwargs
         instruct, args = split(inst[2:end], ",", limit=2)
         narr, njson = reinterpret(Int64, read(io.tcp, 16))
         arrbytes = inst[16+2:njson]

@@ -1,7 +1,7 @@
 
 nax = [CartesianIndex()]
-include("./mpi.jl")
-include("./parser.jl")
+# include("./antenna.jl")
+# include("./parser.jl")
 
 """
 For Relative indexing like arr[1:-1]

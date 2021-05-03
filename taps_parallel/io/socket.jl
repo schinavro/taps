@@ -15,7 +15,7 @@ import Base.println, Base.print
 
 import JSON
 Taps = include("../taps.jl")
-using Taps
+using .Taps
 
 mutable struct SocketIO
     host; port; tcp; tcp_server; keep_open; is_tcp_opened; MPI; comm; root; nprc; rank; mFloat64; mUInt8; cache::Dict;
@@ -159,6 +159,14 @@ end
 function construct(io::SocketIO)
     io.cache["paths"] = Paths(io.cache["coords"]; io.cache["kwargs"]...)
 end
+
+function calculate(io::SocketIO, args...; conduct="get_potential", kwargs...)
+    paths = io.cache["paths"]
+    results = getfield(Taps, Symbol(conduct))(paths, args...;kwargs...)
+    io.cache["results"] = results
+end
+
+function
 
 
 # import MPI

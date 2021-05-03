@@ -1,36 +1,32 @@
 
+export MullerBrown
 
-function get_properties(model::Model, paths::Paths, coords::Coords=nothing, properties=["potential"], args...; kwargs...)
-    coords = coords == nothing ? paths.coords : coords
-    model(paths, coords, properties)
-end
+@inline get_properties(model::Model, paths::Paths, properties::String, args...; kwargs...) = model(paths, paths.coords, [properties], args...; kwargs...)
+@inline get_properties(model::Model, paths::Paths, properties::Array{String}, args...; kwargs...) = model(paths, paths.coords, properties, args...; kwargs...)
+@inline get_properties(model::Model, paths::Paths, properties::String, coords::Coords, args...; kwargs...) = model(paths, coords, [properties], args...; kwargs...)
+@inline get_properties(model::Model, paths::Paths, properties::Array{String}, coords::Coords, args...; kwargs...) = model(paths, coords, properties, args...; kwargs...)
 
-@inline get_displacements(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, args...; properties="displacements", kwargs...)
-@inline get_momentum(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, args...; properties="momoentum", kwargs...)
-@inline get_kinetic_energy(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, args...; properties="kinetic_energy", kwargs...)
-@inline get_kinetic_energy_gradient(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, args...; properties="kinetic_energy_gradient", kwargs...)
-@inline get_velocity(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, args...; properties="velocity", kwargs...)
-@inline get_acceleration(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, args...; properties="acceleration", kwargs...)
-const get_accelerations = get_acceleration
+@inline get_displacements(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, "displacements", args...; kwargs...)
+@inline get_momentum(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, "momoentum", args...; kwargs...)
+@inline get_kinetic_energy(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, "kinetic_energy", args...; kwargs...)
+@inline get_kinetic_energy_gradient(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, "kinetic_energy_gradient", args...; kwargs...)
+@inline get_velocity(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, "velocity", args...; kwargs...)
+@inline get_acceleration(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, "acceleration", args...; kwargs...)
 
 function get_mass(model::Model, paths::Paths, args...; kwargs...)
-    get_properties(model, paths, args...; properties="mass", kwargs...)
+    get_properties(model, paths, "mass", args...; kwargs...)
 end
 function get_effective_mass(paths::Paths, args...; kwargs...)
     get_effective_mass(paths.model, args...; kwargs...)
 end
 
 """ Calculate potential( energy) """
-@inline get_potential(model::Model, paths::Paths, args...; kwargs...) = get_properties(model, paths, args...; properties="potential", kwargs...)
-const get_potential_energy = get_potential
-@inline get_potentials(model::Model, paths::Paths, args...; kwargs...) = get_properties(model, paths, args...; properties="potentials", kwargs...)
-const get_potential_energies = get_potentials
-@inline get_gradients(model::Model, paths::Paths, args...; kwargs...) = get_properties(model, paths, args...; properties="gradients", kwargs...)
-const get_forces = get_gradients
-const get_gradient = get_gradients
-@inline get_hessian(model::Model, paths::Paths, args...; kwargs...) = get_properties(model, paths, args...; properties="hessain", kwargs...)
+@inline get_potential(model::Model, paths::Paths, args...; kwargs...) = get_properties(model, paths, "potential", args...; kwargs...)
+@inline get_potentials(model::Model, paths::Paths, args...; kwargs...) = get_properties(model, paths, "potentials", args...; kwargs...)
+@inline get_gradients(model::Model, paths::Paths, args...; kwargs...) = get_properties(model, paths, "gradients", args...; kwargs...)
+@inline get_hessian(model::Model, paths::Paths, args...; kwargs...) = get_properties(model, paths, "hessain", args...; kwargs...)
 """ Calculate covariance. It only applies when potential is guassian"""
-@inline get_covariance(model::Model, paths::Paths, args...; kwargs...) = get_properties(model, paths, args...; properties="covariance", kwargs...)
+@inline get_covariance(model::Model, paths::Paths, args...; kwargs...) = get_properties(model, paths, "covariance", args...; kwargs...)
 
 struct MullerBrown <: Model
     A::Array{Float64, 1}
@@ -46,15 +42,17 @@ MullerBrown(;
    c=[-10, -10, -6.5, 0.7], x0=[1, 0, -0.5, -1], y0=[0, 0.5, 1.5, 1]) =
                                                  MullerBrown(A, a, b, c, x0, y0)
 
-function (model::MullerBrown)(paths::Paths, coords::Coords, properties)
-    D, N = size(coords)
+@inline (model::MullerBrown)(paths::Paths, coords::Coords, properties::Array{String, 1}) = (model::MullerBrown)(coords::Coords, properties::Array{String, 1})
+@inline (model::MullerBrown)(coords::Coords, properties::Array{String, 1}) = (model::MullerBrown)(convert(Cartesian{eltype(coords), 2}, coords), properties::Array{String, 1})
+function (model::MullerBrown)(coords::Cartesian{T, 2}, properties::Array{String, 1}) where {T<:Number}
+    N, D = size(coords)
     Vk = zeros(N, 4)
     results = Dict()
 
     A, a, b, c, x0, y0 = model.A, model.a, model.b, model.c, model.x0, model.y0
 
     for i=1:N
-        𝑥, 𝑦 = coords[:, i]
+        𝑥, 𝑦 = coords[i, :]
         Vk[i, :] = @. A * exp(a*(𝑥 - x0)^2 + b*(𝑥-x0)*(𝑦-y0) + c * (𝑦-y0)^2)
     end
 

@@ -7,13 +7,14 @@ Base.setindex!(A::Coords, v, I::Vararg{Int, N}) where {N} = setindex!(A.coords, 
 Base.isapprox(c1::T, c2::T; kwargs...) where {T<:Coords} = isapprox(c1.coords, c2.coords; kwargs...) && isapprox(c1.epoch, c2.epoch; kwargs...) && c1.unit == c2.unit
 
 
+
 function Base.getproperty(obj::T, sym::Symbol) where {T <: Coords}
     if sym == :D
-        return prod(size(obj.coords)[1:end-1])
+        return prod(size(obj.coords)[2:end])
     elseif sym == :N
-        return size(obj.coords)[end]
+        return size(obj.coords)[1]
     elseif sym == :A
-        D = prod(size(obj.coords)[1:end-1])
+        D = prod(size(obj.coords)[2:end])
         if D % 3 == 0
             return max(D ÷ 3, 1)
         end
@@ -30,12 +31,14 @@ struct Cartesian{T, N} <: Coords{T, N}
 end
 
 Base.similar(A::Cartesian, ::Type{T}, dims::Dims) where {T} = Cartesian{T, length(dims)}(similar(A.coords, T, dims), A.epoch, A.unit)
-#Base.show(io::IO, coords::Cartesian) = print(io, "Fouriered(r=$(x.r), θ=$(x.θ) rad, ϕ=$(x.ϕ) rad)")
-
+Base.convert(::Type{Cartesian{T, 2}}, coords::Cartesian{T, N}) where {T, N} = Cartesian{T, 2}(reshape(coords.coords, coords.N, prod(size(coords)[2:end])), coords.epoch, coords.unit)
 
 Cartesian(A::Array{T, N}, epoch::Real=1, unit::String="Å") where {T<:Number, N} = Cartesian{T, N}(A, epoch, unit)
 Cartesian{T}(A::Array{T, N}, epoch::Real=1, unit::String="Å") where {T<:Number, N} = Cartesian{T, N}(A, epoch, unit)
 Cartesian{T, N}(A::Array{T, N}) where {T<:Number, N} = Cartesian{T, N}(A, 1., "Å")
+
+# @inline Cartesian{T, 3}(A::Cartesian{T, 2}) where {T<:Number, N} = Cartesian{T, 2}(reshape(coords.coords, coords.N, prod(size(coords)[2:end])), A.epoch, A.unit)
+# @inline Cartesian{T, 2}(A::Cartesian{T, 3}) where {T<:Number, N} = Cartesian{T, 2}(reshape(coords.coords, coords.N, prod(size(coords)[2:end])), A.epoch, A.unit)
 """Return displacements of each steps.
 Get coords(array) and return length N array. Useful for plotting E/dist
 
@@ -51,7 +54,7 @@ index : slice obj; Default `np.s_[:]`
 function get_displacements(coords::Coords; epoch=nothing, index=1⁝0)
     axis = 1
     p = copy(coords.coords)
-    d = map(norm, eachslice(diff(p, dims=axis), dims=axis)
+    d = map(norm, eachslice(diff(p, dims=axis), dims=axis))
     d = cat(0., d, dims=axis)
     return accumulate(sum, d, dims=1)[index]
 end
@@ -112,9 +115,9 @@ function get_acceleration(coords::Coords; epoch=nothing, index=1⁝0)
     p = copy(coords.coords)
     return if index == 1⁝0
         p = cat(p[nax, 1, :], p, p[nax, end, :], dims=axis)
-        (2 * p[2:end-1, :, :] - p[..., :-2] - p[..., 2:]) / ddt
+        (2 * p[2:end-1, :, :] - p[1:N-2, :, :] - p[2:end, :, :]) / ddt
     elseif index == 2⁝-1
-        (2 * p[1:-1] - p[..., :-2] - p[..., 2:]) / ddt
+        (2 * p[1:-1, :, :] - p[1:-2, :, :] - p[2:N-2, :, :]) / ddt
     else
         i = collect(1:N)[index]
         i[1]==1 ? begin p= cat(p[nax, 1, :], p, axis=axis); i .+= 1 end : nothing
@@ -244,9 +247,9 @@ function (::AtomicFromCartesian)(coords::Cartesian)
         mask[i] = false
         disp[i, :, :, :] = wrap_coords[:, mask, :]
         mask[i] = true
-        acoords[:, mask, i] = coords[:, mask, i] .-
+        acoords[:, mask, i] = coords[:, mask, i] .- mask
     end
-    Atomic(acoords, center, )
+    Atomic(acoords, center, coords.epoch, coords.unit)
 end
 
 function transform_deriv(::AtomicFromCartesian, x::AbstractVector)
@@ -261,7 +264,7 @@ end
 function transform_deriv(::CartesianFromAtomic, x::Atomic{T}) where {T}
 
 end
-transform_deriv_params(::CartesianFromPolar, x::Atomic) = error("CartesianFromAtomic has no parameters")
+transform_deriv_params(::CartesianFromAtomic, x::Atomic) = error("CartesianFromAtomic has no parameters")
 
 # Fouriered <-> Atomic (TODO direct would be faster)
 function (::AtomicFromFouriered)(x::Fouriered)
@@ -308,13 +311,13 @@ compose(::AtomicFromFouriered, ::FourieredFromCartesian)   = AtomicFromCartesian
 compose(::FourieredFromAtomic, ::AtomicFromCartesian) = FourieredFromCartesian()
 
 # For convenience
-Base.convert(::Type{Fouriered}, v::AbstractVector) = FourieredFromCartesian()(v)
-Base.convert(::Type{Atomic}, v::AbstractVector) = AtomicFromCartesian()(v)
+Base.convert(::Type{Fouriered}, v::AbstractArray) = FourieredFromCartesian()(v)
+Base.convert(::Type{Atomic}, v::AbstractArray) = AtomicFromCartesian()(v)
 
-Base.convert(::Type{V}, s::Fouriered) where {V <: AbstractVector} = convert(V, CartesianFromFouriered()(s))
-Base.convert(::Type{V}, c::Atomic) where {V <: AbstractVector} = convert(V, CartesianFromAtomic()(c))
-Base.convert(::Type{V}, s::Fouriered) where {V <: StaticVector} = convert(V, CartesianFromFouriered()(s))
-Base.convert(::Type{V}, c::Atomic) where {V <: StaticVector} = convert(V, CartesianFromAtomic()(c))
+Base.convert(::Type{V}, s::Fouriered) where {V <: AbstractArray} = convert(V, CartesianFromFouriered()(s))
+Base.convert(::Type{V}, c::Atomic) where {V <: AbstractArray} = convert(V, CartesianFromAtomic()(c))
+# Base.convert(::Type{V}, s::Fouriered) where {V <: StaticArray} = convert(V, CartesianFromFouriered()(s))
+# Base.convert(::Type{V}, c::Atomic) where {V <: StaticArray} = convert(V, CartesianFromAtomic()(c))
 
 Base.convert(::Type{Fouriered}, c::Atomic) = FourieredFromAtomic()(c)
 Base.convert(::Type{Atomic}, s::Fouriered) = AtomicFromFouriered()(s)
