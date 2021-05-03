@@ -177,6 +177,28 @@ class DAO(PathFinder):
             return Som
 
         @handler
+        def onsager_machlup2():
+            """
+            2qj 2qj21 2qj11 2D2
+            """
+            # Vi, Vf = paths.get_potential_energy(index=[0, -1])
+            F = -paths.get_gradients(index=np.s_[:]).reshape((D, N))
+            dV = -np.concatenate([F, F[..., -1, np.newaxis]], axis=-1)
+            v = paths.get_velocity(index=np.s_[:]).reshape((D, N))
+            m = paths.get_effective_mass(index=np.s_[:])
+            _gam = gam * m
+            # ldVl2 = (dV * dV).sum(axis=0)
+            ldVl2 = dV * dV
+            # DxMx(P-1) -> P
+            Som = (_gam * (v * v)
+                   + (ldVl2[..., 1:] + ldVl2[..., :-1]) / 2 / _gam
+                   - v * (dV[..., 1:] - dV[..., :-1])).sum() * dt / 4
+            # Som += (Vf - Vi) / 2
+            # Som = Som.sum()
+            # Som *= 0.25 * dt
+            return Som
+
+        @handler
         def energy_conservation():
             H = paths.get_total_energy(index=np.s_[:])
             return muE * ((H - Et) ** 2).sum()
@@ -269,6 +291,30 @@ class DAO(PathFinder):
                 + np.einsum(notation, H,
                             0.5 * dt * dV[..., 1:-1] / _gam
                             - 0.25 * dt * dt * a)
+            # action - reaction
+            dS[..., 1] -= dS[..., 0]
+            dS[..., -2] -= dS[..., -1]
+            return dS[..., 1:-1]
+
+        @handler
+        def onsager_machlup2():
+            F = -paths.get_gradients(index=np.s_[:]).reshape((D, N))
+            dV = -np.hstack([F[:, 0, np.newaxis], F, F[:, -1, np.newaxis]])
+            # dV = -np.hstack([np.zeros((D * M, 1)), F, np.zeros((D * M, 1))])
+            H = paths.get_hessian(index=np.s_[:]).reshape((3, D, N))
+            a = paths.get_acceleration(index=np.s_[:]).reshape((D, N))
+            m = paths.get_effective_mass(index=np.s_[:])
+            _gam = gam * m
+
+            dS = (0.5 * _gam * a * dt) \
+                - 0.25 * (2 * dV[..., 1:-1] - dV[..., 2:] - dV[..., :-2])
+            # D x N
+            lamb = 0.5 * dt * dV[..., 1:-1] / _gam - 0.25 * dt * dt * a
+            for a in range(D//3):
+                i, j = 3*a, 3*(a+1)
+                dS[i] = np.sum(H[0, i:j] * lamb[i:j], axis=0)
+                dS[i + 1] = np.sum(H[1, i:j] * lamb[i:j], axis=0)
+                dS[i + 2] = np.sum(H[2, i:j] * lamb[i:j], axis=0)
             # action - reaction
             dS[..., 1] -= dS[..., 0]
             dS[..., -2] -= dS[..., -1]

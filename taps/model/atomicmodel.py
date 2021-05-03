@@ -16,8 +16,8 @@ class AtomicModel(Model):
                               'gradients', 'positions', 'forces']
 
     calculation_properties = OrderedDict(
-        stresses='{image}.get_stress()',
-        potentials='{image}.get_potential_energies()',
+        # stresses='{image}.get_stress()',
+        # potentials='{image}.get_potential_energies()',
         potential='{image}.get_potential_energy()',
         gradients='self.prj.f_inv(-{image}.get_forces().T[..., np.newaxis],'
                   ' {image}.positions.T[..., np.newaxis])[0][..., 0].T',
@@ -26,15 +26,17 @@ class AtomicModel(Model):
     )
     model_parameters = {
         'image': {'default': 'None', 'assert': 'True'},
-        'set_label': {'default': 'False', 'assert': 'True'}
+        'set_label': {'default': 'False', 'assert': 'True'},
+        'set_directory': {'default': 'False', 'assert': 'True'}
     }
 
-    def __init__(self, image=None, set_label=None, **kwargs):
+    def __init__(self, image=None, set_label=None, set_directory=None, **kwargs):
         super().model_parameters.update(self.model_parameters)
         self.model_parameters.update(super().model_parameters)
 
         self.image = image
         self.set_label = set_label
+        self.set_directory = set_directory
 
         super().__init__(**kwargs)
 
@@ -79,13 +81,19 @@ class AtomicModel(Model):
         m = atomic_masses[image.symbols.numbers]
         return np.repeat(m, 3)[..., np.newaxis]
 
-    def coord2image(self, coord=None, image=None, set_label=None):
+    def coord2image(self, coord=None, image=None, set_label=None,
+                    set_directory=None):
         image = image or self.image
         set_label = set_label or self.set_label
+        set_directory = set_directory or self.set_directory
         image.positions = coord
         if set_label:
             label = self.get_label(coord)
             image.calc.label = label
+        if set_directory:
+            directory = self.get_directory(coord)
+            image.calc.directory = directory
+
         return copy.deepcopy(image)
 
     @classmethod

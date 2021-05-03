@@ -360,6 +360,11 @@ class Model:
         unique_hash = self.generate_unique_hash(coord)
         return directory + '/' + unique_hash + '/' + prefix
 
+    def get_directory(self, coord=None):
+        directory = self.directory or '.'
+        unique_hash = self.generate_unique_hash(coord)
+        return directory + '/' + unique_hash + '/'
+
     def check_grad(self, paths=None, index=np.s_[:], epsilon=1e-4,
                    debug=False):
         def prind(*args):

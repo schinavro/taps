@@ -1,153 +1,135 @@
+module Taps
 
-"""
-using Pkg; Pkg.add("LBFGSB"); Pkg.add("FFTW"); Pkg.add("ASE")
-import Conda
-run(`conda create -n conda_jl python conda`)
-ENV["CONDA_JL_HOME"] = "/home/schinavro/anaconda3/envs/conda_jl"
+abstract type Coords{T, N} <: AbstractArray{T, N} end
+abstract type Model end
+abstract type Finder end
 
-ENV["PYTHON"] = "/home/schinavro/anaconda3/bin/python"
-Pkg.build("PyCall")
-"""
+export Paths, get_displacements, get_momentum, get_kinetics
+export Coords, Cartesian, Atomic, Fouriered
+export Model, Gaussian
 
-import NPZ
-import Pickle
-
-
-import MPI
-
-MPI.Init()
-
-comm = MPI.COMM_WORLD
-nprc = MPI.Comm_size(comm)
-rank = MPI.Comm_rank(comm)
-root = 0
-
-mpi_float64 = MPI.Datatype(Float64)
-
-indict = Pickle.load(open(ARGS[1] * ".pkl"))
-
-D = Int64(indict["D"])
-A = Int64(indict["A"])
-N = Int64(indict["N"])
-properties = Array{String, 1}(indict["properties"])
-model_model = String(indict["model_model"])
-model_label = String(indict["model_label"])
-model_potential_unit  = String(indict["model_potential_unit"])
-model_data_ids = Dict{String, Array{Int, 1}}(indict["model_data_ids"])
-_kwargs = Dict{Any, Any}(indict["model_kwargs"])
-model_kwargs = Dict{Symbol, Any}()
-for (key, value) = pairs(_kwargs); model_kwargs[Symbol(key)] = value; end
-coords_epoch = indict["coords_epoch"]
-coords_unit = indict["coords_unit"]
-finder_finder = indict["finder_finder"]
-finder_prj = indict["finder_prj"]
-finder_label = indict["finder_label"]
-
-remainder = N % nprc
-local_counts = zeros(Int64, nprc)
-offsets = zeros(Int64, nprc)
-temp = 0
-for i=1:nprc
-    local_counts[i] = N ÷ nprc
-    if remainder > 0
-        local_counts[i] += 1
-        global remainder -= 1 # scope of variable
-    end
-    offsets[i] = temp
-    global temp += local_counts[i]
+mutable struct Paths
+    coord::Coords
+    prefix::String; directory;
+    model::Model
+    finder; imgdata; tag
+    cache
 end
 
-_N = local_counts[rank + 1]
-_shape = (D, _N)
-
-sendbuf = nothing
-println("I am rank " * string(rank) * " of nprc " * string(nprc))
-if rank == root
-    # NxD or NxAx3
-  coords_total = NPZ.npzread(ARGS[1] * ".npz", ["coords"])["coords"]
-  println("Coords size", size(coords_total))
-  # DN
-  data = Array(vec(coords_total'))
-  sendbuf = MPI.VBuffer(data, local_counts .* D, offsets .* D, mpi_float64)
+function get_displacements(paths::Paths, args...; kwargs...)
+    get_displacements(paths.model, path, args...; kwargs...)
 end
 
-recbuf = zeros(Float64, local_counts[rank + 1] * D)
-rank == root ? println("Scattering Data") : nothing
-MPI.Scatterv!(sendbuf, recbuf, root, comm)
-
-coords = Array(reshape(recbuf, _shape...)')
-
-Models = include("./models.jl")
-
-model = getfield(Models, Symbol(model_model))(model_label, model_potential_unit,
-                                              model_data_ids;
-                                              model_kwargs...)
-
-println("Constrcted Model")
-
-
-_results = model(coords, properties)
-
-results = Dict()
-
-if "potential" in properties
-    potential = zeros(Float64, N)
-    sendbuf = _results[:potential]
-    println("sendbuf", size(sendbuf))
-    recvbuf = MPI.VBuffer(potential, local_counts, offsets, mpi_float64)
-    MPI.Gatherv!(sendbuf, recvbuf, root, comm)
-    results[:potential] = potential
+function get_momentum(paths::Paths, args...; kwargs...)
+    get_momentum(paths.model, args...; kwargs...)
 end
 
-if "potentials" in properties
-    potentials = zeros(Float64, N*A)
-    sendbuf = _results[:potentials]
-    recvbuf = MPI.VBuffer(potentials, local_counts .* A,
-                          offsets .* A, mpi_float64)
-    MPI.Gatherv!(sendbuf, recvbuf, root, comm)
-    results[:potentials] = potentials
+function get_kinetic_energy(paths::Paths, args...; kwargs...)
+    get_kinetic_energy(paths.model, args...; kwargs...)
 end
 
-if "gradients" in properties
-    gradients = zeros(Float64, N*D)
-    sendbuf = _results[:gradients]
-    recvbuf = MPI.VBuffer(gradients, local_counts .* D,
-                          offsets .* D, mpi_float64)
-    MPI.Gatherv!(sendbuf, recvbuf, root, comm)
-    results[:gradients] = reshape(gradients, _shape...)
+function get_kenetic_energy_graident(paths::Paths, args...; kwargs...)
+    get_kenetic_energy_graident(paths.model, args...; kwargs...)
 end
 
-if "hessian" in properties
-    sendbuf = _results[:hessian]
-    recvbuf = nothing
-    hessian = nothing
-    DD = D * D
-    if rank == root
-        hessian = zeros(Float64, N*DD)
-        recvbuf = MPI.VBuffer(hessian, local_counts .* DD, offsets .* DD,
-                              mpi_float64)
-    end
-    MPI.Gatherv!(sendbuf, recvbuf, root, comm)
-    results[:hessian] = rank == root ? reshape(hessian, N, D, D) : nothing
+function get_velocity(paths::Paths, args...; kwargs...)
+    get_velocity(paths.model, args...; kwargs...)
 end
 
-if "covariance" in properties
-    sendbuf = _results[:covariance]
-    recvbuf = nothing
-    covariance = nothing
-    NN = N
-    if rank == root
-        covariance = zeros(Float64, NN)
-        recvbuf = MPI.VBuffer(covariance, local_counts .* NN, offsets .* NN,
-                              mpi_float64)
-    end
-    MPI.Gatherv!(sendbuf, recvbuf, root, comm)
-    results[:covariance] = rank == root ? reshape(covariance, N) : nothing
+function get_acceleration(paths::Paths, args...; kwargs...)
+    get_acceleration(paths.model, args...; kwargs...)
+
+end
+get_accelerations = get_acceleration
+
+function get_mass(paths::Paths, args...; kwargs...)
+    get_mass(paths.model, args...; kwargs...)
+
 end
 
-if rank == root
-    NPZ.npzwrite("result.npz"; results...)
+function get_effective_mass(paths::Paths, args...; kwargs...)
+    get_effective_mass(paths.model, args...; kwargs...)
 end
 
-MPI.Barrier(comm)
-MPI.Finalize()
+""" Directly calls the :meth:`get_properties` in ``paths.model``"""
+function get_properties(paths::Paths, args...; kwargs...)
+    get_properties(paths.model, args...; kwargs...)
+end
+
+""" Calculate potential( energy) """
+function get_potential_energy(paths::Paths, args...; kwargs...)
+    get_potential_energy(paths.model, args...; kwargs...)
+end
+
+""" Calculate potential """
+function get_potential(paths::Paths, args...; kwargs...)
+    get_potential(paths.model, args...; kwargs...)
+end
+
+""" Equivalanet to Calculate potentials"""
+function get_potential_energies(paths::Paths, args...; kwargs...)
+    get_potential_energies(paths.model, args...; kwargs...)
+end
+
+""" Calculate potentials, individual energy of each atoms"""
+function get_potentials(paths::Paths, args...; kwargs...)
+    get_potentials(paths.model, args...; kwargs...)
+end
+
+""" Calculate - potential gradient"""
+function get_forces(paths::Paths, args...; kwargs...)
+    get_forces(paths.model, args...; kwargs...)
+end
+
+""" Calculate potential gradient"""
+function get_gradient(paths::Paths, args...; kwargs...)
+    get_gradient(paths.model, args...; kwargs...)
+end
+
+""" Calculate potential gradient(s)"""
+function get_gradients(paths::Paths, args...; kwargs...)
+    get_gradients(paths.model, args...; kwargs...)
+end
+
+""" Calculate Hessian of a potential"""
+function get_hessian(paths::Paths, args...; kwargs...)
+    return get_hessian(paths.model, args...; kwargs...);
+end
+
+""" Calculate kinetic + potential energy"""
+function get_total_energy(paths::Paths, args...; kwargs...)
+    V = get_potential_energy(paths.model, args...; kwargs...)
+    T = get_kinetic_energy(paths.model, args...; kwargs...)
+    return V + T
+end
+
+""" Calculate covariance. It only applies when potential is guassian"""
+function get_covariance(paths::Paths, args...; kwargs...)
+    get_covariance(paths.model, args...; kwargs...)
+end
+
+""" Get index of highest potential energy simplified"""
+function get_higest_energy_idx(paths::Paths)
+    E = get_potential_energy(path)
+    return argmax(E)
+end
+
+""" Get index of lowest of covariance simplified"""
+function get_lowest_confident_idx(paths::Paths)
+    cov = get_covariance(path)
+    return argmax(diag(cov))
+end
+
+"""" list of int; Get rowid of data"""
+function get_data(paths::Paths, args...; kwargs...)
+    get_data(paths.model, args...; kwargs...)
+end
+
+include("./utils.jl")
+include("./coordinates/trasnformations.jl")
+include("./coordinates/coordinate.jl")
+
+include("./database.jl")
+include("./models/models.jl")
+
+end

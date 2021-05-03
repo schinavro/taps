@@ -314,22 +314,28 @@ class Paths:
             self.model.regression()
         return ids
 
-    def simple_coords(self, index=np.s_[:]):
+    def simple_coords(self):
         """Simple line connecting between init and fin"""
-        coords = np.zeros(self.DMP)
-        endpoint = self.coords[..., [0, -1]]
-        for d in range(self.D):
-            for m in range(self.M):
-                coords[d, m] = np.linspace(*endpoint[d, m], self.N)
-        return coords[..., index]
+        coords = np.zeros(self.coords.shape)
+        init = self.coords[..., [0]]
+        fin = self.coords[..., [-1]]
+        dist = fin - init            # Dx1 or 3xAx1
+        simple_line = np.linspace(0, 1, self.coords.N) * dist
+        coords = (simple_line + init)  # N x A x 3 -> 3 x A x N
+        return coords
 
-    def fluctuate(self, initialize=True, cutoff_f=70, temperature=0.03):
+    def fluctuate(self, initialize=False, cutoff_f=10, fluctuation=0.03,
+                  fourier={'type': 1}):
         """Give random fluctuation"""
+        from scipy.fftpack import idst
+        rand = np.random.rand
+        NN = np.sqrt(2 * (cutoff_f + 1))
         if initialize:
             self.coords = self.simple_coords()
-        fluc = np.zeros(self.Pk)
-        fluc[:cutoff_f] = temperature * np.linspace(2 * self.N, 0, cutoff_f)
-        self.rcoords += fluc * (np.random.rand(*self.rcoords.shape) - 0.5)
+        size = self.coords[..., 1:-1].shape
+        fluc = np.zeros(size)
+        fluc[..., :cutoff_f] = fluctuation * (0.5 - rand(*size[:-1], cutoff_f))
+        self.coords[..., 1:-1] += idst(fluc, **fourier) / NN
 
     def search(self, **kwargs):
         """ Calculate optimized pathway"""

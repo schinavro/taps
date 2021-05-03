@@ -143,6 +143,30 @@ class Julia(Model):
                                              mpi, debug, **kwargs)
         self.results = results
 
+    def get_mass(self, paths, coords=None, **kwargs):
+        """
+        Return one as a default mass
+
+        coords
+        ------
+              Array with shape DxN or 3xAxN
+        if DxN, return 1x1
+        else, return Ax1
+        """
+        return self.real_model.get_mass(paths, coords=coords, **kwargs)
+
+    def get_effective_mass(self, paths, coords=None, **kwargs):
+        """
+        Return mass per dimension
+
+        coords
+        ------
+              Array with shape DxN or 3xAxN
+        if DxN, return 1x1
+        else, return Ax1
+        """
+        return self.real_model.get_effective_mass(paths, coords=coords, **kwargs)
+
     def _generate_input_dict(self, paths, model=None,
                              model_kwargs=None,
                              coords_epoch=None,
@@ -244,7 +268,7 @@ class Julia(Model):
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp:
                     tcp.connect((host, port))
-                    tcp.sendall(instruction)
+                    tcp.sendall(self._pack(instruction))
                     respond = tcp.recv(64000)
                     if respond == b'Roger standby\n':
                         break
@@ -270,7 +294,7 @@ class Julia(Model):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp:
             tcp.connect((host, port))
             instruction = b'shutdown\n'
-            tcp.sendall(instruction)
+            tcp.sendall(self._pack(instruction))
             response = tcp.recv(64000)
 
         if response == b'Shutting down julia\n':
@@ -297,7 +321,7 @@ class Julia(Model):
         instruction = b'construct input\n'
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp:
             tcp.connect((host, port))
-            tcp.sendall(instruction)
+            tcp.sendall(self._pack(instruction))
             response = tcp.recv(64000)
             if response == b'Roger standby\n':
                 input_dict = self._generate_input_dict(*args, **kwargs)
@@ -316,7 +340,7 @@ class Julia(Model):
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp:
                     tcp.connect((host, port))
-                    tcp.sendall(instruction)
+                    tcp.sendall(self._pack(instruction))
                     response = tcp.recv(64000)
                     assert response == b'Roger standby\n', 'Server init failed'
                     input_dict = kwargs
@@ -339,7 +363,7 @@ class Julia(Model):
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp:
                     tcp.settimeout(5)
                     tcp.connect((host, port))
-                    tcp.sendall(instruction)
+                    tcp.sendall(self._pack(instruction))
                     response = tcp.recv(64000)
                     assert response == b'Prepare for coords\n'
                     tcp.settimeout(None)
@@ -360,7 +384,7 @@ class Julia(Model):
         instruction = b'construct model\n'
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp:
             tcp.connect((host, port))
-            tcp.sendall(instruction)
+            tcp.sendall(self._pack(instruction))
 
     def _calculate_server(self, paths, coords, properties, ikwargs, mpi,
                           debug, **kwargs):
@@ -377,7 +401,7 @@ class Julia(Model):
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp:
                     tcp.connect((host, port))
-                    tcp.sendall(instruction)
+                    tcp.sendall(self._pack(instruction))
                     # i = 0
                     # while i < 10:
                     #    read_sockets, w_s, er_s = select.select([tcp], [],
@@ -434,7 +458,7 @@ class Julia(Model):
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp:
                     tcp.settimeout(5)
                     tcp.connect((host, port))
-                    tcp.sendall(instruction)
+                    tcp.sendall(self._pack(instruction))
                     order = json.dumps(inputs).encode("utf-8")
                     order_size = np.array(len(order), dtype=np.int64).tobytes()
                     tcp.sendall(order_size + order)
@@ -446,7 +470,6 @@ class Julia(Model):
                         count += len(packet)
                         package.append(packet)
                     coupang = json.loads((b''.join(package)).decode('utf-8'))
-                    tcp.settimeout(None)
                 break
             except socket.timeout:
                 continue
@@ -492,7 +515,7 @@ class Julia(Model):
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as tcp:
                     tcp.settimeout(5)
                     tcp.connect((host, port))
-                    tcp.sendall(instruction)
+                    tcp.sendall(self._pack(instruction))
                     response = tcp.recv(64000)
                     assert response == b'Prepare for regression\n', response
                     tcp.settimeout(None)
@@ -505,6 +528,10 @@ class Julia(Model):
                 print("_regress can not assign requested address", host, port)
                 time.sleep(1)
                 continue
+
+    def _pack(self, instruction):
+        in_size = np.array(len(instruction), dtype=np.int64).tobytes()
+        return in_size + instruction
 
     def _print_udpout(self):
         line = ""
