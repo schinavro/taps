@@ -6,7 +6,23 @@ Base.getindex(A::Coords, I::Vararg{Int, N}) where {N} = getindex(A.coords, I...)
 Base.setindex!(A::Coords, v, I::Vararg{Int, N}) where {N} = setindex!(A.coords, v, I...)
 Base.isapprox(c1::T, c2::T; kwargs...) where {T<:Coords} = isapprox(c1.coords, c2.coords; kwargs...) && isapprox(c1.epoch, c2.epoch; kwargs...) && c1.unit == c2.unit
 
-
+function Base.getproperty(coords::Coords, name::Symbol, x)
+    if length(String(name)) > 7 && String(name)[end-6:end] == "_kwargs"
+        name = Symbol(String(name)[1:end-7])
+        field = getfield(coords, name)
+        x = x == nothing ? Dict([(f, nothing) for f in fieldnames(field)]) : x
+        ans = Dict()
+        for (key, value) in pairs(x)
+            ans[key] = getproperty(field, key, value)
+        end
+        return ans
+    elseif parentmodule(fieldtype(typeof(coords), name)) ∉ [Base, Core]
+        typename = typeof(getfield(coords, name))
+        return "$typename"
+    else
+        return getfield(coords, name)
+    end
+end
 
 function Base.getproperty(obj::T, sym::Symbol) where {T <: Coords}
     if sym == :D
@@ -33,9 +49,10 @@ end
 Base.similar(A::Cartesian, ::Type{T}, dims::Dims) where {T} = Cartesian{T, length(dims)}(similar(A.coords, T, dims), A.epoch, A.unit)
 Base.convert(::Type{Cartesian{T, 2}}, coords::Cartesian{T, N}) where {T, N} = Cartesian{T, 2}(reshape(coords.coords, coords.N, prod(size(coords)[2:end])), coords.epoch, coords.unit)
 
-Cartesian(A::Array{T, N}, epoch::Real=1, unit::String="Å") where {T<:Number, N} = Cartesian{T, N}(A, epoch, unit)
-Cartesian{T}(A::Array{T, N}, epoch::Real=1, unit::String="Å") where {T<:Number, N} = Cartesian{T, N}(A, epoch, unit)
-Cartesian{T, N}(A::Array{T, N}) where {T<:Number, N} = Cartesian{T, N}(A, 1., "Å")
+@inline Cartesian(;coords=zeros(2, 1), epoch=1., unit="Å") = Cartesian(coords, epoch, unit)
+@inline Cartesian(A::Array{T, N}, epoch::Real=1, unit::String="Å") where {T<:Number, N} = Cartesian{T, N}(A, epoch, unit)
+@inline Cartesian{T}(A::Array{T, N}, epoch::Real=1, unit::String="Å") where {T<:Number, N} = Cartesian{T, N}(A, epoch, unit)
+@inline Cartesian{T, N}(A::Array{T, N}) where {T<:Number, N} = Cartesian{T, N}(A, 1., "Å")
 
 # @inline Cartesian{T, 3}(A::Cartesian{T, 2}) where {T<:Number, N} = Cartesian{T, 2}(reshape(coords.coords, coords.N, prod(size(coords)[2:end])), A.epoch, A.unit)
 # @inline Cartesian{T, 2}(A::Cartesian{T, 3}) where {T<:Number, N} = Cartesian{T, 2}(reshape(coords.coords, coords.N, prod(size(coords)[2:end])), A.epoch, A.unit)

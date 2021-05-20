@@ -1,26 +1,84 @@
 module Taps
-
+#import Base.getproperty, Base.setproperty!
 abstract type Coords{T, N} <: AbstractArray{T, N} end
 abstract type Model end
+abstract type Database end
 # abstract type Finder end
 
-export Paths, get_displacements, get_momentum, get_kinetics
+export Paths, getproperty, setproperty!, get_displacements, get_momentum, get_kinetics
 export Coords, Cartesian, Atomic, Fouriered
 export Model, Gaussian
+export ImageData
 
 mutable struct Paths
     coords::Coords
     model::Model
     prefix::String
-    directory
-    imgdata;
-    tag
-    cache
+    directory::String
+    imgdata::Database
+    tag::Dict
+    cache::Dict
 end
 
-Paths(;coords=nothing, model=nothing, prefix="paths", directory=".",
-       imgdata=nothing, tag=nothing, cache=nothing) =
-       Paths(coords, model, prefix, directory, imgdata, tag, cache)
+function Paths(;coords="Cartesian", coords_kwargs=Dict(), model="MullerBrown", model_kwargs=Dict(),
+       prefix="paths", directory=".", imgdata="ImgData", imgdata_kwargs=Dict(),
+       tag=Dict(), cache=Dict())
+    coords = getfield(Main, Symbol(coords))(;coords_kwargs...)
+    model = getfield(Main, Symbol(model))(;model_kwargs...)
+    imgdata = getfield(Main, Symbol(imgdata))(;imgdata_kwargs...)
+    Paths(coords, model, prefix, directory, imgdata, tag, cache)
+end
+
+function Base.getproperty(paths::Paths, name::Symbol, x)
+    if length(String(name)) > 7 && String(name)[end-6:end] == "_kwargs"
+        name = Symbol(String(name)[1:end-7])
+        field = getfield(paths, name)
+        x = x == nothing ? Dict([(f, nothing) for f in fieldnames(field)]) : x
+        ans = Dict()
+        for (key, value) in pairs(x)
+            ans[key] = getproperty(field, key, value)
+        end
+        return ans
+    elseif parentmodule(fieldtype(typeof(paths), name)) ∉ [Base, Core]
+        typename = typeof(getfield(paths, name))
+        return "$typename"
+    else
+        return getfield(paths, name)
+    end
+end
+
+function Base.setproperty!(obj::T, name::Symbol, x) where {T<:Union{Paths, Coords, Database, Model}}
+    if length(String(name)) > 7 && String(name)[end-6:end] == "_kwargs"
+        name = Symbol(String(name)[1:end-7])
+        field = getfield(obj, name)
+        for (key, value) in pairs(x)
+            setproperty!(field, key, value)
+        end
+    elseif parentmodule(fieldtype(typeof(obj), name)) ∉ [Base, Core]
+        # Change the class
+        if typeof(x) == String
+            newfield = getfield(Main, Symbol(x))()
+            setfield!(obj, name, newfield)
+        # Complex update
+        elseif typeof(x) <: Dict
+            # :coords => {kwargs...} case. Update kwargs.
+            if get(x, :name, nothing) == nothing
+                field = getfield(obj, name)
+                for (key, value) in pairs(x)
+                    setproperty!(field, name, x)
+                end
+            # :coords => {:name=> "Sine", :kwargs => {...}} case. Reconstruct coords
+            else
+                newname = x[:name]
+                new_kwargs = x[:kwargs]
+                newfield = getfield(Main, Symbol(newname))(;new_kwargs...)
+                setfield!(obj, name, newfield)
+            end
+        end
+    else
+        setfield!(obj, name, x)
+    end
+end
 
 @inline get_displacements(paths::Paths, args...; kwargs...) = get_displacements(paths.model, paths, args...; kwargs...)
 @inline get_momentum(paths::Paths, args...; kwargs...) = get_momentum(paths.model, paths, args...; kwargs...)
@@ -78,7 +136,6 @@ end
 include("./utils/utils.jl")
 include("./coordinates/transformations.jl")
 include("./coordinates/coordinates.jl")
-
 include("./database.jl")
 include("./models/models.jl")
 

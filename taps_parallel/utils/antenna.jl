@@ -1,152 +1,178 @@
+using JSON
+using DataStructures: Deque
+#Taps = include("/home/schinavro/libCalc/taps/taps_parallel/taps.jl")
+#using .Taps: Coords
 
-@inline compactify(array::Array{T}) where {T <: Number} = array
-@inline compactify(array::T) where {T <: Union{Number, String, Bool, Nothing, Tuple}} = array
+int, float, real, number, bool = 1, 2, 3, 4, 5
+int8, int16, int32, int64 = 6, 7, 8, 9
+uint8, uint16, uint32, uint64 = 10, 11, 12, 13
+float16, float32, float64 = 14, 15, 16
+complex64, complex128 = 17, 18
 
-function compactify(array::Array{Any, 1})
-    # Check all the type are same. If not, return as it is
-    checker = typeof(array[1])
-    for arr in array
-        checker == typeof(arr) ? continue : nothing
-        return array
-        break
-    end
-    # Make new array with new element type array
-    return compactify(Array{checker, 1}(array))
+const Float = AbstractFloat
+
+typemaps = Dict(
+    int=>Int, Int=>int,
+    float=>Float, Float=>float, Real=>float, Number=>float,
+    bool=>Bool, Bool=>bool,
+    int8=>Int8, Int8=>int8,
+    int16=>Int16, Int16=>int16,
+    int32=>Int32, Int32=>int32,
+    int64=>Int64, Int64=>int64,
+    uint8=>UInt8, UInt8=>uint8,
+    uint16=>UInt16, UInt16=>uint16,
+    uint32=>UInt32, UInt32=>uint32,
+    uint64=>UInt64, UInt64=>uint64,
+    float16=>Float16, Float16=>float16,
+    float32=>Float32, Float32=>float32,
+    float64=>Float64, Float64=>float64,
+    complex64=>Complex{Float32}, Complex{Float32}=>complex64,
+    complex128=>Complex{Float64}, Complex{Float64}=>complex128
+)
+ordermaps = Dict("C"=>0, 0=>"C", 1=>"F", "F"=>1)
+
+function write_header(pointer, arr)
+    header = []
+    dtype = eltype(arr)
+    ndim = ndims(arr)
+    shape = size(arr)
+    order = "F"
+    header = Array{Int64, 1}([pointer, typemaps[dtype], ndim, shape..., ordermaps[order]])
+    headerbytes = reinterpret(UInt8, header)
+    return headerbytes
 end
 
-function compactify(array::Array{T, 1}) where {T <: Array}
-    # Check if it can be compact
-    len = length(array[1])
-    compactable = true
-    for arr in array
-        len == length(arr) ? continue : compactable = false
-        break
-    end
-    if compactable
-        compat = array |> compactify
-        return cat(compat..., dims=ndims(compat[1])+1)
-    else
-        return map(compactify, array)
-    end
+function read_header(arrbytes)
+    header_size = reinterpret(Int64, arrbytes[1:8])[1]
+    header = reinterpret(Int64, arrbytes[9:8+header_size])
+    pointer, dtype, ndim = header[1], typemaps[header[2]], header[3]
+    shape = header[4:3+ndim]
+    order = ordermaps[header[4+ndim]]
+    header = header_size, pointer, dtype, ndim, shape, order
+    return header
 end
 
-function compactify(array::T) where {T <: Dict}
-    new_dict = Dict()
-    for (key, value) in pairs(array)
-        value = compactify(value)
-        if typeof(value) <: Array{TT, 1} where {TT <: Number}
-            nothing
-        elseif typeof(value) <: Array{TT} where {TT <: Number}
-            value = permutedims(value, ndims(value):-1:1 |> collect)
+function statify(arrlist, d::Union{Dict, Array{Any, 1}})
+    pointerlist = ["__$(arr[1])__"  for arr in arrlist]
+    global queue = Deque{Tuple}()
+    push!(queue, (hash(d), d))
+    memo = Set()
+    while true
+        global queue
+        isempty(queue) ? break : nothing
+        id_, o = popfirst!(queue)
+        id_ in memo ? continue : nothing
+        union!(memo, id_)
+
+        if typeof(o)<:Dict for (k, v) in pairs(o)
+            push!(queue, (hash(v), v))
+            v in pointerlist ? o[k] = arrlist[findfirst(x->x==v, pointerlist)][2] : nothing
+            end
+        elseif typeof(o)<:Array{Any, 1} for i=1:length(o)
+            v = o[i]
+            push!(queue, (hash(v), v))
+            v in pointerlist ? o[i] = arrlist[findfirst(x->x==v, pointerlist)][2] : nothing
+            end
         end
-        new_dict[Symbol(key)] = value
     end
-    new_dict
+    return d
 end
 
-"""
-Helper function for instruction
-"""
-struct Instruction instruction::String end
-Instruction(instruction::Array{UInt8}) = Instruction(String(instruction))
+function pointify(d, pointer, binarylist::Array)
+    global queue = Deque{Tuple}()
+    push!(queue, (hash(d), d))
+    memo = Set()
+    while true
+        global queue
+        isempty(queue) ? break : nothing
+        id_, o = popfirst!(queue)
+        id_ in memo ? continue : nothing
+        union!(memo, id_)
+        if typeof(o)<:Dict for (k, v) in pairs(o)
+            push!(queue, ((hash(v), v)))
+            if typeof(v)<:Array{T, N} where {T<:Number, N}
+                pstr = "__$(pointer)__"
 
-function Base.eval(io::SocketIO, instruction::Instruction)
-    Mod = parentmodule(typeof(io))
-    type = MPI.bcast(instruction.instruction[1], io.root, io.comm)
-    if type in [b"*", b"1", b"2", b"3"]
-        instruction = MPI.bcast(instruction.instruction, io.root, io.comm)
-        inst = instruction
-    end
-    return if type == b"*" # WildCard Instruction
-        eval(Metal.eval(String(inst)))
-    elseif type == b"0"    # Zero argument
-        getfield(Mod, Symbol(inst[2:end]))(io)
-    elseif type == b"1"    # One arguments ex, b"1write,energy"
-        instruct, arg = split(inst[2:end], ",")
-        getfield(Mod, Symbol(instruct))(io, args)
-    elseif type == b"2"    # More than One arguments ex, b"1write,energy,forces"
-        instruct, args = split(inst[2:end], ",", limit=2)
-        getfield(Mod, Symbol(instruct))(io, args...)
-    elseif type == b"3"    # Arguments built with a JSON
-        instruct, args = split(inst[2:end], ",", limit=2)
-        kwargs = Utils.compactify(JSON.parse(String(args)))
-        getfield(Mod, Symbol(instruct))(io; kwargs...)
-    elseif type == b"4"    # Arguments built with a Binary Array
-        ########SCATTER
-        instruct, args = split(inst[2:end], ",", limit=2)
-        array = Utils.read_array(args)
-        getfield(Mod, Symbol(instruct))(io, args)
-    elseif type == b"5"    # Arguments built with a numpy arr and JSON arr
-        instruct, args = split(inst[2:end], ",", limit=2)
-        narr, njson = reinterpret(Int64, read(io.tcp, 16))
-        arrbytes = inst[16+2:njson]
-        jsonbytes = inst[16+2:njson]
-        kwargs = Utils.compactify(JSON.parse(String(jsonbytes)))
-        args = Utils.read_array(arrbytes)
-        getfield(Mod, Symbol(instruct))(io, args; kwargs...)
-    elseif type == b"6"    # N args with a JSON kwargs
-        instruct, args = split(inst[2:end], ",", limit=2)
-        narr, njson = reinterpret(Int64, read(io.tcp, 16))
-        arrbytes = inst[16+2:njson]
-        jsonbytes = inst[16+2:njson]
-        kwargs = Utils.compactify(JSON.parse(String(jsonbytes)))
-        args = Utils.read_array(arrbytes)
-        getfield(Mod, Symbol(instruct))(io, args; kwargs...)
-    end
-end
+                headerbytes = write_header(pointer, o[k])
+                binar = cat(reinterpret(UInt8, [length(headerbytes)]), headerbytes, reinterpret(UInt8, vec(v)), dims=1)
+                push!(binarylist, binar)
+                o[k] = pstr
+                pointer += 1
+            end end
+        elseif typeof(o)<:Array{Any, 1} for i=1:length(o)
+            v = o[i]
+            push!(queue, (hash(v), v))
+            if typeof(v)<:Array{T, N} where {T<:Number, N}
 
-"""
-Helper function for sending data
-"""
-function mpi_parser(arr, N, nprc)
-    # Efficient Coords MPI mpi initialize
-    remainder = N % nprc
-    quant = zeros(Int64, nprc)
-    partn = zeros(Int64, nprc)
-    temp = 0
-    for i=1:nprc
-        quant[i] = N ÷ nprc
-        if remainder > 0
-            quant[i] += 1
-            remainder -= 1 # scope of variable
+                pstr = "__$(pointer)__"
+                headerbytes = write_header(pointer, v)
+                binar = cat(reinterpret(UInt8, [length(headerbytes)]), headerbytes, reinterpret(UInt8, vec(v)), dims=1)
+                push!(binarylist, binar)
+                o[i] = pstr
+                pointer += 1
+            end end
         end
-        partn[i] = temp
-        temp += quant[i]
     end
-    return N
+    return d, pointer, binarylist
 end
 
-function gather(io::SocketIO, property)
-    sendarr = io.cache["results"][property]
-    _shape = size(sendarr)
-    _N = _shape[1]
-    N = MPI.reduce(_N, sum, io.root, io.comm)
-    shape = (N, _shape[2:end]...)
-    N, D, quant, partn = Utils.mpi_parser_param(_results[property])
+function packing(args...; kwargs...)::Array{UInt8, 1}
+    args, kwargs = Array{Any, 1}([args...]), Dict(kwargs)
+    binarylist = []
+    pointer = 0
+
+    args, pointer, binarylist = pointify(args, pointer, binarylist)
+    kwargs, pointer, binarylist = pointify(kwargs, pointer, binarylist)
+    kwargs = Dict(kwargs)
+
+    kwargs[:args] = args
+
+    howmanybinary = reinterpret(UInt8, [length(binarylist)])
+
+    eachsize = reinterpret(UInt8, [length(b) for b in binarylist])
+
+    binarybytes = cat(howmanybinary, eachsize, cat(binarylist..., dims=1), dims=1)
+    kwargsbytes = Array{UInt8}(JSON.json(kwargs))
+
+    data = cat(binarybytes, kwargsbytes, dims=1)
+    header = reinterpret(UInt8, [length(data)+16, length(binarybytes), length(kwargsbytes)])
+    return cat(header, data, dims=1)
 end
 
-function scatter(io::SocketIO, array)
-    crd_byts = rank == root ? read(tcp, D * N * 8) : nothing
-    # If N is too small, just calculate on every node.
-    if N < nprc
-        _N = N
-        _shape = A == 1 ? (D, _N) : (3, A, _N)
-        coords = zeros(Float64, D, N)
-        crd_byts = MPI.bcast(crd_byts, root, comm)
-        coords = reshape(reinterpret(Float64, crd_byts), _shape...)
-        coords = Array{Float64}(coords)
-    else
-        _N = quant[rank + 1]
-        _shape = A == 1 ? (D, _N) : (3, A, _N)
-        coords = zeros(Float64, quant[rank + 1] * D)
-        if rank == root
-            crd_byts = MPI.VBuffer(crd_byts, quant .* 8D, partn .* 8D, mUInt8)
-        end
-        MPI.Scatterv!(crd_byts, coords, root, comm)
-        coords = reshape(reinterpret(Float64, coords), _shape...)
-        coords = Array{Float64}(coords)
+
+function unpacking(bytesarr::Array{UInt8, 1})
+    binarysize, kwargssize = reinterpret(Int64, bytesarr[1:16])
+    partition = 16 + binarysize
+
+    binarybytes = bytesarr[17:partition]
+    kwargsbytes = bytesarr[partition+1:end]
+
+    #binarybytes to binarylist
+    howmanybinary = reinterpret(Int64, binarybytes[1:8])[1]
+    eachsize = reinterpret(Int64, binarybytes[9:8 + 8howmanybinary])
+    partition = 9 + 8howmanybinary
+
+    arrlist = []
+    for size in eachsize
+        arrbytes = binarybytes[partition:partition+size-1]
+        header_size, pointer, dtype, ndim, shape, order = read_header(arrbytes)
+
+        shape = order == "C" ? reverse(shape) : shape
+
+        arr = reinterpret(dtype, arrbytes[header_size+9:end])
+
+        array = Array{dtype, length(shape)}(reshape(arr, shape...))
+        push!(arrlist, (pointer, array))
+        partition += size
     end
-    model_name = input_dict[:model]
-    model_kwargs = input_dict[:model_kwargs]
-    model = getfield(Models, model_name)(;model_kwargs...)
+
+    pkwargs = JSON.parse(String(kwargsbytes); dicttype=Dict{Symbol,Any})
+    pargs = pkwargs[:args]
+    delete!(pkwargs, :args)
+
+    # link binarybytes and everything
+    args = statify(arrlist, pargs)
+    kwargs = statify(arrlist, pkwargs)
+
+    return args, kwargs
 end

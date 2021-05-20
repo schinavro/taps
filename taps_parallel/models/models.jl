@@ -1,6 +1,24 @@
 
 export MullerBrown
 
+function Base.getproperty(model::Model, name::Symbol, x)
+    if length(String(name)) > 7 && String(name)[end-6:end] == "_kwargs"
+        name = Symbol(String(name)[1:end-7])
+        field = getfield(model, name)
+        x = x == nothing ? Dict([(f, nothing) for f in fieldnames(field)]) : x
+        ans = Dict()
+        for (key, value) in pairs(x)
+            ans[key] = getproperty(field, key, value)
+        end
+        return ans
+    elseif parentmodule(fieldtype(typeof(model), name)) ∉ [Base, Core]
+        typename = typeof(getfield(model, name))
+        return "$typename"
+    else
+        return getfield(model, name)
+    end
+end
+
 @inline get_properties(model::Model, paths::Paths, properties::String, args...; kwargs...) = model(paths, paths.coords, [properties], args...; kwargs...)
 @inline get_properties(model::Model, paths::Paths, properties::Array{String}, args...; kwargs...) = model(paths, paths.coords, properties, args...; kwargs...)
 @inline get_properties(model::Model, paths::Paths, properties::String, coords::Coords, args...; kwargs...) = model(paths, coords, [properties], args...; kwargs...)
@@ -35,12 +53,13 @@ struct MullerBrown <: Model
     c::Array{Float64, 1}
     x0::Array{Float64, 1}
     y0::Array{Float64, 1}
+    results::Dict
 end
 
 MullerBrown(;
    A=[-200., -100., -170, 15], a=[-1, -1, -6.5, 0.7], b=[0., 0., 11., 0.6],
-   c=[-10, -10, -6.5, 0.7], x0=[1, 0, -0.5, -1], y0=[0, 0.5, 1.5, 1]) =
-                                                 MullerBrown(A, a, b, c, x0, y0)
+   c=[-10, -10, -6.5, 0.7], x0=[1, 0, -0.5, -1], y0=[0, 0.5, 1.5, 1],
+   results=Dict()) = MullerBrown(A, a, b, c, x0, y0, results)
 
 @inline (model::MullerBrown)(paths::Paths, coords::Coords, properties::Array{String, 1}) = (model::MullerBrown)(coords::Coords, properties::Array{String, 1})
 @inline (model::MullerBrown)(coords::Coords, properties::Array{String, 1}) = (model::MullerBrown)(convert(Cartesian{eltype(coords), 2}, coords), properties::Array{String, 1})

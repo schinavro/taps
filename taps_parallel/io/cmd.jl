@@ -7,7 +7,7 @@ parse_setting = ArgParseSettings()
         default = "file"
     "--host"
         help = "another option with an argument"
-        # arg_type = Int
+        # arg_type = Stirng
         # default = "127.0.0.1"
     "--port"
         help = "another option with an argument"

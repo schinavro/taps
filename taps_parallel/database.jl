@@ -1,8 +1,30 @@
-module Database
 
 using SQLite, DataFrames
 
-export read_data
+export read_data, ImgData
+
+struct ImgData<:Database
+    filename::String
+end
+ImgData() = ImgData("imgdata.db")
+
+function Base.getproperty(database::Database, name::Symbol, x)
+    if length(String(name)) > 7 && String(name)[end-6:end] == "_kwargs"
+        name = Symbol(String(name)[1:end-7])
+        field = getfield(database, name)
+        x = x == nothing ? Dict([(f, nothing) for f in fieldnames(field)]) : x
+        ans = Dict()
+        for (key, value) in pairs(x)
+            ans[key] = getproperty(field, key, value)
+        end
+        return ans
+    elseif parentmodule(fieldtype(typeof(database), name)) ∉ [Base, Core]
+        typename = typeof(getfield(database, name))
+        return "$typename"
+    else
+        return getfield(database, name)
+    end
+end
 
 function read_data(filename::String, data_ids)
     db = SQLite.DB(filename)
@@ -23,7 +45,4 @@ function read_data(filename::String, data_ids)
     data["gradients"] = gradients  # D x N ; confirmed
     data["potential"] = Array{Float64, 1}(reinterpret(Float64, ds.potential))
     return data
-end
-
-
 end

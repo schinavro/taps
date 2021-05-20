@@ -1,34 +1,17 @@
-"""
-using Pkg; Pkg.add("LBFGSB"); Pkg.add("FFTW"); Pkg.add("ASE")
-import Conda
-run(`conda create -n conda_jl python conda`)
-ENV["CONDA_JL_HOME"] = "/home/schinavro/anaconda3/envs/conda_jl"
-
-ENV["PYTHON"] = "/home/schinavro/anaconda3/bin/python"
-Pkg.build("PyCall")
-"""
-module SocketIOs
-using Sockets
-
-import Base
-import Base.println, Base.print
 
 import JSON
+import Base.read, Base.write
+
+using Sockets
+
+include("../utils/antenna.jl")
 Taps = include("../taps.jl")
+
 using .Taps
 
+
 mutable struct SocketIO
-    host; port; tcp; tcp_server; keep_open; is_tcp_opened; MPI; comm; root; nprc; rank; mFloat64; mUInt8; cache::Dict;
-end
-SocketIO(;host="127.0.0.1", port=6543, keep_open=true, is_tcp_opened=false,
-          MPI=nothing, comm=nothing, root=0, nprc=nothing rank=nothing,
-          mFloat64=nothing, mUInt8=nothing, cache=Dict(), kwargs...) = begin
-    host = Sockets.IPv4(host)
-    tcp_server = rank == root && is_tcp_opened ? listen(host, port) : nothing
-    is_tcp_opened = true
-    # It should be nothing at the beginning
-    tcp = nothing
-    SocketIO(host, port, tcp; tcp_server, keep_open, is_tcp_opened, MPI, comm, root, nprc, rank, mFloat64, mUInt8, cache)
+            host; port; tcp; tcp_server; keep_open; is_tcp_opened; MPI; comm; root; nprc; rank; mFloat64; mUInt8; cache::Dict;
 end
 
 function Base.setproperty!(value::SocketIO, name::Symbol, x)
@@ -38,11 +21,24 @@ function Base.setproperty!(value::SocketIO, name::Symbol, x)
     setfield!(value, name, x)
 end
 
+
+SocketIO(;host="127.0.0.1", port=6543, keep_open=true, is_tcp_opened=false,
+          MPI=nothing, comm=nothing, root=0, nprc=nothing, rank=nothing,
+          mFloat64=nothing, mUInt8=nothing, cache=Dict(), kwargs...) = begin
+    host = Sockets.IPv4(host)
+    tcp_server = rank == root && is_tcp_opened ? nothing : listen(host, port)
+    is_tcp_opened = true
+    # It should be nothing at the beginning
+    tcp = nothing
+
+    SocketIO(host, port, tcp, tcp_server, keep_open, is_tcp_opened, MPI, comm, root, nprc, rank, mFloat64, mUInt8, cache)
+end
+
 function run_taps(io::SocketIO)
     # Pre define static variables, remove `io.`
     host = io.host; port = io.port; tcp_server = io.tcp_server;
     MPI = io.MPI; comm = io.comm; root = io.root; nprc = io.nprc; rank = io.rank;
-    mFloat64 = io.Float64; mUInt8 = io.mUInt8
+    mFloat64 = io.mFloat64; mUInt8 = io.mUInt8
     # MPI set menu
     mpi_args = [MPI, comm, root, nprc, rank]
     mpi_type_args = [mFloat64, mUInt8]
@@ -54,11 +50,25 @@ function run_taps(io::SocketIO)
     while io.keep_open
         io.tcp = rank == root ? accept(tcp_server) : nothing
         len = rank == root ? reinterpret(Int64, read(io.tcp, 8))[1] : nothing
-        instruction = rank == root ? Instruction(read(io.tcp, len)) : nothing
+        instruction = rank == root ? read(io.tcp, len) : nothing
         rank == root ? poke(mpi_args...) : sleep(mpi_args...)
-        rank == root ? echo(io, instruction) : nothing
-        eval(io, instruction)
-        #getfield(typeof(io), Symbol(instruction))(io)
+        rank == root ? echo(io, Array{UInt8, 1}(reinterpret(UInt8, [len]))) : nothing
+        operate(io, instruction)
+    end
+end
+
+function operate(io::SocketIO, instruction::Array{UInt8, 1})
+    instructiontype = [io.MPI.bcast(instruction[1], io.root, io.comm)]
+    if instructiontype == b"*" # WildCard Instruction
+        instruction = io.MPI.bcast(instruction, io.root, io.comm)
+        eval(Meta.parse(String(instruction[2:end])))
+    elseif instructiontype in [b"0", b"1"] # Semi wild card
+        instruction = io.MPI.bcast(instruction, io.root, io.comm)
+        howlongisurname = reinterpret(Int64, instruction[2:9])[1]
+        method = String(instruction[10:9+howlongisurname])
+        argsbytes = instruction[10+howlongisurname:end]
+        args, kwargs = unpacking(Array{UInt8, 1}(argsbytes[9:end]))
+        instructiontype == b"0" ? eval(Meta.parse(method))(args...; kwargs...) : eval(Meta.parse(method))(io, args...; kwargs...)
     end
 end
 
@@ -74,108 +84,100 @@ function sleep(MPI, comm, root, nprc, rank)
     req = MPI.Irecv!(recv_temp, root, root+32, comm)
 end
 
-echo(io::SocketIO, instruction) = write(io.tcp, instruction)
+echo(io::SocketIO, instruction::Array{UInt8, 1}) = write(io.tcp, instruction)
 shutdown(io::SocketIO) = (io.keep_open = false)
 
-function read(io::SocketIO; kwargs...)
-    c = io.cache
-    get(c, "kwargs", nothing) == nothing ? c = Dict() : merge!(c["kwargs"], kwargs)
+"""
+Dict(
+"coords"=> class_of_coords
+"coords_kwargs" => Dict("coords"=>Array, ...)
+"model"=> class_of_model
+"model_kwargs"=> Dict("model")
+
+"""
+function read(io::SocketIO, args...; kwargs...)
+    io.cache["paths"] = Paths(args...; kwargs...)
 end
 
-function read(arrbytes)
-    rank = reinterpret(Int64, arrbytes[1:8])[1]
-    shape = reinterpret(Int64, arrbytes[9:9 + 8rank])[1]
-    symbol = reinterpret(String, arrbytes[9 + 8rank:n])
-    array = reinterpret(Float64, arrbytes[n:end])
-    coords = getfield(Coords, Symbol(symbol))(reshape(array, shape))
-end
-
-function read(io::SocketIO, coords::Array; kwargs...)
-    c = io.cache
-    c["coords"] = coords
-    read(io; kwargs)
-end
-
-function write(io::SocketIO; kwargs...)
-    write_input(io; kwargs...)
-    write_results(io; kwargs...)
-end
-
-function write(io::SocketIO, coupang::Dict)
-    package = Array{UInt8, 1}(JSON.json(coupang))
-    weight = Int64(length(package))
-    weight = reinterpret(UInt8, [weight])
-    write(io.tcp, [weight; package])
-end
-
-function write(io::SocketIO, symbol::String, array::Array)
-    rank = reinterpret(UInt8, [ndims(value)])
-    shape = reinterpret(UInt8, [size(value)...])
-    meta = [rank..., shape..., Array{UInt8, 1}(String(symbol))...]
-    write(io.tcp, [reinterpret(UInt8, [length(meta)])..., meta...])
-    write(io.tcp, value)
-end
-
-function write_input(io::SocketIO; orders=nothing, kwargs...)
-    if rank == root
-        paths = io.cache["paths"]
-        coupang = Dict()
-        for order in orders; coupang[order] = getproperty(paths, Symbol(order)); end
-        write(io, coupang)
+function read_parallel(io::SocketIO, args...; host="127.0.0.1", port=6544, kwargs...)
+    args = [args...]
+    kwargs = Dict{Symbol, Any}([kwargs...])
+    ptcp = connect(Sockets.IPv4(host), port)
+    write(ptcp, reinterpret(UInt8, [io.rank]))
+    len = reinterpret(Int64, read(ptcp, 8))[1]
+    bytesarr = read(ptcp, len)
+    pargs, pkwargs = unpacking(bytesarr)
+    # Merge two lists that element is nothing.
+    for i=1:length(args)
+        args[i] = args[i] == nothing ? pargs[i] : args[i]
     end
-    MPI.Barrier(comm)
+    merge!(kwargs, pkwargs)
+    read(io, args...; kwargs...)
 end
 
-function write_results(io::SocketIO; properties=[])
-    results = Dict()
-    for property in properties
-        result = gather(io, property)
-        results[property] = result
-        rank == root ? write(io, property, result) : nothing
-    end
-end
-
-function update(io::SocketIO; kwargs...)
-    merge!(io.cache["input"], kwargs)
+function update(io::SocketIO, args...; kwargs...)
     for (key, value) in pairs(kwargs)
         setproperty!(io.cache["paths"], key, value)
     end
 end
 
-function update(io::SocketIO, coords::Array; kwargs...)
-    paths = io.cache["paths"]
-    paths.coords = coords
-    update(io; kwargs...)
+function update_parallel(io::SocketIO, args...; host="127.0.0.1", port=6544, kwargs...)
+    args = [args...]
+    kwargs = Dict{Symbol, Any}([kwargs...])
+
+    ptcp = connect(Sockets.IPv4(host), port)
+    write(ptcp, reinterpret(UInt8, [io.rank]))
+    len = reinterpret(Int64, read(ptcp, 8))[1]
+    bytesarr = read(ptcp, len)
+    pargs, pkwargs = unpacking(bytesarr)
+    # Merge two lists that element is nothing.
+    for i=1:length(args)
+        args[i] = args[i] == nothing ? pargs[i] : args[i]
+    end
+    merge!(kwargs, pkwargs)
+    update(io, args...; kwargs...)
 end
 
-function update_model(io::SocketIO, kwargs...)
-    merge!(io.cache["input"]["model_kwargs"], kwargs)
-    model = io.cache["paths"].model
-    for (key, value) in pairs(kwargs)
-        setproperty!(model, key, value)
+function write(io::SocketIO, args...; kwargs...)
+    if io.rank == io.root
+        paths = io.cache["paths"]
+        pargs = Array{Any, 1}([])
+        pkwargs = Dict()
+        for key in args
+            push!(pargs, getproperty(paths, key))
+        end
+        for (key, value) in pairs(kwargs)
+            pkwargs[key] = getproperty(paths, key, value)
+        end
+        argsbytes = packing(pargs...; pkwargs...)
+        write(io.tcp, argsbytes)
     end
 end
 
-function construct(io::SocketIO)
-    io.cache["paths"] = Paths(io.cache["coords"]; io.cache["kwargs"]...)
-end
+function write_parallel(io::SocketIO, args...; host="127.0.0.1", port=6544, kwargs...)
+    write(io, args...; kwargs...)
+    print(host, port)
+    ptcp = connect(Sockets.IPv4(host), port)
 
-function calculate(io::SocketIO, args...; conduct="get_potential", kwargs...)
+    write(ptcp, reinterpret(UInt8, [io.rank]))
+    len = reinterpret(Int64, read(ptcp, 8))[1]
+    bytesarr = read(ptcp, len)
+    pargs, pkwargs = unpacking(bytesarr)
+
     paths = io.cache["paths"]
-    results = getfield(Taps, Symbol(conduct))(paths, args...;kwargs...)
-    io.cache["results"] = results
+    pathargs = Array{Any, 1}([])
+    pathkwargs = Dict()
+    for key in pargs
+        push!(pathargs, getproperty(paths, key))
+    end
+    for (key, value) in pairs(pkwargs)
+        pathkwargs[key] = getproperty(paths, key, value)
+    end
+    argsbytes = packing(pathargs...; pathkwargs...)
+    write(ptcp, argsbytes)
 end
 
-function
-
-
-# import MPI
-# using Sockets: UDPSocket, listen, accept #isopen, async
-
-# udp = rank == root ? bind(UDPSocket(), host, port + 1) : nothing
-# function println(s::UDPSocket, line::Any)
-#     _ = send(s, host, port + 2, [line..., b"\n"...])
-# end
-# function print(s::UDPSocket, line::Any)
-#     _ = send(s, host, port + 2, line)
-# end
+function get_properties(io::SocketIO, properties, args...; kwargs...)
+    paths = io.cache["paths"]
+    get_properties(paths, properties, args...; kwargs...)
+end
