@@ -68,7 +68,7 @@ function statify(arrlist, d::Union{Dict, Array{Any, 1}})
             push!(queue, (hash(v), v))
             v in pointerlist ? o[k] = arrlist[findfirst(x->x==v, pointerlist)][2] : nothing
             end
-        elseif typeof(o)<:Array{Any, 1} for i=1:length(o)
+        elseif typeof(o)<:Union{Array{Any, 1}, Tuple} for i=1:length(o)
             v = o[i]
             push!(queue, (hash(v), v))
             v in pointerlist ? o[i] = arrlist[findfirst(x->x==v, pointerlist)][2] : nothing
@@ -99,7 +99,7 @@ function pointify(d, pointer, binarylist::Array)
                 o[k] = pstr
                 pointer += 1
             end end
-        elseif typeof(o)<:Array{Any, 1} for i=1:length(o)
+        elseif typeof(o)<:Union{Array{Any, 1}, Tuple} for i=1:length(o)
             v = o[i]
             push!(queue, (hash(v), v))
             if typeof(v)<:Array{T, N} where {T<:Number, N}
@@ -117,19 +117,19 @@ function pointify(d, pointer, binarylist::Array)
 end
 
 function packing(args...; kwargs...)::Array{UInt8, 1}
-    args, kwargs = Array{Any, 1}([args...]), Dict(kwargs)
+    args, kwargs = Array{Any, 1}([args...]), Dict{Symbol, Any}(kwargs)
     binarylist = []
     pointer = 0
 
     args, pointer, binarylist = pointify(args, pointer, binarylist)
     kwargs, pointer, binarylist = pointify(kwargs, pointer, binarylist)
-    kwargs = Dict(kwargs)
+    kwargs = Dict{Any, Any}(kwargs)
 
     kwargs[:args] = args
 
-    howmanybinary = reinterpret(UInt8, [length(binarylist)])
+    howmanybinary = binarylist == [] ? 0 : reinterpret(UInt8, [length(binarylist)])
 
-    eachsize = reinterpret(UInt8, [length(b) for b in binarylist])
+    eachsize = binarylist == [] ? [] : reinterpret(UInt8, [length(b) for b in binarylist])
 
     binarybytes = cat(howmanybinary, eachsize, cat(binarylist..., dims=1), dims=1)
     kwargsbytes = Array{UInt8}(JSON.json(kwargs))

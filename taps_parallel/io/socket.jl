@@ -1,6 +1,9 @@
 
+# module SocketIOs
+# export SocketIO, run_taps
+
 import JSON
-import Base.read, Base.write
+import Base.read, Base.write, Base.sleep
 
 using Sockets
 
@@ -11,7 +14,7 @@ using .Taps
 
 
 mutable struct SocketIO
-            host; port; tcp; tcp_server; keep_open; is_tcp_opened; MPI; comm; root; nprc; rank; mFloat64; mUInt8; cache::Dict;
+            host; port; clienthost; clientport; tcp; tcp_server; keep_open; is_tcp_opened; MPI; comm; root; nprc; rank; mFloat64; mUInt8; cache::Dict;
 end
 
 function Base.setproperty!(value::SocketIO, name::Symbol, x)
@@ -22,16 +25,18 @@ function Base.setproperty!(value::SocketIO, name::Symbol, x)
 end
 
 
-SocketIO(;host="127.0.0.1", port=6543, keep_open=true, is_tcp_opened=false,
-          MPI=nothing, comm=nothing, root=0, nprc=nothing, rank=nothing,
+SocketIO(;host="127.0.0.1", port=6543, clienthost="127.0.0.1", clientport=6544,
+          keep_open=true, is_tcp_opened=false, MPI=nothing, comm=nothing,
+          root=0, nprc=nothing, rank=nothing,
           mFloat64=nothing, mUInt8=nothing, cache=Dict(), kwargs...) = begin
     host = Sockets.IPv4(host)
-    tcp_server = rank == root && is_tcp_opened ? nothing : listen(host, port)
+    clienthost = Sockets.IPv4(clienthost)
+    tcp_server = rank != root ? nothing : is_tcp_opened ? nothing : listen(host, port)
     is_tcp_opened = true
     # It should be nothing at the beginning
     tcp = nothing
 
-    SocketIO(host, port, tcp, tcp_server, keep_open, is_tcp_opened, MPI, comm, root, nprc, rank, mFloat64, mUInt8, cache)
+    SocketIO(host, port, clienthost, clientport, tcp, tcp_server, keep_open, is_tcp_opened, MPI, comm, root, nprc, rank, mFloat64, mUInt8, cache)
 end
 
 function run_taps(io::SocketIO)
@@ -57,18 +62,25 @@ function run_taps(io::SocketIO)
     end
 end
 
-function operate(io::SocketIO, instruction::Array{UInt8, 1})
+function operate(io::SocketIO, instruction::T) where {T<:Union{Array{UInt8, 1}, Nothing}}
+    instruction = instruction == nothing ? b"1" : instruction
     instructiontype = [io.MPI.bcast(instruction[1], io.root, io.comm)]
     if instructiontype == b"*" # WildCard Instruction
         instruction = io.MPI.bcast(instruction, io.root, io.comm)
         eval(Meta.parse(String(instruction[2:end])))
-    elseif instructiontype in [b"0", b"1"] # Semi wild card
+    elseif instructiontype in [b"0", b"1", b"2"] # Semi wild card
         instruction = io.MPI.bcast(instruction, io.root, io.comm)
         howlongisurname = reinterpret(Int64, instruction[2:9])[1]
         method = String(instruction[10:9+howlongisurname])
         argsbytes = instruction[10+howlongisurname:end]
         args, kwargs = unpacking(Array{UInt8, 1}(argsbytes[9:end]))
-        instructiontype == b"0" ? eval(Meta.parse(method))(args...; kwargs...) : eval(Meta.parse(method))(io, args...; kwargs...)
+        if instructiontype == b"0"
+            eval(Meta.parse(method))(args...; kwargs...)
+        elseif instructiontype == b"1"
+            eval(Meta.parse(method))(io, args...; kwargs...)
+        elseif instructiontype == b"2"
+            eval(Meta.parse(method))(io.cache["paths"], args...; kwargs...)
+        end
     end
 end
 
@@ -85,7 +97,13 @@ function sleep(MPI, comm, root, nprc, rank)
 end
 
 echo(io::SocketIO, instruction::Array{UInt8, 1}) = write(io.tcp, instruction)
+ping(io::SocketIO) = io.rank == io.root ? write(io.tcp, reinterpret(UInt8, [time()])) : nothing
 shutdown(io::SocketIO) = (io.keep_open = false)
+
+function set_client(io::SocketIO; clienthost="127.0.0.1", clientport=6544)
+    io.clienthost = Sockets.IPv4(clienthost)
+    io.clientport = clientport
+end
 
 """
 Dict(
@@ -99,10 +117,11 @@ function read(io::SocketIO, args...; kwargs...)
     io.cache["paths"] = Paths(args...; kwargs...)
 end
 
-function read_parallel(io::SocketIO, args...; host="127.0.0.1", port=6544, kwargs...)
+function read_parallel(io::SocketIO, args...; kwargs...)
+    host, port = io.clienthost, io.clientport
     args = [args...]
     kwargs = Dict{Symbol, Any}([kwargs...])
-    ptcp = connect(Sockets.IPv4(host), port)
+    ptcp = connect(host, port)
     write(ptcp, reinterpret(UInt8, [io.rank]))
     len = reinterpret(Int64, read(ptcp, 8))[1]
     bytesarr = read(ptcp, len)
@@ -121,11 +140,12 @@ function update(io::SocketIO, args...; kwargs...)
     end
 end
 
-function update_parallel(io::SocketIO, args...; host="127.0.0.1", port=6544, kwargs...)
+function update_parallel(io::SocketIO, args...; kwargs...)
+    host, port = io.clienthost, io.clientport
     args = [args...]
     kwargs = Dict{Symbol, Any}([kwargs...])
 
-    ptcp = connect(Sockets.IPv4(host), port)
+    ptcp = connect(host, port)
     write(ptcp, reinterpret(UInt8, [io.rank]))
     len = reinterpret(Int64, read(ptcp, 8))[1]
     bytesarr = read(ptcp, len)
@@ -138,8 +158,9 @@ function update_parallel(io::SocketIO, args...; host="127.0.0.1", port=6544, kwa
     update(io, args...; kwargs...)
 end
 
-function write(io::SocketIO, args...; kwargs...)
-    if io.rank == io.root
+function write(io::SocketIO, args...; sender=0, kwargs...)
+    host, port = io.clienthost, io.clientport
+    if io.rank == sender
         paths = io.cache["paths"]
         pargs = Array{Any, 1}([])
         pkwargs = Dict()
@@ -150,34 +171,45 @@ function write(io::SocketIO, args...; kwargs...)
             pkwargs[key] = getproperty(paths, key, value)
         end
         argsbytes = packing(pargs...; pkwargs...)
-        write(io.tcp, argsbytes)
+
+        tcp = connect(host, port)
+        write(tcp, argsbytes)
     end
 end
 
-function write_parallel(io::SocketIO, args...; host="127.0.0.1", port=6544, kwargs...)
-    write(io, args...; kwargs...)
-    print(host, port)
-    ptcp = connect(Sockets.IPv4(host), port)
+function write_parallel(io::SocketIO, args...; senders="all", kwargs...)
+    host, port = io.clienthost, io.clientport
+    args = [args...]
+    kwargs = Dict{Symbol, Any}([kwargs...])
 
-    write(ptcp, reinterpret(UInt8, [io.rank]))
-    len = reinterpret(Int64, read(ptcp, 8))[1]
-    bytesarr = read(ptcp, len)
-    pargs, pkwargs = unpacking(bytesarr)
+#    sender = senders == "all" ? io.rank : io.rank in senders ? io.rank : nothing
 
-    paths = io.cache["paths"]
-    pathargs = Array{Any, 1}([])
-    pathkwargs = Dict()
-    for key in pargs
-        push!(pathargs, getproperty(paths, key))
-    end
-    for (key, value) in pairs(pkwargs)
-        pathkwargs[key] = getproperty(paths, key, value)
-    end
-    argsbytes = packing(pathargs...; pathkwargs...)
-    write(ptcp, argsbytes)
+#    if sender == io.rank
+        ptcp = connect(host, port)
+        write(ptcp, reinterpret(UInt8, [io.rank]))
+        len = reinterpret(Int64, read(ptcp, 8))[1]
+        bytesarr = read(ptcp, len)
+        pargs, pkwargs = unpacking(bytesarr)
+
+        args = cat(args, pargs, dims=1)
+        merge!(kwargs, pkwargs)
+
+        paths = io.cache["paths"]
+        pathargs = Array{Any, 1}([])
+        pathkwargs = Dict()
+        for key in args
+            push!(pathargs, getproperty(paths, key))
+        end
+        for (key, value) in pairs(kwargs)
+            pathkwargs[key] = getproperty(paths, key, value)
+        end
+        argsbytes = packing(pathargs...; pathkwargs...)
+        write(ptcp, argsbytes)
 end
+#
+# function get_properties(io::SocketIO, properties, args...; kwargs...)
+#     paths = io.cache["paths"]
+#     get_properties(paths, properties, args...; kwargs...)
+# end
 
-function get_properties(io::SocketIO, properties, args...; kwargs...)
-    paths = io.cache["paths"]
-    get_properties(paths, properties, args...; kwargs...)
-end
+# end

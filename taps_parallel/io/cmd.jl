@@ -7,12 +7,20 @@ parse_setting = ArgParseSettings()
         default = "file"
     "--host"
         help = "another option with an argument"
-        # arg_type = Stirng
-        # default = "127.0.0.1"
+        arg_type = String
+        default = "127.0.0.1"
     "--port"
         help = "another option with an argument"
         arg_type = Int
         default = 6543
+    "--clienthost"
+        help = "another option with an argument"
+        arg_type = String
+        default = "127.0.0.1"
+    "--clientport"
+        help = "another option with an argument"
+        arg_type = Int
+        default = 6544
     "--keep_open"
         help = "whether shutdown calculation after finish"
         action = :store_true
@@ -36,14 +44,14 @@ mpi_kwargs = Dict(:MPI => MPI, :comm => comm, :root => 0,
 merge!(args, mpi_kwargs)
 
 # Load TAPS IO module
-if args[:io] == "socket"
-    IO = include("./io/file.jl")
+if args[:io] == "file"
+    IO = include("./file.jl")
     io = getfield(IO, :FileIO)(;args...)
-elseif args[:io] == "file"
-    IO = include("./io/socket.jl")
-    io = getfield(IO, :SocketIO)(;args...)
+elseif args[:io] == "socket"
+    include("./socket.jl")
+    # io = getfield(IO, :SocketIO)(;args...)
+    io = SocketIO(;args...)
 end
 
-using IO
 run_taps(io)
 MPI.Finalize()

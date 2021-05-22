@@ -20,9 +20,9 @@ function Base.getproperty(model::Model, name::Symbol, x)
 end
 
 @inline get_properties(model::Model, paths::Paths, properties::String, args...; kwargs...) = model(paths, paths.coords, [properties], args...; kwargs...)
-@inline get_properties(model::Model, paths::Paths, properties::Array{String}, args...; kwargs...) = model(paths, paths.coords, properties, args...; kwargs...)
+@inline get_properties(model::Model, paths::Paths, properties::Array{Any, 1}, args...; kwargs...) = model(paths, paths.coords, properties, args...; kwargs...)
 @inline get_properties(model::Model, paths::Paths, properties::String, coords::Coords, args...; kwargs...) = model(paths, coords, [properties], args...; kwargs...)
-@inline get_properties(model::Model, paths::Paths, properties::Array{String}, coords::Coords, args...; kwargs...) = model(paths, coords, properties, args...; kwargs...)
+@inline get_properties(model::Model, paths::Paths, properties::Array{Any, 1}, coords::Coords, args...; kwargs...) = model(paths, coords, properties, args...; kwargs...)
 
 @inline get_displacements(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, "displacements", args...; kwargs...)
 @inline get_momentum(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, "momoentum", args...; kwargs...)
@@ -61,9 +61,9 @@ MullerBrown(;
    c=[-10, -10, -6.5, 0.7], x0=[1, 0, -0.5, -1], y0=[0, 0.5, 1.5, 1],
    results=Dict()) = MullerBrown(A, a, b, c, x0, y0, results)
 
-@inline (model::MullerBrown)(paths::Paths, coords::Coords, properties::Array{String, 1}) = (model::MullerBrown)(coords::Coords, properties::Array{String, 1})
-@inline (model::MullerBrown)(coords::Coords, properties::Array{String, 1}) = (model::MullerBrown)(convert(Cartesian{eltype(coords), 2}, coords), properties::Array{String, 1})
-function (model::MullerBrown)(coords::Cartesian{T, 2}, properties::Array{String, 1}) where {T<:Number}
+@inline (model::MullerBrown)(paths::Paths, coords::Coords, properties::Array{Any, 1}) = (model::MullerBrown)(coords::Coords, properties::Array{Any, 1})
+@inline (model::MullerBrown)(coords::Coords, properties::Array{Any, 1}) = (model::MullerBrown)(convert(Cartesian{eltype(coords), 2}, coords), properties::Array{Any, 1})
+function (model::MullerBrown)(coords::Cartesian{T, 2}, properties::Array{Any, 1}) where {T<:Number}
     N, D = size(coords)
     Vk = zeros(N, 4)
     results = Dict()
@@ -93,6 +93,8 @@ function (model::MullerBrown)(coords::Cartesian{T, 2}, properties::Array{String,
     if "hessian" in properties
         nothing
     end
+
+    merge!(model.results, results)
 
     return results
 end

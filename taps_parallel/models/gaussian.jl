@@ -207,3 +207,94 @@ function (graph::GraphGaussian)(paths::Paths, coords::AtomicCoords{T, 3}, proper
     end
     return results
 end
+
+
+kvpair = Dict(:kernel => :𝒌, :kernel_hyperparameters => :𝛉ₖ,
+              :mean => :𝒎, :mean_hyperparameters => :𝛉ₘ,
+              :projector => :𝐏)
+mutable struct AtomicGaussian <: AtomicModel
+    𝒌::Kernel
+    𝛉ₖ::Hyperparameter
+    𝒎::Mean
+    𝛉ₘ::Hyperparameter
+end
+
+function AtomicGaussian(;kernel, kernel_hyperparameters, mean, mean_hyperparameters, ...)
+    new_kwargs =
+    for (key, value) in pairs(kwargs)
+
+    end
+    GraphGaussian(kernel, kernel_hyperparameters, mean, mean_hyperparameters)
+end
+
+function setproperty!(model::GraphGaussian, name::Symbol, val)
+    name = kvpair[name]
+    setfield!(model, name, val)
+end
+
+@inline (graph::GraphGaussian)(paths::Paths, coords::Coords, args...; kwargs...) = graph(coords::Coords, args...; kwargs...)
+@inline (graph::GraphGaussian)(coords::Coords, args...; kwargs...) = graph(convert(AtomicCoords, coords), args...; kwargs...)
+function (graph::GraphGaussian)(paths::Paths, coords::AtomicCoords{T, 3}, properties, args...; kwargs...) where {T<:Number}
+    data = Database.read_data(model.imgdata_filename, model.data_ids)
+    𝐤, 𝐦, 𝐆 = model.kernel, model.mean, model.descriptor
+    # 𝐗 ::Array{Float64, 3};   3xAxM -> 3A x M
+    # 𝐗'::Array{Float64, 3};   3xAxM -> 3A x M
+    # 𝐘 ::Array{Float64, 2};   M
+    𝐗, 𝐘 = 𝐆.data2𝐗𝐘(data)
+    𝐗′ = 𝐆(coords)
+    # 𝐗 = 𝐆(𝐗)
+    # 𝐗′::Array{Float64, 3};  3xAxN -> 3A x N
+    # N = size(coords)[end]
+    # D = 3 * A
+    # D = 𝐆.D
+    # D, N = size(coords)
+    results = Dict()
+
+    # 𝐤.hyperparameters = _kernel_hyperparameters(model.kernel_hyperparameters)
+    𝐤.hyperparameters = 𝐆.model2ker_hyper(model.kernel_hyperparameters)
+    # 𝐦.hyperparameters = _mean_hyperparameters(model.mean_hyperparameters)
+    𝐦.hyperparameters = 𝐆.model2mean_hyper(model.mean_hyperparameters)
+    𝐤.data, 𝐦.data  = 𝐘, 𝐘
+
+    if !model.optimized || model._cache == Dict() ||
+         get(model._cache, "K_y_inv", nothing) == nothing
+        𝐊 = 𝐤(𝐗, 𝐗, true)
+        𝐊⁻¹ = inv(𝐊)                            # M x M
+        model._cache["K"] = 𝐊                   # M x M
+        model._cache["K_y_inv"] = 𝐊⁻¹           # M x M
+        model._cache["Λ"] = 𝐊⁻¹ * (𝐘 .- 𝐦(𝐗))  # M
+        model.optimized = true
+    end
+    𝐊, 𝐊⁻¹, 𝚲 = model._cache["K"], model._cache["K_y_inv"], model._cache["Λ"]
+
+    if "potential" in properties
+        𝐊₊ = 𝐤(𝐗, 𝐗′)
+        𝛍 = 𝐦(𝐗′) .+ 𝐊₊' * 𝚲
+        results[:potential] = 𝛍
+    end
+
+    if "gradients" in properties
+        ∂𝐊₊ = 𝐤(𝐗, 𝐗′; gradients=true)
+        ∂𝛍 = 𝐦(𝐗′; gradients=true) .+ ∂𝐊₊' * 𝚲
+        results[:gradients] = 𝐆.reshape_gradients(∂𝛍)
+        # permutedims(reshape(∂𝛍, N, D), [2, 1])
+    end
+
+    if "hessian" in properties
+        ∂²𝐊₊ = 𝐤(𝐗, 𝐗′; hessian=true)
+        ∂²𝛍 = 𝐦(𝐗′; hessian=true) .+ ∂²𝐊₊' * 𝚲
+        results[:hessian] = 𝐆.reshape_hessian(∂²𝛍)
+        # permutedims(reshape(∂²𝛍, N, D, 3), [3, 2, 1])
+    end
+
+    if "covariance" in properties
+        𝐊₊ = 𝐤(𝐗, 𝐗′)
+        𝐊₊₊ = 𝐤(𝐗′, 𝐗′)
+        _cov = diag(𝐊₊₊) .- diag((𝐊₊' * 𝐊⁻¹ * 𝐊₊))
+        cov = copy(_cov)
+        flags = _cov .< 0
+        cov[flags] .= 0.
+        results[:covariance] =  1.96 .* sqrt.(cov) / 2
+    end
+    return results
+end

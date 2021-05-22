@@ -5,7 +5,8 @@ abstract type Model end
 abstract type Database end
 # abstract type Finder end
 
-export Paths, getproperty, setproperty!, get_displacements, get_momentum, get_kinetics
+export *
+export Paths, get_properties, getproperty, setproperty!, get_displacements, get_momentum, get_kinetics
 export Coords, Cartesian, Atomic, Fouriered
 export Model, Gaussian
 export ImageData
