@@ -24,6 +24,11 @@ end
 @inline get_properties(model::Model, paths::Paths, properties::String, coords::Coords, args...; kwargs...) = model(paths, coords, [properties], args...; kwargs...)
 @inline get_properties(model::Model, paths::Paths, properties::Array{Any, 1}, coords::Coords, args...; kwargs...) = model(paths, coords, properties, args...; kwargs...)
 
+@inline get_kinetics(model::Model, paths::Paths, properties::String, args...; kwargs...) = paths.coords(paths, paths.coords, [properties], args...; kwargs...)
+@inline get_kinetics(model::Model, paths::Paths, properties::Array{Any, 1}, args...; kwargs...) = paths.coords(paths, paths.coords, properties, args...; kwargs...)
+@inline get_kinetics(model::Model, paths::Paths, properties::String, coords::Coords, args...; kwargs...) = paths.coords(paths, coords, [properties], args...; kwargs...)
+@inline get_kinetics(model::Model, paths::Paths, properties::Array{Any, 1}, coords::Coords, args...; kwargs...) = paths.coords(paths, coords, properties, args...; kwargs...)
+
 @inline get_displacements(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, "displacements", args...; kwargs...)
 @inline get_momentum(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, "momoentum", args...; kwargs...)
 @inline get_kinetic_energy(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, "kinetic_energy", args...; kwargs...)
@@ -57,36 +62,43 @@ struct MullerBrown <: Model
 end
 
 MullerBrown(;
-   A=[-200., -100., -170, 15], a=[-1, -1, -6.5, 0.7], b=[0., 0., 11., 0.6],
+   A=[-2., -1., -1.7, 0.15], a=[-1, -1, -6.5, 0.7], b=[0., 0., 11., 0.6],
    c=[-10, -10, -6.5, 0.7], x0=[1, 0, -0.5, -1], y0=[0, 0.5, 1.5, 1],
    results=Dict()) = MullerBrown(A, a, b, c, x0, y0, results)
 
 @inline (model::MullerBrown)(paths::Paths, coords::Coords, properties::Array{Any, 1}) = (model::MullerBrown)(coords::Coords, properties::Array{Any, 1})
 @inline (model::MullerBrown)(coords::Coords, properties::Array{Any, 1}) = (model::MullerBrown)(convert(Cartesian{eltype(coords), 2}, coords), properties::Array{Any, 1})
+
+"""
+coords : Cartesian; N x 2
+"""
 function (model::MullerBrown)(coords::Cartesian{T, 2}, properties::Array{Any, 1}) where {T<:Number}
     N, D = size(coords)
-    Vk = zeros(N, 4)
     results = Dict()
 
-    A, a, b, c, x0, y0 = model.A, model.a, model.b, model.c, model.x0, model.y0
+    # 4 -> 1x4
+    A, a, b, c = model.A[nax, :], model.a[nax, :], model.b[nax, :], model.c[nax, :]
+    x0, y0 = model.x0[nax, :], model.y0[nax, :]
+    # for i=1:N
+    𝑥 = coords[:, 1]
+    𝑦 = coords[:, 2]
+    # Vk = zeros(N, 4)
 
-    for i=1:N
-        𝑥, 𝑦 = coords[i, :]
-        Vk[i, :] = @. A * exp(a*(𝑥 - x0)^2 + b*(𝑥-x0)*(𝑦-y0) + c * (𝑦-y0)^2)
-    end
+    𝑥_x0, 𝑦_y0 = 𝑥 .- x0, 𝑦 .- y0
+    Vk = @. A * exp(a*(𝑥 - x0)^2 + b*(𝑥-x0)*(𝑦-y0) + c * (𝑦-y0)^2)
+    # end
 
     # "potential" in properties ? results["potential"] = sum(Vk) / 100 : nothing
     if "potential" in properties
-        results[:potential] = sum(Vk, dims=2) / 100
+        results[:potential] = sum(Vk, dims=2)
     end
 
     if "gradients" in properties
         dV = zeros(Float64, 4)
-        for i=1:N
-            Fx = sum(@. Vk * (2 * a * 𝑥_x0 + b * 𝑦_y0))
-            Fy = sum(@. Vk * (b * 𝑥_x0 + 2 * c * 𝑦_y0))
-            dV[i] = [Fx, Fy] / 100
-        end
+
+        Fx = dropdims(sum((@. Vk * (2 * a * 𝑥_x0 + b * 𝑦_y0)), dims=2), dims=2)
+        Fy = dropdims(sum((@. Vk * (b * 𝑥_x0 + 2 * c * 𝑦_y0)), dims=2), dims=2)
+        dV = [Fx, Fy]
         results[:gradients] = dV
     end
 
@@ -94,7 +106,13 @@ function (model::MullerBrown)(coords::Cartesian{T, 2}, properties::Array{Any, 1}
         nothing
     end
 
+    if "mass" in properties
+        results[:mass] = ones(N)
+    end
+
     merge!(model.results, results)
 
     return results
 end
+
+include("./ase.jl")

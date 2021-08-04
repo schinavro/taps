@@ -1,5 +1,7 @@
-using LinearAlgebra: norm
+using LinearAlgebra
+using NearestNeighbors
 
+include("./descriptors.jl")
 
 Base.size(A::Coords) = size(A.coords)
 Base.getindex(A::Coords, I::Vararg{Int, N}) where {N} = getindex(A.coords, I...)
@@ -44,15 +46,16 @@ struct Cartesian{T, N} <: Coords{T, N}
     coords::Array{T, N}
     epoch::Real
     unit::String
+    cache::Dict
 end
 
-Base.similar(A::Cartesian, ::Type{T}, dims::Dims) where {T} = Cartesian{T, length(dims)}(similar(A.coords, T, dims), A.epoch, A.unit)
-Base.convert(::Type{Cartesian{T, 2}}, coords::Cartesian{T, N}) where {T, N} = Cartesian{T, 2}(reshape(coords.coords, coords.N, prod(size(coords)[2:end])), coords.epoch, coords.unit)
+Base.similar(A::Cartesian, ::Type{T}, dims::Dims) where {T} = Cartesian{T, length(dims)}(similar(A.coords, T, dims), A.epoch, A.unit, A.cache)
+Base.convert(::Type{Cartesian{T, 2}}, coords::Cartesian{T, N}) where {T, N} = Cartesian{T, 2}(reshape(coords.coords, coords.N, prod(size(coords)[2:end])), coords.epoch, coords.unit, coords.cache)
 
-@inline Cartesian(;coords=zeros(2, 1), epoch=1., unit="Å") = Cartesian(coords, epoch, unit)
-@inline Cartesian(A::Array{T, N}, epoch::Real=1, unit::String="Å") where {T<:Number, N} = Cartesian{T, N}(A, epoch, unit)
-@inline Cartesian{T}(A::Array{T, N}, epoch::Real=1, unit::String="Å") where {T<:Number, N} = Cartesian{T, N}(A, epoch, unit)
-@inline Cartesian{T, N}(A::Array{T, N}) where {T<:Number, N} = Cartesian{T, N}(A, 1., "Å")
+@inline Cartesian(;coords=zeros(2, 1), epoch=1., unit="Å", cache=Dict()) = Cartesian(coords, epoch, unit, cache)
+@inline Cartesian(A::Array{T, N}, epoch::Real=1, unit::String="Å", cache::Dict=Dict()) where {T<:Number, N} = Cartesian{T, N}(A, epoch, unit, cache)
+@inline Cartesian{T}(A::Array{T, N}, epoch::Real=1, unit::String="Å", cache::Dict=Dict()) where {T<:Number, N} = Cartesian{T, N}(A, epoch, unit, cache)
+@inline Cartesian{T, N}(A::Array{T, N}) where {T<:Number, N} = Cartesian{T, N}(A, 1., "Å", Dict())
 
 # @inline Cartesian{T, 3}(A::Cartesian{T, 2}) where {T<:Number, N} = Cartesian{T, 2}(reshape(coords.coords, coords.N, prod(size(coords)[2:end])), A.epoch, A.unit)
 # @inline Cartesian{T, 2}(A::Cartesian{T, 3}) where {T<:Number, N} = Cartesian{T, 2}(reshape(coords.coords, coords.N, prod(size(coords)[2:end])), A.epoch, A.unit)
@@ -68,7 +71,7 @@ epoch : float
 index : slice obj; Default `np.s_[:]`
     Choose the steps want it to be returned. Default is all steps.
 """
-function get_displacements(coords::Coords; epoch=nothing, index=1⁝0)
+function get_displacements(coords::Cartesian; epoch=nothing, index=1⁝0)
     axis = 1
     p = copy(coords.coords)
     d = map(norm, eachslice(diff(p, dims=axis), dims=axis))
@@ -90,7 +93,7 @@ epoch : float
 index : slice obj; Default `np.s_[:]`
     Choose the steps want it to be returned. Default is all steps.
 """
-function get_velocity(coords::Coords; epoch=nothing, index=1⁝0)
+function get_velocity(coords::Cartesian; epoch=nothing, index=1⁝0)
     axis = 1
     N = size(coords)[axis]
     epoch = epoch == nothing ? coords.epoch : epoch
@@ -123,7 +126,7 @@ epoch : float
 index : slice obj; Default `np.s_[:]`
     Choose the steps want it to be returned. Default is all steps.
 """
-function get_acceleration(coords::Coords; epoch=nothing, index=1⁝0)
+function get_acceleration(coords::Cartesian; epoch=nothing, index=1⁝0)
     axis = 1
     N = size(coords)[axis]
     epoch = epoch == nothing ? coords.epoch : epoch
@@ -143,33 +146,155 @@ function get_acceleration(coords::Coords; epoch=nothing, index=1⁝0)
     end
 end
 
+# struct Cartesian2D{T, 2} <: Coords{T, 2}
+#     coords::Array{T, 2}
+#     epoch::Real
+#     unit::String
+# end
+
 struct Fouriered{T, N} <: Coords{T, N}
     coords::Array{T, N}
     init::Array
     fin::Array
     epoch::Real
     unit::String
+    cache::Dict
 end
 
-Base.similar(A::Fouriered, ::Type{T}, dims::Dims) where {T} = Fouriered{T, length(dims)}(similar(A.coords, T, dims), A.init, A.fin, A.epoch, A.unit)
+Base.similar(A::Fouriered, ::Type{T}, dims::Dims) where {T} = Fouriered{T, length(dims)}(similar(A.coords, T, dims), A.init, A.fin, A.epoch, A.unit, A.cache)
 
-Fouriered(A::Array{T, N}, init::Array=nothing, fin::Array=nothing, epoch::Real=1, unit::String="Å") where {T<:Number, N} = Fouriered{T, N}(A, init, fin, epoch, unit)
-Fouriered{T}(A::Array{T, N}, init::Array=nothing, fin::Array=nothing, epoch::Real=1, unit::String="Å") where {T<:Number, N} = Fouriered{T, N}(A, init, fin, epoch, unit)
-Fouriered{T, N}(A::Array{T, N}) where {T<:Number, N} = Fouriered{T, N}(A, nothing, nothing, 1., "Å")
+Fouriered(A::Array{T, N}, init::Array=nothing, fin::Array=nothing, epoch::Real=1, unit::String="Å", cache::Dict=Dict()) where {T<:Number, N} = Fouriered{T, N}(A, init, fin, epoch, unit, cache)
+Fouriered{T}(A::Array{T, N}, init::Array=nothing, fin::Array=nothing, epoch::Real=1, unit::String="Å", cache::Dict=Dict()) where {T<:Number, N} = Fouriered{T, N}(A, init, fin, epoch, unit, cache)
+Fouriered{T, N}(A::Array{T, N}) where {T<:Number, N} = Fouriered{T, N}(A, nothing, nothing, 1., "Å", Dict())
 
 struct Atomic{T, N} <: Coords{T, N}
     coords::Array{T, N}
     center::Union{Array, Real}
     epoch::Real
     unit::String
+    cache::Dict
 end
 
-Base.similar(A::Atomic, ::Type{T}, dims::Dims) where {T} = Atomic{T, length(dims)}(similar(A.coords, T, dims), A.center, A.epoch, A.unit)
+Base.similar(A::Atomic, ::Type{T}, dims::Dims) where {T} = Atomic{T, length(dims)}(similar(A.coords, T, dims), A.center, A.epoch, A.unit, A.cache)
 #Base.show(io::IO, coords::Atomic) = print(io, "Fouriered(r=$(x.r), θ=$(x.θ) rad, ϕ=$(x.ϕ) rad)")
 
-Atomic(A::Array{T, N}, center::Union{Array, Real}=0., epoch::Real=1, unit::String="Å") where {T<:Number, N} = Atomic{T, N}(A, center, epoch, unit)
-Atomic{T}(A::Array{T, N}, center::Union{Array, Real}=0., epoch::Real=1, unit::String="Å") where {T<:Number, N} = Atomic{T, N}(A, center, epoch, unit)
-Atomic{T, N}(A::Array{T, N}) where {T<:Number, N} = Atomic{T, N}(A, 0., 1., "Å")
+Atomic(A::Array{T, N}, center::Union{Array, Real}=0., epoch::Real=1, unit::String="Å", cache::Dict=Dict()) where {T<:Number, N} = Atomic{T, N}(A, center, epoch, unit, cache)
+Atomic{T}(A::Array{T, N}, center::Union{Array, Real}=0., epoch::Real=1, unit::String="Å", cache::Dict=Dict()) where {T<:Number, N} = Atomic{T, N}(A, center, epoch, unit, cache)
+Atomic{T, N}(A::Array{T, N}) where {T<:Number, N} = Atomic{T, N}(A, 0., 1., "Å", Dict())
+
+struct SparseAtomic{T, N} <: Coords{T, N}
+    coords::Array{T, N}
+    epoch::Real
+    unit::String
+    cache::Dict
+end
+
+Base.similar(A::SparseAtomic, ::Type{T}, dims::Dims) where {T} = SparseAtomic{T, length(dims)}(similar(A.coords, T, dims), A.epoch, A.unit, A.cache)
+Base.show(io::IO, coords::SparseAtomic{T, N}) where {T<:Descriptor, N} = print(io, "SparseAtomic", T, N)
+Base.show(io::IO, coords::Array{T, N}) where {T<:Descriptor, N} = print(io, "SparseAtomic", T, N)
+
+SparseAtomic(A::Array{T, N}, epoch::Real=1, unit::String="Å", cache::Dict=Dict()) where {T, N} = SparseAtomic{T, N}(A, epoch, unit, cache)
+SparseAtomic{T}(A::Array{T, N}, epoch::Real=1, unit::String="Å", cache::Dict=Dict()) where {T, N} = SparseAtomic{T, N}(A, epoch, unit, cache)
+SparseAtomic{T, N}(A::Array{T, N}) where {T, N} = SparseAtomic{T, N}(A, 1., "Å", Dict())
+
+"`SparseAtomicFromCartesian()` - transformation from 3D point to `SparseAtomic` type"
+struct SparseAtomicFromCartesian <: Transformation; end
+"`CartesianFromSparseAtomic()` - transformation from `SparseAtomic` type to `Cartesian` type"
+struct CartesianFromSparseAtomic <: Transformation; end
+
+function (::SparseAtomicFromCartesian)(coords::Cartesian)
+    N, A, _ = size(coords.coords)
+    dtype = eltype(coords.coords)
+    numbers = get(coords.cache, "numbers", [1 for i=1:A])
+    cutoff = get(coords.cache, "cutoff", 7)
+    periodic = get(coords.cache, "periodic", [true, true, true])
+    cell = get(coords.cache, "cell", I(3))
+
+    # 3 x 28(A) x N
+    miccell = getmiccell(coords.coords, cell, periodic)
+
+    sparseatomic = SparseAtomic(Array{AtomicDescriptor{dtype, 1}, 2}(nothing, N, A),
+                                coords.epoch, coords.unit, coords.cache)
+    sparseatomic.cache["miccell"] = miccell
+    sparseatomic.cache["balltree"] = []
+    sparseatomic.cache["neighbors"] = []
+
+    for i=1:N
+        positions = coords.coords[i, :, :]
+        balltree = BallTree(miccell[:, :, i])
+        neighbors = inrange(balltree, positions', cutoff, true)
+        envnumberss = [numbers[(neighbor .% A) .+ 1] for neighbor in neighbors]
+
+        push!(sparseatomic.cache["balltree"], balltree)
+        push!(sparseatomic.cache["neighbors"], neighbors)
+
+        for a=1:A
+            number = numbers[a]
+            position = positions[a, :]
+
+            selfidx = searchsortedfirst(neighbors[a], a)
+            envidcs = deleteat!(neighbors[a], selfidx)
+            envnumbers = deleteat!(envnumberss[a], selfidx)
+            # micpos = Array(miccell[:, :, i]')
+            envpositions = Array(miccell[:, envidcs, i]')
+
+            sparseatomic.coords[i, a] = AtomicDescriptor{dtype, 1}(
+                a, number, position, envidcs, envnumbers, envpositions, cutoff,
+                Dict("numbers"=>numbers, "balltree"=>balltree, "cell"=>cell,
+                     "periodic"=>periodic, "miccell"=>view(miccell, :, :, i)))
+        end
+    end
+    sparseatomic
+end
+
+function transform_deriv(::SparseAtomicFromCartesian, x::Cartesian)
+    # M1 = transform_deriv(FourieredFromCartesian(), CartesianFromAtomic()(x))
+    # M2 = transform_deriv(CartesianFromAtomic(), x)
+    # return M1*M2
+end
+transform_deriv_params(::SparseAtomicFromCartesian, x::Cartesian) = error("FourieredFromAtomic has no parameters")
+
+function (::CartesianFromSparseAtomic)(coords::SparseAtomic)
+    N, A = size(coords.coords)
+    dtype = eltype(coords.coords[1, 1].position)
+    cart = Cartesian(Array{dtype, 3}(undef, N, A, 3))
+    for i=1:N for a=1:A
+        cart[i, a, :] = coords.coords[i, a].position
+    end end
+    cart
+end
+
+Base.convert(::Type{SparseAtomic}, coords::Cartesian) = SparseAtomicFromCartesian()(coords)
+Base.convert(::Type{Cartesian}, coords::SparseAtomic) = CartesianFromSparseAtomic()(coords)
+
+function transform_deriv(::SparseAtomicFromCartesian, x::Cartesian)
+    # M1 = transform_deriv(FourieredFromCartesian(), CartesianFromAtomic()(x))
+    # M2 = transform_deriv(CartesianFromAtomic(), x)
+    # return M1*M2
+end
+transform_deriv_params(::SparseAtomicFromCartesian, x::Cartesian) = error("FourieredFromAtomic has no parameters")
+
+################## Image ##################
+"""
+ Images coordinates;
+
+
+"""
+struct Images{T, N} <: Coords{T, N}
+    coords::Array{T, N}
+    epoch::Real
+    unit::String
+    images::Array{D where {D<:Descriptor}, 1}
+    numbers::Vector{Number}
+    cell::Union{Nothing, Array}
+    periodic::Tuple{Bool, Bool, Bool}
+    cache::Dict
+end
+
+function Images(;coords=nothing)
+
+end
+
 
 
 "`FourieredFromCartesian()` - transformation from 3D point to `Fouriered` type"
@@ -203,7 +328,7 @@ function (::FourieredFromCartesian)(coords::Cartesian)
     line = dist .* collect(1:N-2) ./ (N-1)
     fcoords = coords.coords[2⁝-1] .- line
     fcoords = FFTW.r2r(fcoords, FFTW.RODFT00, 1) ./ sqrt(2*(size(fcoords)[1]+1))
-    Fouriered(fcoords, init, fin, coords.epoch, coords.unit)
+    Fouriered(fcoords, init, fin, coords.epoch, coords.unit, coords.cache)
 end
 
 function transform_deriv(::FourieredFromCartesian, coords::Cartesian)
@@ -215,7 +340,7 @@ function transform_deriv(::FourieredFromCartesian, coords::Cartesian)
     line = dist .* collect(1:N-2) ./ (N-1)
     fcoords = coords.coords[2⁝-1] .- line
     fcoords = FFTW.r2r(fcoords, FFTW.REDFT00, 1) ./ sqrt(2*(size(fcoords)[1]+1))
-    Fouriered(fcoords, init, fin, coords.epoch, coords.unit)
+    Fouriered(fcoords, init, fin, coords.epoch, coords.unit, coords.cache)
 end
 
 transform_deriv_params(::FourieredFromCartesian, x::AbstractVector) = error("FourieredFromCartesian has no parameters")
@@ -230,7 +355,7 @@ function (::CartesianFromFouriered)(fcoords::Fouriered)
     line = dist .* collect(1:N-2) ./ (N-1)
     coords[1⁝0] = line + FFTW.r2r(fcoords.coords, FFTW.RODFT00, 1) ./ sqrt(2*(size(fcoords)[1]+1))
 
-    Cartesian(coords, fcoords.epoch, fcoords.unit)
+    Cartesian(coords, fcoords.epoch, fcoords.unit, fcoords.cache)
 end
 
 function transform_deriv(::CartesianFromFouriered, fcoords::Fouriered{T}) where T
@@ -243,7 +368,7 @@ function transform_deriv(::CartesianFromFouriered, fcoords::Fouriered{T}) where 
     line = dist .* collect(1:N-2) ./ (N-1)
     coords[1⁝0] = line + FFTW.r2r(fcoords.coords, FFTW.REDFT00, 1) ./ sqrt(2*(size(fcoords)[1]+1))
 
-    Cartesian(coords, fcoords.epoch, fcoords.unit)
+    Cartesian(coords, fcoords.epoch, fcoords.unit, fcoords.cache)
 end
 
 transform_deriv_params(::CartesianFromFouriered, x::Fouriered) = error("CartesianFromFouriered has no parameters")
@@ -266,7 +391,7 @@ function (::AtomicFromCartesian)(coords::Cartesian)
         mask[i] = true
         acoords[:, mask, i] = coords[:, mask, i] .- mask
     end
-    Atomic(acoords, center, coords.epoch, coords.unit)
+    Atomic(acoords, center, coords.epoch, coords.unit, coords.cache)
 end
 
 function transform_deriv(::AtomicFromCartesian, x::AbstractVector)
@@ -304,6 +429,7 @@ function transform_deriv(::FourieredFromAtomic, x::Atomic)
 end
 transform_deriv_params(::FourieredFromAtomic, x::Atomic) = error("FourieredFromAtomic has no parameters")
 
+
 Base.inv(::FourieredFromCartesian)   = CartesianFromFouriered()
 Base.inv(::CartesianFromFouriered)   = FourieredFromCartesian()
 Base.inv(::AtomicFromCartesian) = CartesianFromAtomic()
@@ -338,3 +464,309 @@ Base.convert(::Type{V}, c::Atomic) where {V <: AbstractArray} = convert(V, Carte
 
 Base.convert(::Type{Fouriered}, c::Atomic) = FourieredFromAtomic()(c)
 Base.convert(::Type{Atomic}, s::Fouriered) = AtomicFromFouriered()(s)
+
+
+
+using Combinatorics
+
+struct TwoBodyFromSparseAtomicDescriptor <: Transformation; twobodycutoff::Union{Nothing, Number, Array}; end
+struct ThreeBodyFromSparseAtomicDescriptor <: Transformation; threebodycutoff::Union{Nothing, Number, Array}; end
+struct TwoThreeBodyFromSparseAtomicDescriptor <: Transformation; twobodycutoff::Union{Nothing, Number, Array}; threebodycutoff::Union{Nothing, Number, Array}; end
+
+Base.convert(::Type{TwoBody}, coords::SparseAtomic; twobodycutoff=nothing) = TwoBodyFromSparseAtomicDescriptor(twobodycutoff)(coords)
+Base.convert(::Type{ThreeBody}, coords::SparseAtomic; threebodycutoff=nothing) = ThreeBodyFromSparseAtomicDescriptor(threebodycutoff)(coords)
+Base.convert(::Type{TwoThreeBody}, coords::SparseAtomic; twobodycutoff=nothing, threebodycutoff=nothing) = TwoThreeBodyFromSparseAtomicDescriptor(twobodycutoff, threebodycutoff)(coords)
+
+macro ini(chart)
+    return :(Dict([(key, Vector{Number}([])) for key in keys($chart)]))
+end
+
+function (twobody::TwoBodyFromSparseAtomicDescriptor)(sparseatomic::SparseAtomic{T, NN}) where {T<:AtomicDescriptor, NN}
+    coords = sparseatomic.coords
+    N, A = size(coords)
+    dtype = eltype(coords[1, 1])
+    rk = length(size(sparseatomic))
+    twobodyarr = Array{TwoBody{dtype, 1}, rk}(nothing, N, A)
+
+    # <!--- Cut off radious swap
+    numbers = sparseatomic.cache["numbers"]
+    miccell = sparseatomic.cache["miccell"]
+
+    balltrees = sparseatomic.cache["balltree"]
+    neighborss = sparseatomic.cache["neighbors"]
+
+    twobodycutoff = twobody.twobodycutoff
+    if typeof(twobodycutoff)<:Union{Number, Nothing}
+        twobodycutoffs = Array{typeof(twobodycutoff), 1}(undef, A)
+        fill!(twobodycutoffs, twobodycutoff)
+    end
+    # Cutoff radius swap initialize-->
+
+    # <!--- Initialize descriptor dictionary
+    numbers = sparseatomic.cache["numbers"]
+    species = Set(numbers) |> collect
+    chart = Dict()
+    multiplicity = Dict()
+    permutations = Dict()
+    counter = 1
+    for cluster in with_replacement_combinations(species, 3)
+        chart[Tuple(sort(cluster))] = counter
+        multiplicity[Tuple(sort(cluster))] =
+        permutations[Tuple(sort(cluster))] = []
+        counter += 1
+    end
+    # Initialize descriptor dictionary -->
+
+    for i=1:N
+        balltree = balltrees[i]
+        neighbors = neighborss[i]
+        for a=1:A
+            atom = coords[i, a]
+            idx = atom.idx
+            number = numbers[a]
+            position = atom.position
+
+            if twobodycutoffs[a] != nothing && twobodycutoff != atom.cutoff
+                cutoff = twobodycutoffs[a]
+                envidcs_plusself = inrange(balltree, position, cutoff, true)
+
+                selfidx = searchsortedfirst(envidcs_plusself, a)
+                envidcs = deleteat!(envidcs_plusself, selfidx)
+                envnumbers = numbers[(envidcs .% A) .+ 1]
+                envpositions = Array(miccell[:, envidcs, i]')
+            else
+                cutoff = atom.cutoff
+                envidcs = desc.envidcs
+                envnumbers = desc.envnumbers
+                envpositions = desc.envpositions
+            end
+
+            M = length(envnumbers)
+
+            s1 = number
+            # Create a dictionary maps sends species to distances
+            descriptor = Dict("twobody"=>[], "twobodychart"=>Set())
+            for j=1:M
+                s2 = envnumbers[j]
+
+                if s1 <= s2
+                    cluster = (s1, s2)
+                    p1, p2 = position, envpositions[j, :]
+                else
+                    cluster = (s2, s1)
+                    p1, p2 = envpositions[j, :], position
+                end
+
+                xi, yi, zi = p1
+                xi1, yi1, zi1 = p2
+                xi_i1, yi_i1, zi_i1 = xi-xi1, yi-yi1, zi-zi1
+                rii1 = sqrt(xi_i1*xi_i1 + yi_i1*yi_i1 + zi_i1*zi_i1)
+
+                # xi = position .- envpositions[j, :]
+                datum = Dict("cluster"=>cluster, "xi"=>xi, "yi"=>yi, "zi"=>zi,
+                             "xi1"=>xi1, "yi1"=>yi1, "zi1"=>zi1,
+                             "xi_i1"=>zi_i1, "yi_i1"=>yi_i1, "zi_i1"=>zi_i1,
+                             "rii1"=>rii1)
+                push!(descriptor["twobody"], datum)
+                union!(descriptor["twobodychart"], [cluster])
+            end
+            twobodyarr[i, a] = TwoBody{dtype, 1}(idx, atom.number, atom.position,
+                                                 envidcs, envnumbers, envpositions, cutoff, descriptor)
+        end
+    end
+    SparseAtomic{TwoBody{dtype, 1}, NN}(twobodyarr, sparseatomic.epoch, sparseatomic.unit, sparseatomic.cache)
+end
+
+function (threebody::ThreeBodyFromSparseAtomicDescriptor)(sparseatomic::SparseAtomic{T, NN}) where {T<:AtomicDescriptor, NN}
+    coords = sparseatomic.coords
+    N, A = size(coords)
+    dtype = eltype(coords[1, 1])
+    rk = length(size(sparseatomic))
+    threebodyarr = Array{ThreeBody{dtype, 1}, rk}(nothing, N, A)
+
+    # <!--- Cut off radious swap
+    numbers = sparseatomic.cache["numbers"]
+    miccell = sparseatomic.cache["miccell"]
+    balltrees = sparseatomic.cache["balltree"]
+    neighborss = sparseatomic.cache["neighbors"]
+
+    threebodycutoff = threebody.threebodycutoff
+    if typeof(threebodycutoff)<:Union{Number, Nothing}
+        threebodycutoffs = Array{typeof(threebodycutoff), 1}(undef, A)
+        fill!(threebodycutoffs, threebodycutoff)
+    end
+    # Cutoff radius swap initialize-->
+
+    # <!---Initialize permutations
+    numbers = sparseatomic.cache["numbers"]
+    species = Set(numbers) |> collect
+    chart = Dict()
+    multiplicity = Dict()
+    permutations = Dict()
+    counter = 1
+    for cluster in with_replacement_combinations(species, 3)
+        chart[Tuple(sort(cluster))] = counter
+        multiplicity[Tuple(sort(cluster))] =
+        permutations[Tuple(sort(cluster))] = []
+        counter += 1
+    end
+        # Initialize -->
+
+    for i=1:N
+        balltree = balltrees[i]
+        neighbors = neighborss[i]
+        for a=1:A
+            desc = coords[i, a]
+            idx = coords[i, a].idx
+            number = coords[i, a].number
+            position = coords[i, a].position
+
+            if threebodycutoffs[a] != nothing && threebodycutoff != atom.cutoff
+                cutoff = threebodycutoffs[a]
+                envidcs_plusself = inrange(balltree, position, cutoff, true)
+
+                selfidx = searchsortedfirst(envidcs_plusself, a)
+                envidcs = deleteat!(envidcs_plusself, selfidx)
+                envnumbers = numbers[(envidcs .% A) .+ 1]
+                envpositions = Array(miccell[:, envidcs, i]')
+            else
+                cutoff = atom.cutoff
+                envidcs = desc.envidcs
+                envnumbers = desc.envnumbers
+                envpositions = desc.envpositions
+            end
+            envidcs = coords[i, a].envidcs
+            envnumbers = coords[i, a].envnumbers
+            envpositions = coords[i, a].envpositions
+
+            M = length(envnumbers)
+
+            s1 = number
+
+            # Create a dictionary maps sends species to distances
+            descriptor = Dict("threebody"=>[], "threebodychart"=>Set())
+            for j=1:M
+                s2 = envnumbers[j]
+                if s1 <= s2
+                    p1, p2 = position, envposition[j, :]
+                else
+                    s2, s1 = s1, s2
+                    p1, p2 = envpositions[j, :], position
+                end
+
+                xi, yi, zi = p1
+                xi1, yi1, zi1 = p2
+                xi_i1, yi_i1, zi_i1 = xi-xi1, yi-yi1, zi-zi1
+
+                _rii1 = sqrt(xi_i1*xi_i1 + yi_i1*yi_i1 + zi_i1*zi_i1)
+
+                for k=j+1:M
+                    s3 = envnumbers[k]
+                    p3 = envposition[k, :]
+                    if s2 <= s3
+                        cluster = (s1, s2, s3)
+                        xi2, yi2, zi2 = p3
+
+                        xi_i2, yi_i2, zi_i2 = xi-xi2, yi-yi2, zi-zi2
+                        xi1_i2, yi1_i2, zi1_i2 = xi1-xi2, yi1-yi2, zi1-zi2
+                        # rii1 = sqrt(xi_i1*xi_i1 + yi_i1*yi_i1 + zi_i1*zi_i1)
+                        rii1 = _rii1
+                        rii2 = sqrt(xi_i2*xi_i2 + yi_i2*yi_i2 + zi_i2*zi_i2)
+                        ri1i2 = sqrt(xi1_i2*xi1_i2 + yi1_i2*yi_i2 + zi1_i2*zi_i2)
+                    elseif s3 < s1
+                        cluster = (s3, s1, s2)
+                        xi, yi, zi = p3
+                        xi1, yi1, zi1 = p1
+                        xi2, yi2, zi2 = p2
+
+                        xi_i2, yi_i2, zi_i2 = xi-xi2, yi-yi2, zi-zi2
+                        xi1_i2, yi1_i2, zi1_i2 = xi_i1, yi_i1, zi_i1
+                        xi_i1, yi_i1, zi_i1 = xi-xi1, yi-yi1, zi-zi1
+
+                        rii1 = sqrt(xi_i1*xi_i1 + yi_i1*y_i1 + zi_i1*z_i1)
+                        rii2 = sqrt(xi_i2*xi_i2 + yi_i2*yi_i2 + zi_i2*zi_i2)
+                        ri1i2 = _rii1
+
+                        xi_i2, yi_i2, zi_i2 = xi-xi2, yi-yi2, zi-zi2
+                    else
+                        cluster = (s1, s3, s2)
+                        xi1, yi1, zi1 = p3
+                        xi2, yi2, zi2 = p2
+
+                        xi_i2, yi_i2, zi_i2 = xi_i1, yi_i1, zi_i1
+                        xi_i1, yi_i1, zi_i1 = xi-xi2, yi-yi2, zi-zi2
+                        xi1_i2, yi1_i2, zi1_i2 = xi1-xi2, yi1-yi2, zi1-zi2
+
+                        rii1 = sqrt(xi_i1*xi_i1 + yi_i1*yi_i1 + zi_i1*zi_i1)
+                        rii2 = _rii1
+                        ri1i2 = sqrt(xi1_i2*xi_i2 + yi1_i2*yi1_i2 + zi1_i2*zi1_i2)
+                    end
+
+                    push!(descriptor2["xi"][cluster], xi)
+                    push!(descriptor2["yi"][cluster], yi)
+                    push!(descriptor2["zi"][cluster], zi)
+
+                    push!(descriptor2["xi1"][cluster], xi1)
+                    push!(descriptor2["yi1"][cluster], yi1)
+                    push!(descriptor2["zi1"][cluster], zi1)
+
+                    push!(descriptor2["xi2"][cluster], xi2)
+                    push!(descriptor2["yi2"][cluster], yi2)
+                    push!(descriptor2["zi2"][cluster], zi2)
+
+                    push!(descriptor2["xi_i1"][cluster], xi_i1)
+                    push!(descriptor2["yi_i1"][cluster], yi_i1)
+                    push!(descriptor2["zi_i1"][cluster], zi_i1)
+
+                    push!(descriptor2["xi_i2"][cluster], xi_i2)
+                    push!(descriptor2["yi_i2"][cluster], yi_i2)
+                    push!(descriptor2["zi_i2"][cluster], zi_i2)
+
+                    push!(descriptor2["xi1_i2"][cluster], xi1_i2)
+                    push!(descriptor2["yi1_i2"][cluster], yi1_i2)
+                    push!(descriptor2["zi1_i2"][cluster], zi1_i2)
+
+                    push!(descriptor2["rii1"][cluster], rii1)
+                    push!(descriptor2["rii2"][cluster], rii2)
+                    push!(descriptor2["ri1i2"][cluster], ri1i2)
+
+                    datum = Dict("cluster"=>cluster, "xi"=>xi, "yi"=>yi, "zi"=>zi,
+                                 "xi1"=>xi1, "yi1"=>yi1, "zi1"=>zi1,
+                                 "xi2"=>xi2, "yi2"=>yi2, "zi2"=>zi2,
+                                 "xi_i1"=>zi_i1, "yi_i1"=>yi_i1, "zi_i1"=>zi_i1,
+                                 "xi_i2"=>zi_i2, "yi_i2"=>yi_i2, "zi_i2"=>zi_i2,
+                                 "xi1_i2"=>zi1_i2, "yi1_i2"=>yi1_i2, "zi1_i2"=>zi1_i2,
+                                 "rii1"=>rii1, "rii2"=>rii2, "ri1i2"=>ri1i2)
+                    push!(descriptor["threebody"], datum)
+                    union!(descriptor["threebodychart"], [cluster])
+                end
+            end
+            threebodyarr[i, a] = ThreeBody{dtype, 1}(idx,
+                desc.number, desc.position, desc.envidcs, desc.envnumbers,
+                desc.envpositions, desc.cutoff, descriptor2)
+        end
+    end
+    SparseAtomic{ThreeBody{dtype, 1}, NN}(threebody, sparseatomic.epoch,
+                                  sparseatomic.unit, sparseatomic.cache)
+end
+
+
+Base.convert(::Type{SparseAtomic{TD, N}}, coords::SparseAtomic{TC, N};
+             twobodycutoff=7, threebodycutoff=3.5) #=
+=# where {TD<:TwoThreeBody, TC<:AtomicDescriptor, N} = #=
+=# TwoThreeBodyFromSparseAtomicDescriptor(twobodycutoff, threebodycutoff)(coords)
+
+function (twothreebody::TwoThreeBodyFromSparseAtomicDescriptor)(
+    sparseatomic::SparseAtomic{T, NN}) where {T<:AtomicDescriptor, NN}
+
+    twothreebody = Array{TwoThreeBody, 2}(sparseatomic.coords)
+    dtype = eltype(sparseatomic.coords[1, 1])
+    SparseAtomic{TwoThreeBody{dtype, 1}, NN}(twothreebody, sparseatomic.epoch,
+                             sparseatomic.unit, sparseatomic.cache)
+end
+
+
+
+
+
+#sparsetwobody = convert(TwoBody, sparseatomic, twobodycutoff=3)

@@ -98,3 +98,45 @@ function center_wrap(coords::Array{Float64, 3}, cell::Array{Float64, 2}, n::Int)
     scaleds .-= ((scaleds[:, n, nax, :] .+ 0.5) .% 1.) .- 0.5
     return scaled2cart(scaleds, cell)
 end
+
+"""
+period = [false, false, false]
+periodic = supercell_periodic_help(period)
+"""
+function supercell_periodic_help(period)
+    per = Set([])
+    for x in [-1, 0, 1] for y in [-2, 0, 2] for z in [3, 0, -3]
+        dir = [x, y, z][period]
+        dir == [0, 0, 0][period] ? continue : nothing
+        union!(per, Set([dir]))
+    end end end
+    hcat([p for p in per]...)
+end
+
+
+
+"""
+Minimum image convention cell padding
+"""
+function getmiccell(coords, cell, period)
+    N, A, _ = size(coords)
+    periodic = supercell_periodic_help(period)
+
+    pD, pN = periodic == [] ? (0, 0) : size(periodic)
+    supercell = similar(coords, 3, A * (1+pN), N)
+    positionss = permutedims(coords, (3, 2, 1))
+    supercell[:, 1:A, :] = positionss
+    for i=1:pN
+        translate = zeros(3)
+        for j=1:pD
+            p = periodic[j, i]
+            p == 0 ? continue : nothing
+            s = sign(p)
+            idx = abs(p)
+            translate += s .* cell[idx, :]
+        end
+        scell = positionss .+ translate
+        supercell[:, A*i+1:A*(i+1), :] = scell
+    end
+    return supercell
+end

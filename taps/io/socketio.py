@@ -106,11 +106,8 @@ class SocketIO:
         #    sock.listen()
         try:
             for i in range(nprc):
-                print("Accept", i)
                 tcp, client_address = self.sock.accept()
-                print("Recv", i)
                 rank = b2int(tcp.recv(8, fwait))
-                print("Send", i)
                 tcp.send(packing(*args[rank+1], **kwargs['rank'+str(rank)]))
         except KeyboardInterrupt as e:
             self.sock.close()

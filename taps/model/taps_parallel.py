@@ -31,8 +31,11 @@ class Julia(Model):
         'io': {'default': 'None', 'assert': 'True'},
         'mpi': {'default': 'None', 'assert': 'True'}
     }
+
     implemented_properties = {'covariance', 'potential', 'gradients',
-                              'hessian'}
+                              'hessian', 'momentum', 'kinetic_energy',
+                              'kinetic_energy_gradient', 'velocity',
+                              'acceleration', 'mass', 'effective_mass'}
 
     def __init__(self, mpi=None, io="SocketIO", io_kwargs={}, **kwargs):
         super().model_parameters.update(self.model_parameters)
@@ -45,6 +48,67 @@ class Julia(Model):
         self.mpi = mpi
 
         super().__init__(**kwargs)
+
+    def calculate(self, paths, coords, properties=['potential'], nprc=None,
+                  intype=b'2', instruction=b'get_properties', **kwargs):
+        nprc = nprc or self.io.nprc
+
+        self.update_coords(coords, nprc)
+        # Excute
+        self.io.send(properties, intype=intype, instruction=instruction)
+
+        # Write results
+        rest = dict([("rank%d" % rank, {}) for rank in range(nprc)])
+        returnkey = {
+            'all': {'model_kwargs': {'results': None}},
+            **rest
+            }
+        args, resultsdct = self.io.write_parallel(**returnkey)
+
+        for prop in properties:
+            resultslist = []
+            for i in range(nprc):
+                resultslist.append(resultsdct[i]['model_kwargs']['results'][prop])
+            # for key, value in resultsdct.items():
+            #     resultsorder.append(key)
+            #     resultslist.append(value['model_kwargs']['results'][prop])
+            self.results[prop] = np.concatenate(resultslist, axis=-1)
+
+    # def get_displacements(self, paths, **kwargs):
+    #     return self.get_properties(paths, properties='displacements',
+    #                                instruction=b'get_displacements', **kwargs)
+
+    # def get_momentum(self, paths, **kwargs):
+    #     return self.get_properties(paths, properties='momentum',
+    #                                instruction=b'get_momentum', **kwargs)
+
+    # def get_kinetic_energy(self, paths, **kwargs):
+    #     return self.get_properties(paths, properties='kinetic_energy',
+    #                                instruction=b'get_kinetic_energy', **kwargs)
+
+    # def get_kinetic_energy_gradient(self, paths, **kwargs):
+    #     return self.get_properties(paths, properties='kinetic_energy_gradient',
+    #                                instruction=b'get_kinetic_energy_gradient', **kwargs)
+
+    # def get_velocity(self, paths, **kwargs):
+    #     return self.get_properties(paths, properties='velocity',
+    #                                instruction=b'get_velocity', **kwargs)
+
+    # def get_acceleration(self, paths, **kwargs):
+    #     return self.get_properties(paths, properties='acceleration',
+    #                                instruction=b'get_acceleration', **kwargs)
+
+    # def get_accelerations(self, **kwargs):
+    #     return self.get_properties(paths, properties='acceleration',
+    #                                instruction=b'get_acceleration', **kwargs)
+
+    def get_mass(self, paths, **kwargs):
+        return self.get_properties(paths, properties='mass',
+                                   instruction=b'get_mass', **kwargs)
+
+    def get_effective_mass(self, paths, **kwargs):
+        return self.get_properties(paths, properties='effective_mass',
+                                   instruction=b'get_effective_mass', **kwargs)
 
     def execute_cmd(self, *args, **kwargs):
         """
@@ -104,6 +168,10 @@ class Julia(Model):
     def ping(self):
         self.io.ping()
 
+    def shutdown(self):
+        self.io.shutdown()
+        self._close_std_thread()
+
     def initialize(self, *args, **kwargs):
         self.io.read_parallel(*args, **kwargs)
 
@@ -130,44 +198,9 @@ class Julia(Model):
         }
         self.io.read_parallel(**coords_dct)
 
-    def calculate(self, paths, coords, properties=['potential'], nprc=None, **kwargs):
-        nprc = nprc or self.io.nprc
-
-        self.update_coords(coords, nprc)
-        # Excute
-        intype, instruction = b'2', b'get_properties'
-        self.io.send(properties, intype=intype, instruction=instruction)
-
-        # Write results
-        rest = dict([("rank%d" % rank, {}) for rank in range(nprc)])
-        returnkey = {
-            'all': {'model_kwargs': {'results': None}},
-            **rest
-            }
-        args, resultsdct = self.io.write_parallel(**returnkey)
-
-        for prop in properties:
-            resultslist = []
-            for i in range(nprc):
-                resultslist.append(resultsdct[i]['model_kwargs']['results'][prop])
-            # for key, value in resultsdct.items():
-            #     resultsorder.append(key)
-            #     resultslist.append(value['model_kwargs']['results'][prop])
-            self.results[prop] = np.concatenate(resultslist, axis=-1)
-
-    def shutdown(self):
-        self.io.shutdown()
-        self._close_std_thread()
-
     def _close_std_thread(self):
         self._std_kill_sig.set()
         self._std_thread.join()
-
-    def get_mass(self, paths, coords=None, **kwargs):
-        return self.calculate(paths, coords, properties=['mass'], **kwargs)
-
-    def get_effective_mass(self, paths, coords=None, **kwargs):
-        return self.calculate(paths, coords, properties=['effective_mass'], **kwargs)
 
     def _print_stdout(self):
         line = []

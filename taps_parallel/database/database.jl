@@ -46,3 +46,5 @@ function read_data(filename::String, data_ids)
     data["potential"] = Array{Float64, 1}(reinterpret(Float64, ds.potential))
     return data
 end
+
+include("./manybody.jl")
