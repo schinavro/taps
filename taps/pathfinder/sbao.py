@@ -32,8 +32,10 @@ class SBAO(PathFinder):
                                stdout=subprocess.PIPE,
                                stderr=subprocess.STDOUT,
                                universal_newlines=True, bufsize=1)
-        while line := con.stdout.readline():
+        line = con.stdout.readline()
+        while line:
             print(line, end='')
+            line = con.stdout.readline()
         # self.print_file(file=outfile, running=isRunning, process=p)
         out = np.load('result.npz')
         ak = out['resk']

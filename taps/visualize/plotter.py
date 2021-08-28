@@ -617,7 +617,7 @@ class Plotter:
         ec = (0.5, 0.5, 0.5)
         fc = (1., 1., 1.)
 
-        ax.annotate(s=string, xy=xy, xytext=(-1.5 * offset, -offset),
+        ax.annotate(text=string, xy=xy, xytext=(-1.5 * offset, -offset),
                     textcoords='offset points', fontsize=fontsize,
                     bbox=dict(boxstyle="round", ec=ec, fc=fc, alpha=0.5),
                     arrowprops=dict(connectionstyle="arc3,rad=.3",

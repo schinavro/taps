@@ -1,3 +1,3 @@
-from taps.coords.coords import Coords
+from taps.coords.cartesian import Cartesian
 
-__all__ = ['Coords']
+__all__ = ['Cartesian']

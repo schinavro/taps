@@ -110,7 +110,8 @@ class Kernel:
             # DxNxM -> NxDxM -> NxDDxM
             dc_hg_diag = np.zeros((N, D, D, M))
             # ∂_mm K(Xm,Xn) NxDxDxM
-            dc_hg_diag[:, dnm, dnm, :] = -1 / ll[:, 0, 0]
+            # dc_hg_diag[:, dnm, dnm, :] = -1 / ll[:, 0, 0]
+            dc_hg_diag[:, dnm, dnm, :] = -1 / ll
             # NxDxDxM + NxDxDxM -> NxDxDxM
             Khg = (dc_hg_glob + dc_hg_diag)
             # Bacground term: ∂_mmn K(Xm,Xn) DxNx1x1xM * 1xNxDxDxM -> DxNxDxDxM

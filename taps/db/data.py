@@ -771,7 +771,8 @@ class ImageData:
                                         **kwargs)
             except Exception as e:
                 self.queue(ids_ntbc, arr_dict_ntbc, status='Failed', **kwargs)
-                raise Exception(str(e)) from e
+                raise NotImplementedError()
+                # raise Exception(str(e)) from e
             self.update(ids_ntbc, data, **kwargs)
             if self.You_and_I_have_unfinished_business(ids, **kwargs):
                 time.sleep(5)

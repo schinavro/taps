@@ -143,7 +143,7 @@ class Model:
             'potential', 'potentials', 'gradients' and 'hessian'.
         index: slice obj
             default; np.s_[1:-1]
-        coords: Coords class
+        coords: Cartesian class
         caching: bool; default false
         real_model: bool; default False
            choose use real_model or not

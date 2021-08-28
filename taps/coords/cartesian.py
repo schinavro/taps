@@ -7,7 +7,7 @@ from taps.utils.arraywrapper import arraylike
 
 
 @arraylike
-class Coords:
+class Cartesian:
     """
     Discretized coordinate representaion of a system. In default, system is
     considered as Cartesian.
@@ -48,16 +48,16 @@ class Coords:
 
     @classmethod
     def ascoords(cls, coords):
-        """Return argument as a Coords object.
+        """Return argument as a Cartesian object.
 
-        A new Coords object is created if necessary."""
+        A new Cartesian object is created if necessary."""
         if isinstance(coords, cls):
             return coords
         return cls.new(coords)
 
     @classmethod
     def new(cls, coords=None):
-        """Create new Coords"""
+        """Create new Cartesian"""
 
         coords = np.array(coords, float)
 
@@ -71,7 +71,7 @@ class Coords:
         return bool(self.any())  # need to convert from np.bool_
 
     def __repr__(self):
-        return 'Coords{}'.format(self.coords.shape)
+        return 'Cartesian{}'.format(self.coords.shape)
 
     @property
     def N(self):
@@ -218,7 +218,12 @@ class Coords:
         return copy.deepcopy(self)
 
 
-class AlanineDipeptideCoords(Coords):
+class AlanineDipeptideCartesian(Cartesian):
+    """
+    C70 : phi = -8.537736562175269e-07 psi = 8.537736462515939e-07
+    C7eq : phi = -60.00000014729346 psi = 100.25000021100078
+    C7ax : phi = 54.99999985270659 psi = -59.999999788999276
+    """
     reference = np.array([[3.13042320, 8.69636925, 6.86034480],
                           [3.62171100, 7.75287090, 7.13119080],
                           [3.06158460, 6.94361235, 6.64450215],

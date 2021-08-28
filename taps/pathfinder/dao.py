@@ -10,6 +10,47 @@ from scipy.optimize import minimize, check_grad
 class DAO(PathFinder):
     """
     Direct action optimizer (DAO)
+
+    Parameters
+    ----------
+    action_name: List of strings
+        Pick a name of action want to use among 'Classic', 'Onsager Machlup',
+        'Energy conservation' and 'Hamiltonian'.
+        ex) action_name=['Onsager Machlup', 'Energy conservation']...
+    muE: float, default 0.
+        Energy conservation constant. Higher muE more the pathway will tends to
+        keep total energy
+    muT: flaot, default 0.
+        Kinetic energy conservation constant. Not implemented
+    muP: flaot, default 0.
+        Momentum conservation constant. Not implemented
+    muL: flaot, default 0.
+        Anguar momentum conservation const. Not implemented
+    gam: float, default 1.
+        Onsager Machlup draging constant. 1/kbT
+    tol: flaot, default 0.1
+        max(dS) tolerance
+    method: float, default "BFGS"
+        Optimization keyword for scipy.minimize
+    eps: float, default 1e-4
+        Optimization keyword for scipy.minimize
+    disp: bool
+        Optimization keyword for scipy.minimize
+    prj_search: bool, default False
+        whether use projector or not
+    use_grad: bool , default True
+        Whether to use graidnet form of the action.
+    maxiter: int, default 500,
+        Optimization keyword for scipy.minimize
+    Et_opt_tol: float,
+        f
+    Et_type: str
+        Target energy type. "average", "max", "min" and "auto_et"
+    Et: float,
+        Target energy for energy conservation action term.
+    res: ??
+    search_kwargs: Dict,
+        Optimization keyword for scipy.minimize
     """
     finder_parameters = {
         'action_name': {'default': "'Onsager Machlup'", 'assert': 'True'},
@@ -25,8 +66,6 @@ class DAO(PathFinder):
         'disp': {'default': 'False', 'assert': 'isinstance({name:s}, bool)'},
         'eps': {'default': '1e-4', 'assert': '{name:s} > 0'},
         'T': {'default': '300', 'assert': '{name:s} > 0.'},
-        'sin_search': {'default': 'True', 'assert': isbool},
-        'prj_search': {'default': 'True', 'assert': isbool},
         'use_grad': {'default': 'True', 'assert': isbool},
         'Et_type': {'default': 'None', 'assert': isstr},
         'Et': {'default': 'None', 'assert': issclr},
@@ -76,7 +115,7 @@ class DAO(PathFinder):
 
     def __init__(self, action_name=None, muE=None, muT=None, muP=None, muL=None,
                  T=None, tol=None, method=None, eps=None, disp=None,
-                 gam=None, sin_search=None, prj_search=None, use_grad=None,
+                 gam=None, use_grad=None,
                  maxiter=None, Et_opt_tol=None, search_kwargs=None, **kwargs):
         super().finder_parameters.update(self.finder_parameters)
         self.finder_parameters.update(super().finder_parameters)
@@ -89,8 +128,6 @@ class DAO(PathFinder):
         self.eps = eps
         self.disp = disp
         self.gam = gam
-        self.sin_search = sin_search
-        self.prj_search = prj_search
         self.use_grad = use_grad
         self.method = method
         self.maxiter = maxiter
@@ -102,7 +139,6 @@ class DAO(PathFinder):
     def action(self, paths, *args, action_name=None, Et=None, muE=None,
                sin_search=None, prj_search=None):
         action_name = action_name or self.action_name
-        sin_search = sin_search or self.sin_search
         prj_search = prj_search or self.prj_search
 
         if type(action_name) == str:
@@ -124,12 +160,6 @@ class DAO(PathFinder):
             def action(rcoords):
                 coords = self.prj._x_inv(rcoords.reshape(prj_shape))
                 paths.coords[..., 1:-1] = coords
-                return S()
-            return action
-
-        def sin_handler(S):
-            def action(rcoords):
-                paths.coords.rcoords = rcoords.reshape((D, Nk))
                 return S()
             return action
 
@@ -212,7 +242,7 @@ class DAO(PathFinder):
         return lambda x: sum([f(x) for f in S])
 
     def grad_action(self, paths, *args, action_name=None, Et=None, muE=None,
-                    sin_search=None, prj_search=None):
+                    prj_search=None):
         if not self.use_grad:
             return None
         action_name = action_name or self.action_name
@@ -222,7 +252,6 @@ class DAO(PathFinder):
             Et = self.get_target_energy(paths)
         if muE is None:
             muE = self.muE
-        sin_search = sin_search or self.sin_search
         prj_search = prj_search or self.prj_search
 
         D, Nk, N = paths.D, paths.Nk, paths.N
@@ -245,22 +274,13 @@ class DAO(PathFinder):
                 return ds.flatten()
             return grad_action
 
-        def sin_handler(dS):
-            def grad_action(rcoords):
-                # self.prj.x_inv(rcoords)
-                paths.coords.rcoords = rcoords.reshape((D, Nk))
-                return dst(dS(), type=1, norm='ortho')[..., :Nk].flatten()
-            return grad_action
-
         def cartesian_handler(dS):
             def grad_action(rcoords):
                 paths.coords[..., 1:-1] = rcoords.reshape((D, N - 2))
                 return dS().flatten()
             return grad_action
 
-        if sin_search:
-            handler = sin_handler
-        elif prj_search:
+        if prj_search:
             handler = prj_handler
         else:
             handler = cartesian_handler
@@ -378,10 +398,8 @@ class DAO(PathFinder):
         printt('            Iter   nfev   njev        S   dS_max')
         while True:
             # print(res.message)
-            if self.sin_search:
-                x0 = paths.coords.rcoords.flatten()
-            elif self.prj_search:
-                x0 = self.prj.x(paths.coords(index=np.s_[1:-1]))
+            if self.prj_search:
+                x0 = self.prj.x(paths.coords(index=np.s_[1:-1])).flatten()
             else:
                 x0 = paths.coords[..., 1:-1].flatten()
             res = minimize(act, x0, jac=jac, **search_kwargs)
@@ -401,24 +419,21 @@ class DAO(PathFinder):
             # elif cart:
             #     self.sin_search = True
             #     jac = None
-            if self.sin_search:
-                x0 = paths.coords.rcoords.flatten()
-            elif self.prj_search:
-                x0 = self.prj.x(paths.coords(index=np.s_[1:-1]))
+            if self.prj_search:
+                x0 = self.prj.x(paths.coords(index=np.s_[1:-1])).flatten()
             else:
                 x0 = paths.coords[..., 1:-1].flatten()
             printt("jac_max > tol(%.2f); Run without gradient" % self.tol)
             res = minimize(act, x0, jac=jac, **search_kwargs)
             self.set_results(res)
             printt('{msg} : {nit:6d} {nfev:6d} {njev:6d} '
-                  '{fun:8.4f} {jac_max:8.4f}'.format(**self.results))
+                   '{fun:8.4f} {jac_max:8.4f}'.format(**self.results))
             if res.nit < 3:
                 break
 
-        if self.sin_search:
-            x0 = paths.coords.rcoords.flatten()
-        elif self.prj_search:
-            x0 = self.prj.x(paths.coords(index=np.s_[1:-1]))
+        if self.prj_search:
+            x0 = self.prj.x(paths.coords(index=np.s_[1:-1])).flatten()
+            origshape = x0.shape
         else:
             x0 = paths.coords[..., 1:-1].flatten()
         om = 'Onsager Machlup'
@@ -426,11 +441,8 @@ class DAO(PathFinder):
                                        muE=0.)(x0)
         if close_log:
             logfile.close()
-        if self.sin_search:
-            paths.coords.rcoords = res.x.reshape((paths.D, paths.Nk))
-            return paths.copy()
-        elif self.prj_search:
-            paths.coords[..., 1:-1] = self.prj._x_inv(res.x)
+        if self.prj_search:
+            paths.coords[..., 1:-1] = self.prj._x_inv(res.x.reshape(origshape))
             # return paths.copy()
             return paths
         else:
@@ -563,8 +575,8 @@ class DAO(PathFinder):
             print('Need to set up data first')
             return
         search_kwargs = search_kwargs or self.search_kwargs
-        if self.sin_search:
-            x0 = paths.coords.rcoords.flatten()
+        if self.prj_search:
+            x0 = self.prj_x(coords)
         else:
             x0 = paths.coords.flatten()
         act = self.action(paths)

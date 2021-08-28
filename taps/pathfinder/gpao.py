@@ -256,7 +256,7 @@ class GPAO(PathFinder):
         dE = np.diff(E)
         dX = np.diif(X)
         ddEdX2 = np.diff(dE / dX) / dX[:-1]
-        saddle = np.arange(1, paths.P - 1)[np.abs(ddEdX2) < self.gptol]
+        saddle = np.arange(1, paths.N - 1)[np.abs(ddEdX2) < self.gptol]
         if len(saddle) == 0:
             return np.argmax(E)
         return np.random.choice(saddle)
@@ -286,8 +286,8 @@ class GPAO(PathFinder):
             phase = self.phase
         imgdata = paths.get_data()
         if len(imgdata['V']) < 3:
-            paths.add_data(index=paths.P // 3)
-            logfile.write("Initial index : %d \n" % (paths.P // 3))
+            paths.add_data(index=paths.N // 3)
+            logfile.write("Initial index : %d \n" % (paths.N // 3))
             return False
 
         idx = self.acquisition(paths, phase=phase, iter=iter)

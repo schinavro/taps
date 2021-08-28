@@ -1,7 +1,7 @@
 import copy
 import pickle
 import numpy as np
-from taps.coords import Coords
+from taps.coords import Cartesian
 
 # Parameters that will be saved
 paths_parameters = {
@@ -26,10 +26,10 @@ class Paths:
     Parameters
     ----------
 
-    coords  : Coords class
+    coords  : Cartesian class
         Coordinate representation that connect initial state to final state.
         Calculation involving intermediate states, such as, kinetic energy
-        or momentum, can be found in the Coords class.
+        or momentum, can be found in the Cartesian class.
     label   : string
         Set of character that distinguish from other Paths classes. This can be
         use in other module as default filename.
@@ -78,14 +78,14 @@ class Paths:
         if key in ['coords']:
             if value is None:
                 value = np.zeros((0, 0))
-            if 'Coords' in value.__class__.__name__:
+            if 'Cartesian' in value.__class__.__name__:
                 super().__setattr__(key, value)
             elif 'SineBasis' in value.__class__.__name__:
                 super().__setattr__(key, value)
             else:
                 crd = self.__dict__.get('coords')
                 if crd is None:
-                    value = Coords(coords=np.asarray(value))
+                    value = Cartesian(coords=np.asarray(value))
                 else:
                     value = crd.__class__(coords=np.asarray(value))
                 super().__setattr__(key, value)
@@ -205,19 +205,19 @@ class Paths:
 
     def get_velocity(self, **kwargs):
         """ Calculate velocity
-        If :class:`Coords` is cartesian, velocity is calculated via
+        If :class:`Cartesian` is cartesian, velocity is calculated via
         :math:`\mathbf{x}_{i+1} - \mathbf{x}_{i}`"""
         return self.model.get_velocity(self, **kwargs)
 
     def get_acceleration(self, **kwargs):
         """ Calculate acceleration
-        If :class:`Coords` is cartesian, velocity is calculated via
+        If :class:`Cartesian` is cartesian, velocity is calculated via
         """
         return self.model.get_acceleration(self, **kwargs)
 
     def get_accelerations(self, **kwargs):
         """ Calculate acceleration(s)
-        If :class:`Coords` is cartesian, velocity is calculated via
+        If :class:`Cartesian` is cartesian, velocity is calculated via
         """
         return self.model.get_acceleration(self, **kwargs)
 
@@ -311,7 +311,10 @@ class Paths:
         if cache_model:
             self.model.add_data_ids(ids)
         if regression:
-            self.model.regression()
+            self.model.regression(self)
+        #### Need to change
+        self.model.optimized = False
+        #### Need to remove
         return ids
 
     def simple_coords(self):

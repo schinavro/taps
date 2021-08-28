@@ -35,6 +35,7 @@ class Gaussian(Model):
     model_parameters = {
         'kernel': {'default': "'Kernel'", 'assert': 'True',
                    'class': True, 'from': 'taps.ml.gaussian'},
+        'kernel_type': {'default': "'Kernel'", 'assert': 'True'},
         'mean': {'default': "'Mean'", 'assert': 'True',
                  'class': True, 'from': 'taps.ml.gaussian'},
         'mean_type': {'default': "'average'", 'assert': isstr},
@@ -139,15 +140,15 @@ class Gaussian(Model):
             # self.results['gradients'] = mu_f.reshape(Xn.shape)
             self.results['gradients'] = mu_f.reshape(shape_org)
         if 'hessian' in properties:
-            before = time.time()
+            # before = time.time()
             K_s = k(Xm, Xn, hessian_only=True)            # (D+1)N x DDM
-            after = time.time()
-            print('Hessian kernel construction', after - before, 's')
+            # after = time.time()
+            # print('Hessian kernel construction', after - before, 's')
             # @@@@@@@@@@@ orig
-            before = time.time()
+            # before = time.time()
             H = m.dm(Xn) + K_s.T @ K_y_inv @ (Y - m(Xm))  # DDM
-            after = time.time()
-            print('Hessian matrix multiplication ', after - before, 's')
+            # after = time.time()
+            # print('Hessian matrix multiplication ', after - before, 's')
             # @@@@@@@@@@@@ no forces
             # Y = data['V']
             # K_y_inv = inv(k(Xn, Xn, orig=True))  # @@@
@@ -169,8 +170,8 @@ class Gaussian(Model):
         _ = np.diag(cov_coords)
         cov_coords = _.copy()
         cov_coords[_ < 0] = 0
-        sigma_f = self.model.hyperparameters.get('sigma_f', 1)
-        return 1.96 * np.sqrt(cov_coords) / 2 / sigma_f
+        # sigma_f = self.model.hyperparameters.get('sigma_f', 1)
+        return 1.96 * np.sqrt(cov_coords) / 2
 
     def regression(self, paths, likelihood_type=None, dx=1e-2,
                    **reg_kwargs):

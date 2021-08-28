@@ -123,6 +123,11 @@ Base.convert(::Type{TwoBody{T, DN}}, not::Nothing) where {T<:Number, DN} = TwoBo
 Base.convert(::Type{TwoBody{T}}, not::Nothing) where {T<:Number} = TwoBody()
 Base.convert(::Type{TwoBody}, not::Nothing) = TwoBody()
 
+Base.copy(d::TwoBody{T, DN}) where {T<:Number, DN} = #=
+    =# TwoBody{T, DN}(d.idx, d.number, copy(d.position), copy(d.envidcs),
+                      copy(d.envnumbers), copy(d.envpositions), d.cutoff,
+                      copy(d.descriptor))
+
 struct TwoBodyFromAtomicDescriptor <: Transformation; twobodycutoff; end
 Base.convert(::Type{TwoBody}, atomic::AtomicDescriptor) = TwoBodyFromAtomicDescriptor(twobodycutoff)(atomic)
 function (twobody::TwoBodyFromAtomicDescriptor)(atomic)
@@ -154,9 +159,11 @@ function (twobody::TwoBodyFromAtomicDescriptor)(atomic)
                   "xi"    =>Vector{Number}([]),
                   "yi"    =>Vector{Number}([]),
                   "zi"    =>Vector{Number}([]),
+                  "ri"    =>Array{Array{Float64, 1}}([]),
                   "xi1"   =>Vector{Number}([]),
                   "yi1"   =>Vector{Number}([]),
                   "zi1"   =>Vector{Number}([]),
+                  "ri1"   =>Array{Array{Float64, 1}}([]),
                   "xi_i1" =>Vector{Number}([]),
                   "yi_i1" =>Vector{Number}([]),
                   "zi_i1" =>Vector{Number}([]),
@@ -184,9 +191,13 @@ function (twobody::TwoBodyFromAtomicDescriptor)(atomic)
         push!(descriptor[cluster]["yi"], yi)
         push!(descriptor[cluster]["zi"], zi)
 
+        push!(descriptor[cluster]["ri"], p1)
+
         push!(descriptor[cluster]["xi1"], xi1)
         push!(descriptor[cluster]["yi1"], yi1)
         push!(descriptor[cluster]["zi1"], zi1)
+
+        push!(descriptor[cluster]["ri1"], p2)
 
         push!(descriptor[cluster]["xi_i1"], xi_i1)
         push!(descriptor[cluster]["yi_i1"], yi_i1)
@@ -227,6 +238,10 @@ Base.convert(::Type{ThreeBody{T, DN}}, not::Nothing) where {T<:Number, DN} = Thr
 Base.convert(::Type{ThreeBody{T}}, not::Nothing) where {T<:Number} = ThreeBody()
 Base.convert(::Type{ThreeBody}, not::Nothing) = ThreeBody()
 
+Base.copy(d::ThreeBody{T, DN}) where {T<:Number, DN} = #=
+=# ThreeBody{T, DN}(d.idx, d.number, copy(d.position), copy(d.envidcs),
+      copy(d.envnumbers), copy(d.envpositions), d.cutoff, copy(d.descriptor))
+
 struct ThreeBodyFromAtomicDescriptor; threebodycutoff; end
 Base.convert(::Type{ThreeBody}, atomic::AtomicDescriptor) = ThreeBodyFromAtomicDescriptor(threebodycutoff)(atomic)
 
@@ -257,12 +272,15 @@ function (threebody::ThreeBodyFromAtomicDescriptor)(atomic)
                   "xi"    =>Vector{Number}([]),
                   "yi"    =>Vector{Number}([]),
                   "zi"    =>Vector{Number}([]),
+                  "ri"    =>Array{Array{Float64, 1}, 1}([]),
                   "xi1"   =>Vector{Number}([]),
                   "yi1"   =>Vector{Number}([]),
                   "zi1"   =>Vector{Number}([]),
+                  "ri1"    =>Array{Array{Float64, 1}, 1}([]),
                   "xi2"   =>Vector{Number}([]),
                   "yi2"   =>Vector{Number}([]),
                   "zi2"   =>Vector{Number}([]),
+                  "ri2"    =>Array{Array{Float64, 1}, 1}([]),
                   "xi_i1" =>Vector{Number}([]),
                   "yi_i1" =>Vector{Number}([]),
                   "zi_i1" =>Vector{Number}([]),
@@ -341,14 +359,17 @@ function (threebody::ThreeBodyFromAtomicDescriptor)(atomic)
             push!(descriptor[cluster]["xi"], xi)
             push!(descriptor[cluster]["yi"], yi)
             push!(descriptor[cluster]["zi"], zi)
+            push!(descriptor[cluster]["ri"], p1)
 
             push!(descriptor[cluster]["xi1"], xi1)
             push!(descriptor[cluster]["yi1"], yi1)
             push!(descriptor[cluster]["zi1"], zi1)
+            push!(descriptor[cluster]["ri1"], p2)
 
             push!(descriptor[cluster]["xi2"], xi2)
             push!(descriptor[cluster]["yi2"], yi2)
             push!(descriptor[cluster]["zi2"], zi2)
+            push!(descriptor[cluster]["ri2"], p3)
 
             push!(descriptor[cluster]["xi_i1"], xi_i1)
             push!(descriptor[cluster]["yi_i1"], yi_i1)
@@ -404,6 +425,9 @@ end
 Base.convert(::Type{TwoThreeBody{T, DN}}, not::Nothing) where {T<:Number, DN} = TwoThreeBody()
 Base.convert(::Type{TwoThreeBody{T}}, not::Nothing) where {T<:Number} = TwoThreeBody()
 Base.convert(::Type{TwoThreeBody}, not::Nothing) = TwoThreeBody()
+
+Base.copy(d::TwoThreeBody{T, DN}) where {T<:Number, DN} = #=
+=# TwoThreeBody{T, DN}(copy(d.twobody), copy(d.threebody), copy(d.descriptor))
 
 struct TwoThreeBodyFromAtomicDescriptor; twobodycutoff; threebodycutoff; end
 Base.convert(::Type{TwoThreeBody}, atomic::AtomicDescriptor;
