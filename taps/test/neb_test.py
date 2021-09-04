@@ -7,7 +7,7 @@ from ase.optimize import QuasiNewton
 
 from taps.paths import Paths
 from taps.model.atomicmodel import AtomicModel
-from taps.projector import Mask
+from taps.projectors import Mask
 from taps.pathfinder import NEB
 
 slab = fcc100('Al', size=(2, 2, 3))

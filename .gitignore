@@ -2,5 +2,6 @@
 taps/__pycache__
 taps/*/__pycache__
 taps/*/*/__pycache__
+*.ipynb_checkpoints
 
 docs/_build

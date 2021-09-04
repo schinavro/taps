@@ -7,7 +7,7 @@ from numpy import newaxis as nax
 from numpy.linalg import norm
 from collections import OrderedDict
 from taps.utils.shortcut import isbool, isdct, isstr, isflt, issclr
-from taps.projector import Projector
+from taps.projectors import Projector
 
 
 class PathFinder:
@@ -104,7 +104,8 @@ class PathFinder:
             finder = self
 
         if pbs is None:
-            new_paths = finder.optimize(paths=paths, **kwargs)
+            # new_paths = finder.optimize(paths=paths, **kwargs)
+            finder.optimize(paths=paths, **kwargs)
         else:
             new_paths = finder.optimize_pbs(paths=paths, pbs=pbs, **kwargs)
 

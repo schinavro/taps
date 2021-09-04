@@ -14,11 +14,11 @@ Overall Structure
    :scale: 40 %
    Getting Jubler to use MPlaer
 
-:class:`Paths` class contains modularized classes :class:`Coords`, :class:`Projector`, :class:`Model`, :class:`Pathfinder` and etc.
+:class:`Paths` class contains modularized classes :class:`Cartesian`, :class:`Projector`, :class:`Model`, :class:`Pathfinder` and etc.
 :class:`Paths` interfaces between modularized classes by sending :attr:`self`, the pointer of self (:attr:`paths`), when :attr:`paths` call the function of modules.
 Each subcontained class recieves :class:`Paths` as an instance and uses that to access the other modules.
 
-For example, :class:`Model` needs :class:`Coords` information when it calculate potential.
+For example, :class:`Model` needs :class:`Cartesian` information when it calculate potential.
 When user call :meth:`get_potential_energy()` in a :attr:`paths`,
 
 >>> paths.get_potential_energy()

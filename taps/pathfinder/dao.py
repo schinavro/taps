@@ -51,6 +51,8 @@ class DAO(PathFinder):
     res: ??
     search_kwargs: Dict,
         Optimization keyword for scipy.minimize
+
+    TODO: Remove prj_search. make it default
     """
     finder_parameters = {
         'action_name': {'default': "'Onsager Machlup'", 'assert': 'True'},
@@ -67,6 +69,7 @@ class DAO(PathFinder):
         'eps': {'default': '1e-4', 'assert': '{name:s} > 0'},
         'T': {'default': '300', 'assert': '{name:s} > 0.'},
         'use_grad': {'default': 'True', 'assert': isbool},
+        'prj_search': {'default': 'False', 'assert': 'True'},
         'Et_type': {'default': 'None', 'assert': isstr},
         'Et': {'default': 'None', 'assert': issclr},
         'dEt': {'default': 'None', 'assert': issclr},
@@ -137,7 +140,7 @@ class DAO(PathFinder):
         super().__init__(**kwargs)
 
     def action(self, paths, *args, action_name=None, Et=None, muE=None,
-               sin_search=None, prj_search=None):
+               prj_search=None):
         action_name = action_name or self.action_name
         prj_search = prj_search or self.prj_search
 
@@ -169,9 +172,7 @@ class DAO(PathFinder):
                 return S()
             return action
 
-        if sin_search:
-            handler = sin_handler
-        elif prj_search:
+        if prj_search:
             handler = prj_handler
         else:
             handler = cartesian_handler
@@ -412,13 +413,6 @@ class DAO(PathFinder):
         # Gradient - Error handling by directly use action
         # cart = False
         while self.results['jac_max'] > self.tol:
-            # if self.results['msg'] == 'Warning':
-            #     self.sin_search = False
-            #     jac = jac
-            #     cart = True
-            # elif cart:
-            #     self.sin_search = True
-            #     jac = None
             if self.prj_search:
                 x0 = self.prj.x(paths.coords(index=np.s_[1:-1])).flatten()
             else:
@@ -582,7 +576,7 @@ class DAO(PathFinder):
         act = self.action(paths)
         jac = self.grad_action(paths)
         print(check_grad(act, jac, x0, **kwargs))
-        if self.sin_search:
+        if self.prj_search:
             paths.coords.rcoords = x0.reshape((paths.D, paths.M, paths.Nk))
         else:
             paths.coords = x0.reshape((paths.D, paths.M, paths.N))

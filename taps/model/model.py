@@ -9,7 +9,7 @@ from numpy.linalg import norm
 from scipy.optimize import check_grad
 from ase.atoms import Atoms
 from taps.utils.shortcut import isdct, isstr
-from taps.projector import Projector
+from taps.projectors import Projector
 
 
 class Model:
@@ -131,7 +131,7 @@ class Model:
 
     def get_properties(self, paths, properties=['potential'],
                        index=np.s_[1:-1], coords=None, caching=False,
-                       real_model=False, **kwargs):
+                       real_model=False, use_raw_coords=False, **kwargs):
         """ pre-calculation rutine.
 
         Calculate static related properties.
@@ -155,11 +155,17 @@ class Model:
             model = self.real_model
         else:
             model = self
+
         for property in properties:
             if property not in model.implemented_properties:
                 raise NotImplementedError('Can not calaculate %s' % property)
         if coords is None:
-            coords = model.prj.x(paths.coords(index=index))
+            coords = paths.coords(index=index)
+        if not use_raw_coords:
+            if coords.__class__.__name__ == 'ndarray':
+                coords = model.prj._x(coords)
+            else:
+                coords = model.prj.x(coords)
         new_coords = None
         new_properties = []
         results = {}
@@ -195,10 +201,10 @@ class Model:
 
             if new_property == 'gradients':
                 res = results[new_property]
-                results[new_property] = model.prj.f_inv(res, new_coords)[0]
+                results[new_property] = model.prj_f_inv(res, new_coords)[0]
             if new_property == 'hessian':
                 res = results[new_property]
-                results[new_property] = model.prj.h_inv(res, new_coords)[0]
+                results[new_property] = model.prj_h_inv(res, new_coords)[0]
 
         if caching:
             model._cache[coords.tobytes()] = copy.deepcopy(results)
@@ -249,18 +255,18 @@ class Model:
 
         results = {}
         if 'velocity' in properties:
-            results['velocity'] = model.prj.f_inv(v, _coords)[0]
+            results['velocity'] = model.prj.v_inv(v, _coords)[0]
         if 'acceleration' in properties:
-            results['acceleration'] = model.prj.f_inv(a, _coords)[0]
+            results['acceleration'] = model.prj.a_inv(a, _coords)[0]
         if 'displacements' in properties:
             results['displacements'] = d
         if 'kinetic_energy' in properties:
             axis = tuple(np.arange(len(v.shape) - 1))         # 0     or (0, 1)
             results['kinetic_energy'] = np.sum(0.5 * m * v * v, axis=axis)
         if 'momentum' in properties:
-            results['momentum'] = model.prj.f_inv(m * v, _coords)[0]
+            results['momentum'] = model.prj.v_inv(m * v, _coords)[0]
         if 'kinetic_grad' in properties:
-            results['kinetic_energy_gradient'] = model.prj.f_inv(m * a, _coords)[0]
+            results['kinetic_energy_gradient'] = model.prj.a_inv(m * a, _coords)[0]
         if len(properties) == 1:
             property = list(results.keys())[0]
             return results[property]
@@ -497,6 +503,12 @@ class Model:
         self._cache['data_ids_image'].extend(new_data_ids_image)
         return data
 
+    def prj_f_inv(self, *args, **kwargs):
+        return self.prj.f_inv(*args, **kwargs)
+
+    def prj_h_inv(self, *args, **kwargs):
+        return self.prj.h_inv(*args, **kwargs)
+
     def add_data_ids(self, ids, overlap_handler=True):
         """
         ids : dict of list
@@ -511,6 +523,20 @@ class Model:
                     if i not in self.data_ids[table_name]:
                         self.data_ids[table_name].append(int(i))
         self.optimized = False
+
+    def save(self, paths, *args, real_model=None, coords=None, index=np.s_[:],
+             **kwargs):
+        if real_model:
+            model = self.real_model
+        else:
+            model = self
+
+        if coords is None:
+            coords = model.prj.x(paths.coords(index=index))
+
+        model.write(paths, coords)
+
+
 
 
 class PeriodicModel(Model):
@@ -794,6 +820,10 @@ class PeriodicModel(Model):
 
 
 class PeriodicModel2(Model):
+    """
+    TODO: Document it and move it to separate files
+    """
+
     implemented_properties = {'potential', 'gradients', 'hessian'}
 
     def calculate(self, paths, coords, properties=['potential'], **kwargs):
@@ -816,31 +846,41 @@ class PeriodicModel2(Model):
 
 
 class PeriodicModel3(Model):
+    """
+    TODO: Document it and move it to separate files
+    """
     implemented_properties = {'potential', 'gradients', 'forces', 'hessian'}
 
     def calculate(self, paths, coords, properties=['potential'], **kwargs):
+        if len(coords.shape) == 1:
+            coords = coords[:, np.newaxis]
         if 'potential' in properties:
-            V = np.cos(4 * coords).sum(axis=(0, 1))
+            V = -np.cos(4 * coords).sum(axis=0)
             self.results['potential'] = V
         if 'gradients' in properties or 'forces' in properties:
-            F = 4 * np.sin(4 * coords)
+            F = -4 * np.sin(4 * coords)
             if 'gradients' in properties:
                 self.results['gradients'] = -F
             if 'forces' in properties:
                 self.results['forces'] = F
 
         if 'hessian' in properties:
-            coords = np.atleast_3d(coords)
-            D, M, P = coords.shape
-            _coords = coords.reshape(D * M, P)
-            H = np.zeros((D * M, P))  # DM x P
-            H = -16 * np.cos(4 * _coords)
-            H = np.einsum('i..., ij->ij...', H, np.identity(D * M))
-            H = H.reshape((D, M, D, M, P))
+            shape = coords.shape
+            D = np.prod(shape[:-1])
+            N = shape[-1]
+            _coords = coords.reshape(D, N)
+            H = np.zeros((D, N))  # D x N
+            H = 16 * np.cos(4 * _coords)
+            H = np.einsum('i..., ij->ij...', H, np.identity(D))
+            H = H.reshape((D, D, N))
             self.results['hessian'] = H
 
 
 class FlatModel(Model):
+    """
+    TODO: Document it and move it to separate files
+    """
+
     implemented_properties = {'potential', 'forces', 'hessian'}
 
     def calculate(self, paths, coords, properties=['potential'], **kwargs):

@@ -77,8 +77,8 @@ class PeriodicKernel(Kernel):
         sig_f = hyperparameters.get('sigma_f', 0)
         if Xn is None:
             Xn = Xm.copy()
-        Xm = atleast_3d(Xm).astype(float)
-        Xn = atleast_3d(Xn).astype(float)
+        # Xm = atleast_3d(Xm).astype(float)
+        # Xn = atleast_3d(Xn).astype(float)
         # scaled_Xm = self.scaled_coords(Xm, *(Xm.shape))
         # scaled_Xn = self.scaled_coords(Xn, *(Xn.shape))
         N = Xn.shape[-1]

@@ -389,7 +389,8 @@ class GPAO(PathFinder):
 
     def _save(self, paths, filename=None):
         label = getattr(self, 'label', None) or paths.label
-        # self.plot(paths, filename=filename, savefig=True, gaussian=True)
+        self.plot(paths, viewer="Alaninedipeptide",
+                  filename=filename, savefig=True, gaussian=True)
         # paths.plot(filename=filename, savefig=True, gaussian=True)
         pathsdata = PathsData(label + '_pathsdata.db')
         data = [{'paths': paths}]

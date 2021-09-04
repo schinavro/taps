@@ -19,7 +19,7 @@ Muller Brown potential
 .. figure:: images/tutorial_mb.png
 
 >>> from taps.pathfinder import DAO
->>> from taps.projector import Sine
+>>> from taps.projectors import Sine
 >>> paths.finder = DAO(action_name=['Onsager Machlup', 'Energy Conservation'], muE=1, Et_type='manual', sin_search=False, Et=-0.41, prj = Sine(init=paths.coords[..., 0], fin=paths.coords[..., -1], N=N, Nk=N-2))
 >>> paths.coords.epoch = 6
 >>> paths.search()

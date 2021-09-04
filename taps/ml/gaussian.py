@@ -223,7 +223,7 @@ class Gaussian(Model):
 
             def gradient_likelihood(hyperparameters_list):
                 # @@@@@
-                hyperparameters_list = np.concatenate([[1], hyperparameters_list])
+                # hyperparameters_list = np.concatenate([[1], hyperparameters_list])
                 # @@@@@
                 k.set_hyperparameters(hyperparameters_list)
                 K = k(X, X, noise=True)
@@ -244,8 +244,8 @@ class Gaussian(Model):
 
         res = minimize(log_likelihood(k, X, Y_m, likelihood_type), **reg_kwargs)
         self.optimized = True
-        # return self.kernel.get_hyperparameters(res.x)
-        return self.kernel.get_hyperparameters(np.concatenate([[1], res.x]))
+        return self.kernel.get_hyperparameters(res.x)
+        # return self.kernel.get_hyperparameters(np.concatenate([[1], res.x]))
 
     def get_hyperparameters(self, hyperparameters_list=None):
         return self.kernel.get_hyperparameters(hyperparameters_list)
@@ -272,8 +272,8 @@ class Gaussian(Model):
         if no_boundary:
             bounds = None
         # @@@@@
-        x0 = x0[1:]
-        bounds = bounds[1:]
+        # x0 = x0[1:]
+        # bounds = bounds[1:]
         # @@@@@
         return {'x0': x0, 'bounds': bounds, 'method': method}
 
@@ -293,10 +293,10 @@ class Gaussian(Model):
         if data_ids is None or len(data_ids.get('image', [])) == 0:
             return None
         # shape = coords.shape[:-1]
-        shape = self.prj.x(paths.coords(index=[0])).shape[:-1]
         # shape = (3, 5)
         M = len(data_ids['image'])
         if self._cache.get('data_ids_image') is None:
+            shape = self.prj.x(paths.coords(index=[0])).shape[:-1]
             self._cache['data_ids_image'] = []
             self._cache['data'] = {'X': np.zeros((*shape, 0), dtype=float),
                                    'V': np.zeros(0, dtype=float),
@@ -315,24 +315,28 @@ class Gaussian(Model):
         M = len(new_data_ids_image)
         data = self._cache['data']
         if 'coords' in keys:
-            coords_raw = np.zeros((*shape, M), dtype=float)
+            coords_raw = []
             for i in range(M):
                 coord_raw = new_data[i][n2i['coord']][..., nax]
-                coords_raw[..., i] = self.prj._x(coord_raw)[..., 0]
-            data['X'] = np.concatenate([data['X'], coords_raw], axis=-1)
+                coords_raw.append(self.prj._x(coord_raw))
+            if M != 0:
+                new_coords = np.concatenate(coords_raw, axis=-1)
+                data['X'] = np.concatenate([data['X'], new_coords], axis=-1)
         if 'potential' in keys:
             potential = np.zeros(M, dtype=float)
             for i in range(M):
                 potential[i] = new_data[i][n2i['potential']]
             data['V'] = np.concatenate([data['V'], potential])
         if 'gradients' in keys:
-            gradients = np.zeros((*shape, M), dtype=float)
+            gradients = []
             for i in range(M):
                 coords_raw = new_data[i][n2i['coord']][..., nax]
-                gradients_raw = new_data[i][n2i['gradients']][..., nax]
+                gradients_raw = new_data[i][n2i['gradients']]
                 gradients_prj, _ = self.prj.f(gradients_raw, coords_raw)
-                gradients[..., i] = gradients_prj[..., 0]
-            data['F'] = np.concatenate([data['F'], -gradients], axis=-1)
+                gradients.append(gradients_prj)
+            if M != 0:
+                new_gradients = np.concatenate(gradients, axis=-1)
+                data['F'] = np.concatenate([data['F'], -new_gradients], axis=-1)
         self._cache['data_ids_image'].extend(new_data_ids_image)
         return data
 

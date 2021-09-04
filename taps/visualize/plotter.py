@@ -278,6 +278,10 @@ class Plotter:
 
         if savefig:
             plt.tight_layout()
+            np.savez(filename+"_2Dmap.npz", X=X, Y=Y, Z=Z,
+                     coords=paths.coords.coords, epoch=paths.coords.epoch,
+                     unit=paths.coords.unit,
+                     coordstype=paths.coords.__class__.__name__)
             # with open(filename + '_fig2D.pkl', 'wb') as f:
             #     pickle.dump(fig, f)
             plt.savefig(filename + '_2D.' + self.save_format,
@@ -361,6 +365,11 @@ class Plotter:
         self.plot_information(paths, plt, ax, information='gaussian')
         self.plot_info_map(paths, plt, ax, information='maximum_uncertainty')
         if savefig:
+            np.savez(filename+"_GPmap.npz", X=X, Y=Y, ave=ave_map, cov=cov_map,
+                     coords=paths.coords.coords, epoch=paths.coords.epoch,
+                     unit=paths.coords.unit,
+                     coordstype=paths.coords.__class__.__name__,
+                     **paths.model.hyperparameters)
             # plt.tight_layout()
             # with open(filename + '_figcov.pkl', 'wb') as f:
             #     pickle.dump(fig, f)
@@ -480,6 +489,8 @@ class Plotter:
         if savefig:
             plt.tight_layout()
             if gaussian:
+                np.savez(filename + '_Egraph.npz', V=V, H=H, T=T,
+                         cov=cov_coords)
                 with open(filename + '_VHTVarEt.pkl', 'wb') as f:
                     pickle.dump(V, f)
                     pickle.dump(H, f)
@@ -487,6 +498,7 @@ class Plotter:
                     pickle.dump(cov_coords, f)
                     pickle.dump(paths.real_finder.Et, f)
             else:
+                np.savez(filename + '_Egraph.npz', V=V, H=H, T=T)
                 with open(filename + '_figE.pkl', 'wb') as f:
                     pickle.dump(fig, f)
             plt.savefig(filename + '_E.' + self.save_format,

@@ -8,21 +8,18 @@ from collections import OrderedDict
 from scipy.spatial import KDTree
 
 from taps.utils.shortcut import isStr, isbool
+from taps.utils.antenna import write_header, read_header
 # from taps.descriptor import SphericalHarmonicDescriptor
 
 
 def blob(array):
     """Convert array to blob/buffer object."""
-
     if array is None:
         return None
-    if len(array) == 0:
-        array = np.zeros(0)
-    if array.dtype == np.int64:
-        array = array.astype(np.int32)
-    if not np.little_endian:
-        array = array.byteswap()
-    return memoryview(np.ascontiguousarray(array))
+    header = write_header(0., array)
+    header_size = int.to_bytes(len(header), 8, 'little')
+    return memoryview(header_size + header +
+                      np.ascontiguousarray(array).tobytes())
 
 
 def deblob(buf, dtype=float, shape=None):
@@ -33,11 +30,11 @@ def deblob(buf, dtype=float, shape=None):
     if len(buf) == 0:
         array = np.zeros(0, dtype)
     else:
-        array = np.frombuffer(buf, dtype=dtype)
-        if not np.little_endian:
-            array = array.byteswap()
-    if shape is not None:
-        array.shape = shape
+        header_size, pointer, dtype, ndim, shape, order = read_header(buf)
+        arr = np.frombuffer(buf[header_size+8:], dtype=dtype)
+        if order == "F":
+            shape = np.flip(shape)
+        array = arr.reshape(shape)
     return array
 
 
@@ -267,6 +264,11 @@ class PathsData:
 
 
 class ImageData:
+    """
+    Database for image
+
+    TODO: Bug fix on similar data gathering.
+    """
     imgdata_parameters = {
         'filename': {'default': "'image.db'", 'assert': isStr},
         'tables': {'default': 'None', 'assert': 'True'},
@@ -331,6 +333,21 @@ class ImageData:
             self.filename = 'imagedata.db'
 
         self._cache = {}
+
+    def initialize_shapes(self, paths, coords, **kwargs):
+        # ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ #
+        self.coord_shape = paths.coords.shape[:-1]
+        self.gradients_shape = paths.coords.shape[:-1]
+        if len(paths.coords.shape) == 2:
+            self.potentials_shape = (1)
+            self.positions_shape = self.coord_shape
+            self.forces_shape = self.coord_shape
+        elif len(paths.coords.shape) == 3:
+            self.desc_shape = (15)
+            self.potentials_shape = (paths.real_model.prj.x(paths.coords).A)
+            self.positions_shape = (paths.real_model.prj.x(coords).A, 3)
+            self.forces_shape = (paths.real_model.prj.x(coords).A, 3)
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ #
 
     def create_tables(self, tables=None):
         tables = tables or self.tables
@@ -530,6 +547,7 @@ class ImageData:
                 new_data = self.read_all(tables=read_tables, last_id=last_id,
                                          query=' WHERE rowid>%d' % last_id
                                          )['image']
+                print("Newdata", new_data)
                 if new_data is None or new_data == []:
                     kdtree = cache.get('kdtree')
                     if kdtree is None:
@@ -596,7 +614,8 @@ class ImageData:
             # PAD empty slots
             if id is None and pack_null:
                 data = {}
-                data['image'] = self._create_image_data(paths, coord,
+                data['image'] = self._create_image_data(paths,
+                                                        coord[..., np.newaxis],
                                                         pack_null=True,
                                                         **kwargs)
                 id = self.write(data)['image']
@@ -744,19 +763,8 @@ class ImageData:
                       'C': [...],
                       ...}
         """
-        # ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ #
-        self.coord_shape = paths.coords.shape[:-1]
-        self.gradients_shape = paths.coords.shape[:-1]
-        if len(paths.coords.shape) == 2:
-            self.potentials_shape = (1)
-            self.positions_shape = self.coord_shape
-            self.forces_shape = self.coord_shape
-        elif len(paths.coords.shape) == 3:
-            self.desc_shape = (15)
-            self.potentials_shape = (paths.coords.A)
-            self.positions_shape = (paths.coords.A, 3)
-            self.forces_shape = (paths.coords.A, 3)
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ #
+
+        # self.initialize_shapes(paths, coords, **kwargs)
 
         ids = self.search(paths, coords, pack_null=True, **kwargs)
         while True:
@@ -839,8 +847,8 @@ class ImageData:
         # paths.real_model.update_implemented_properties(paths)
         model_properties = paths.real_model.implemented_properties
         props = [p for p in properties if p in model_properties]
-        if np.all(coords.shape == self.coord_shape):
-            coords = coords[..., np.newaxis]
+        # if np.all(coords.shape == self.coord_shape):
+        #   coords = coords[..., np.newaxis]
         M = coords.shape[-1]
 
         if ids is not None:
@@ -866,7 +874,8 @@ class ImageData:
                         raise NotImplementedError('To update status, need ids')
                     self.update({'image': [id]}, {'image': [datum_tuple]})
 
-                results = paths.get_properties(coords=coord, properties=props,
+                results = paths.get_properties(coords=coord[..., np.newaxis],
+                                               properties=props,
                                                real_model=True, caching=True)
                 datum['finish_time'] = time.time()
 
@@ -1125,8 +1134,8 @@ class ImageData:
                     if dtype == 'blob':
                         i = n2i[column]
                         if xzvf:
-                            shape = getattr(self, column + '_shape')
-                            cache[i] = deblob(datum[i], shape=shape)
+                            # shape = getattr(self, column + '_shape')
+                            cache[i] = deblob(datum[i])
                         else:
                             cache[i] = blob(datum[i])
                 data_dict[table_name].append(tuple(cache))

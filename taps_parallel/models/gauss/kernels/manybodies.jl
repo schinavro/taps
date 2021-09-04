@@ -37,6 +37,18 @@ function kernel(sig::Number, l::Number, rcut::Number, ri::Vector, rj::Vector,
     return sig * exp(-(dij)^2/(2*l^2)) * (rcut - dij)^2
 end
 
+function kgd(sig::Number, l::Number, rcut::Number, ri::Vector, rj::Vector, ri1::Vector, rj1::Vector)
+    kgg(rri::Vector, rrj::Vector) = kernel(hyperparameters.array..., rcut, rri, rrj, ri1, rj1)
+    kgd(rri::Vector, rrj::Vector) = ForwardDiff.gradient(x->kgg(x, rrj), rri)
+    return kgd(ri, rj)
+end
+
+function kgd(sig::Number, l::Number, rcut::Number, ri::Vector, rj::Vector, ri1::Vector, rj1::Vector, ri2::Vector, rj2::Vector)
+    kgg(rri::Vector, rrj::Vector) = kernel(hyperparameters.array..., rcut, rri, rrj, ri1, rj1, ri2, rj2)
+    kgd(rri::Vector, rrj::Vector) = ForwardDiff.gradient(x->kgg(x, rrj), rri)
+    return kgd(ri, rj)
+end
+
 function kgd(hyperparameters, rcut, ri::Vector, rj::Vector, ri1::Vector, ri2::Vector, rj1::Vector, rj2::Vector)
     kgg(rri::Vector, rrj::Vector) = kernel(hyperparameters.array..., rcut, rri, rrj, ri1, rj1, ri2, rj2)
     kgd(rri::Vector, rrj::Vector) = ForwardDiff.gradient(x->kgg(x, rrj), rri)

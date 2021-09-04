@@ -2,7 +2,7 @@
 .. _ase: https://wiki.fysik.dtu.dk/ase/index.html
 
 ======
-Coords
+Cartesian
 ======
 Coordinate representaion of a pathway.
 
@@ -25,7 +25,7 @@ For example, suppose we are creating a pathway on the 2D Múller Brown potentia
 Calculate Kinetic energy
 ========================
 
-:class:`Coords` contains tools for calculating kinetic property of the pathway. For example,
+:class:`Cartesian` contains tools for calculating kinetic property of the pathway. For example,
 
     >>> paths.get_kinetic_energy()
 
@@ -58,7 +58,7 @@ atomic representation is array like object with shape :math:`3 \times A \times N
 Array like
 ==========
 
-Coords is an arraylike object. It would be easier to consider it a numpy array with additional kinetic calculation method. To return only the array,
+Cartesian is an arraylike object. It would be easier to consider it a numpy array with additional kinetic calculation method. To return only the array,
 
    >>> coords_array = paths.coords[..., :]
 
@@ -70,6 +70,6 @@ If you want to keep the class, but send partial info you can call the coords.
 List of all Methods
 ===================
 
-.. autoclass:: Coords
+.. autoclass:: Cartesian
    :members:
    :exclude-members: Nk,T, all, any, argmax,argmin,argpartition,argsort,astype,base,byteswap,choose,clip,compress,conj,conjugate,ctypes,cumprod,cumsum,data,diagonal,dot,dtype,dump,dumps,fill,flags,flatte,getfield,imag,item,itemset,itemsize,max,mean,min,nbytes,ndim,newbyteorder, nonzero, partition, prod ,ptp ,put ,ravel ,rcoords, repeat , reshape , resize , round , searchsorted , setfield , setflags , shape , size , sort , squeeze , std , strides , sum , swapaxes , take , tobytes , tofile , tolist , tostring , trace , transpose , var , view

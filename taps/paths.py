@@ -290,7 +290,7 @@ class Paths:
         return self.model.get_data(self, **kwargs)
 
     def add_data(self, index=None, coords=None, cache_model=True,
-                 regression=True):
+                 regression=True, **kwargs):
         """ Adding a calculation data to image database
 
         if index given -> create coords -> add_data
@@ -387,3 +387,9 @@ class Paths:
     def copy(self):
         """Return a copy."""
         return copy.deepcopy(self)
+
+    def save(self, *args, **kwargs):
+        """
+        Different method of writing is required for different models.
+        """
+        self.model.save(self, *args, **kwargs)

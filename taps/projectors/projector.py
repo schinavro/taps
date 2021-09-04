@@ -43,7 +43,7 @@ class Projector:
             if self.codomain is not None:
                 codomain = self.codomain.copy()
             else:
-                codomain = coords
+                codomain = coords.copy()
             codomain.coords = prj(self, coords.coords)
             return codomain
 
@@ -59,7 +59,7 @@ class Projector:
             if self.domain is not None:
                 domain = self.domain.copy()
             else:
-                domain = coords
+                domain = coords.copy()
             if self.pipeline is not None:
                 domain.coords = prj(self, coords.coords)
                 return getattr(self.pipeline, name)(domain)
@@ -85,6 +85,26 @@ class Projector:
                 forces, coords = prj(self, forces, coords)
                 return getattr(self.pipeline, name)(forces, coords)
             return prj(self, forces, coords)
+
+        def v(self, velocity, *args):
+            if self.pipeline is not None:
+                velocity, args = getattr(self.pipeline, name)(velocity, *args)
+            return prj(self, velocity, *args)
+
+        def v_inv(self, velocity, *args):
+            if self.pipeline is not None:
+                velocity, args = getattr(self.pipeline, name)(velocity, *args)
+            return prj(self, velocity, *args)
+
+        def a(self, accel, *args):
+            if self.pipeline is not None:
+                accel, coords = getattr(self.pipeline, name)(accel, *args)
+            return prj(self, accel, *args)
+
+        def a_inv(self, accel, *args):
+            if self.pipeline is not None:
+                accel, args = getattr(self.pipeline, name)(accel, *args)
+            return prj(self, accel, *args)
 
         def h(self, hess, coords):
             if self.pipeline is not None:
@@ -133,6 +153,22 @@ class Projector:
     @pipeline
     def f_inv(self, forces, coords):
         return forces, coords
+
+    @pipeline
+    def v(self, velocity, *args):
+        return velocity, args
+
+    @pipeline
+    def v_inv(self, velocity, *args):
+        return velocity, args
+
+    @pipeline
+    def a(self, accel, *args):
+        return accel, args
+
+    @pipeline
+    def a_inv(self, accel, *args):
+        return accel, args
 
     @pipeline
     def h(self, hessian, coords):
@@ -212,6 +248,28 @@ class Mask(Projector):
         orig_coords = (self.orig_coord[..., np.newaxis] * np.ones(N))
         orig_coords[..., self.mask, :] = coords
         return orig_forces, orig_coords
+
+    @Projector.pipeline
+    def v(self, velocity, *args):
+        return velocity[..., self.mask, :], args
+
+    @Projector.pipeline
+    def v_inv(self, velocity, *args):
+        N = velocity.shape[-1]
+        orig_velocity = np.zeros((*self.orig_coord.shape, N))
+        orig_velocity[..., self.mask, :] = velocity
+        return orig_velocity, args
+
+    @Projector.pipeline
+    def a(self, accel, *args):
+        return accel[..., self.mask, :], args
+
+    @Projector.pipeline
+    def a_inv(self, accel, *args):
+        N = accel.shape[-1]
+        orig_accel = np.zeros((*self.orig_coord.shape, N))
+        orig_accel[..., self.mask, :] = accel
+        return orig_accel, args
 
     @Projector.pipeline
     def h(self, hessian, coords):
@@ -326,6 +384,26 @@ class Sine(Projector):
         coords = idst(_, type=1, norm='ortho') + line
         return idst(__, type=1, norm='ortho'), coords
 
+    @Projector.pipeline
+    def v(self, velocity, *args):
+        return dst(velocity, type=1, norm='ortho')[..., :self.Nk], args
+
+    @Projector.pipeline
+    def v_inv(self, velocity, *args):
+        new_velocity = np.zeros((*self.shape, self.N-2))
+        new_velocity[..., :self.Nk] = velocity
+        return idst(new_velocity, type=1, norm='ortho'), args
+
+    @Projector.pipeline
+    def a(self, accel, *args):
+        return dst(accel, type=1, norm='ortho')[..., :self.Nk], args
+
+    @Projector.pipeline
+    def a_inv(self, accel, *args):
+        new_accel = np.zeros((*self.shape, self.N-2))
+        new_accel[..., :self.Nk] = accel
+        return idst(new_accel, type=1, norm='ortho'), args
+
     def line(self):
         if self.__dict__.get('_line') is not None:
             return self._line
@@ -334,7 +412,6 @@ class Sine(Projector):
         line = np.linspace(0, 1, N)[nax] * dir[..., nax] + init[..., nax]
         self._line = line[..., 1:-1]
         return self._line
-
 
 
 class MalonaldehydeProjector(Projector):
