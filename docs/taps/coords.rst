@@ -1,9 +1,9 @@
-.. module:: taps.coords
+.. module:: taps.coords.cartesian
 .. _ase: https://wiki.fysik.dtu.dk/ase/index.html
 
-======
+=========
 Cartesian
-======
+=========
 Coordinate representaion of a pathway.
 
 Array Order

@@ -12,6 +12,6 @@ Modules:
    model/model
    ml
    db
-   visualize
+   visualize/visualize
    pathfinder/finder
-   prj
+   projectors/prj
