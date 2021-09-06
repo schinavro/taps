@@ -5,10 +5,12 @@ Tutorial
 Modules:
 
 .. toctree::
+   :maxdepth: 2
+   :caption: Contents:
 
    MullerBrown
-   MullerBrown_I.ipynb
-   MullerBrown_II.ipynb
-   GPAO_I.ipynb
-   GPAO_II.ipynb
-   Alaninedipeptide.ipynb
+   MullerBrown_I
+   MullerBrown_II
+   GPAO_I
+   GPAO_II
+   Alaninedipeptide
