@@ -2,3 +2,4 @@ numpydoc
 numpy
 scipy
 sphinx-prompt
+nbsphinx
