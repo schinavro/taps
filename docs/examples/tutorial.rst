@@ -7,8 +7,8 @@ Modules:
 .. toctree::
 
    MullerBrown
-   ../../examples/MullerBrown_I.ipynb
-   ../../examples/MullerBrown_II.ipynb
-   ../../examples/GPAO_I.ipynb
-   ../../examples/GPAO_II.ipynb
-   ../../examples/Alaninedipeptide.ipynb
+   MullerBrown_I.ipynb
+   MullerBrown_II.ipynb
+   GPAO_I.ipynb
+   GPAO_II.ipynb
+   Alaninedipeptide.ipynb
