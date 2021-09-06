@@ -37,7 +37,7 @@ release = '0.01'
 extensions = ['sphinx.ext.mathjax', 'sphinx.ext.autodoc',
               'sphinx.ext.doctest', 'sphinx.ext.coverage',
               'sphinx.ext.napoleon', 'numpydoc', 'sphinx-prompt',
-              'sphinx_rtd_theme']
+              'sphinx_rtd_theme', 'nbsphinx']
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
