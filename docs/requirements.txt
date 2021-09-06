@@ -2,4 +2,5 @@ numpydoc
 numpy
 scipy
 sphinx-prompt
+ipykernel
 nbsphinx
