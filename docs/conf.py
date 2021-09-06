@@ -15,6 +15,7 @@ import sys
 import sphinx_rtd_theme
 
 sys.path.insert(0, os.path.abspath('..'))
+# sys.path.insert(0, os.path.abspath('../notebooks'))
 
 master_doc = 'index'
 
@@ -37,7 +38,7 @@ release = '0.01'
 extensions = ['sphinx.ext.mathjax', 'sphinx.ext.autodoc',
               'sphinx.ext.doctest', 'sphinx.ext.coverage',
               'sphinx.ext.napoleon', 'numpydoc', 'sphinx-prompt',
-              'sphinx_rtd_theme', 'nbsphinx']
+              'sphinx_rtd_theme', 'nbsphinx', 'nbsphinx_link']
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']

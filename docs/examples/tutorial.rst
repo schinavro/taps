@@ -2,6 +2,8 @@
 Tutorial
 ========
 
+.. include:: ../../notebooks
+
 Modules:
 
 .. toctree::
