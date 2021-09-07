@@ -10,8 +10,9 @@ Modules:
    paths
    coords
    model/model
+   pathfinder/finder
+..
    ml
    db
    visualize/visualize
-   pathfinder/finder
    projectors/prj
