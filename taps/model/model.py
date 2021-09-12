@@ -191,13 +191,7 @@ class Model:
                             **kwargs)
 
         for new_property in new_properties:
-            new_result = model.results[new_property]
-            if new_property == 'potential' and len(new_result) == 1:
-                results[new_property] = new_result[0]
-            elif new_result.shape[-1] == 1:
-                results[new_property] = new_result[..., 0]
-            else:
-                results[new_property] = new_result
+            results[new_property] = model.results[new_property]
 
             if new_property == 'gradients':
                 res = results[new_property]

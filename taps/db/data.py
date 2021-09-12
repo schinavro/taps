@@ -294,7 +294,7 @@ class ImageData:
             label='text',
             status='text',
             start_time='real',
-            potential='real',
+            potential='blob',
             potentials='blob',
             gradients='blob',
             finish_time='real',
@@ -307,7 +307,7 @@ class ImageData:
             positions='blob',
             idx='integer',
             source_id='integer',
-            potential='real',
+            potential='blob',
             force='blob'
         ),
     )
@@ -547,7 +547,6 @@ class ImageData:
                 new_data = self.read_all(tables=read_tables, last_id=last_id,
                                          query=' WHERE rowid>%d' % last_id
                                          )['image']
-                print("Newdata", new_data)
                 if new_data is None or new_data == []:
                     kdtree = cache.get('kdtree')
                     if kdtree is None:

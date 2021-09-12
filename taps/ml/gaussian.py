@@ -44,7 +44,8 @@ class Gaussian(Model):
         'hyperparameters_bounds': {'default': 'dict()', 'assert': isDct},
         'regression_method': {'default': '"L-BFGS-B"', 'assert': isstr},
         # 'likelihood_type': {dflt: '"pseudo_gradient_likelihood"', asst: isstr}
-        'likelihood_type': {dflt: '"gradient_likelihood"', asst: isstr}
+        # 'likelihood_type': {dflt: '"gradient_likelihood"', asst: isstr},
+        'likelihood_type': {dflt: '"likelihood"', asst: isstr}
     }
 
     def __init__(self, real_model='Model', kernel='Kernel', mean='Mean',
@@ -222,9 +223,6 @@ class Gaussian(Model):
                 return sum(log(detK)) + 0.5 * (Y_m.T @ (inv(K) @ Y_m))
 
             def gradient_likelihood(hyperparameters_list):
-                # @@@@@
-                # hyperparameters_list = np.concatenate([[1], hyperparameters_list])
-                # @@@@@
                 k.set_hyperparameters(hyperparameters_list)
                 K = k(X, X, noise=True)
                 detK = np.linalg.det(K)
@@ -232,6 +230,7 @@ class Gaussian(Model):
                     log_detK = -5
                 else:
                     log_detK = log(detK)
+                print()
                 return log_detK + 0.5 * (Y_m.T @ (inv(K) @ Y_m))
 
             def pseudo_gradient_likelihood(hyperparameters_list):
@@ -245,7 +244,6 @@ class Gaussian(Model):
         res = minimize(log_likelihood(k, X, Y_m, likelihood_type), **reg_kwargs)
         self.optimized = True
         return self.kernel.get_hyperparameters(res.x)
-        # return self.kernel.get_hyperparameters(np.concatenate([[1], res.x]))
 
     def get_hyperparameters(self, hyperparameters_list=None):
         return self.kernel.get_hyperparameters(hyperparameters_list)
@@ -271,10 +269,6 @@ class Gaussian(Model):
                 bounds[idx] = hyperparameters_bounds[key]
         if no_boundary:
             bounds = None
-        # @@@@@
-        # x0 = x0[1:]
-        # bounds = bounds[1:]
-        # @@@@@
         return {'x0': x0, 'bounds': bounds, 'method': method}
 
     def get_data(self, paths, coords=None, data_ids=None,
@@ -323,10 +317,12 @@ class Gaussian(Model):
                 new_coords = np.concatenate(coords_raw, axis=-1)
                 data['X'] = np.concatenate([data['X'], new_coords], axis=-1)
         if 'potential' in keys:
-            potential = np.zeros(M, dtype=float)
+            potential = []
             for i in range(M):
-                potential[i] = new_data[i][n2i['potential']]
-            data['V'] = np.concatenate([data['V'], potential])
+                potential.append(new_data[i][n2i['potential']])
+            if M != 0:
+                new_potential = np.concatenate(potential, axis=-1)
+                data['V'] = np.concatenate([data['V'], new_potential], axis=-1)
         if 'gradients' in keys:
             gradients = []
             for i in range(M):

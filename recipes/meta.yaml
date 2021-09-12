@@ -1,0 +1,38 @@
+{% set name = "tapse" %}
+{% set version = "0.1" %}
+
+package:
+  name: "{{ name|lower }}"
+  version: "{{ version }}"
+
+source:
+  url:  https://github.com/schinavro/taps/archive/refs/tags/v{{ version }}.tar.gz
+  sha256: 32086ea98931ee2eb137e2c45413e6a931e09cb204c23983b0018c318ee01b2f
+
+build:
+  number: 0
+  skip: True  # [not linux]
+  # script: "{{ PYTHON }} -m pip install . -vv"
+
+requirements:
+  build:
+    - {{ compiler('c') }}
+  host:
+    - pip
+    - python <=3.7
+  run:
+    - python <=3.7
+    - ase
+
+about:
+  home: https://github.com/schinavro/taps
+  license: MIT
+  license_family: MIT
+  license_file: LICENSE
+  summary: "Totally Accurate Pathway Simulator (TAPS)"
+  doc_url: https://taps0313.readthedocs.io
+  dev_url: https://github.com/schinavro/taps
+
+extra:
+  recipe-maintainers:
+    - schinavro
