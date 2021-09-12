@@ -1,5 +1,5 @@
 {% set name = "tapse" %}
-{% set version = "0.1" %}
+{% set version = "0.2.0" %}
 
 package:
   name: "{{ name|lower }}"
@@ -7,7 +7,8 @@ package:
 
 source:
   url:  https://github.com/schinavro/taps/archive/refs/tags/v{{ version }}.tar.gz
-  sha256: 32086ea98931ee2eb137e2c45413e6a931e09cb204c23983b0018c318ee01b2f
+  sha256: 4daf7e66312c4047fd0e5ce94e9b17268ea667d995fbe608a1ed367aec86b7f7
+# curl -sL https://github.com/schinavro/taps/archive/refs/tags/v0.1.tar.gz | openssl sha256
 
 build:
   number: 0
