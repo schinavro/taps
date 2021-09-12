@@ -8,7 +8,6 @@ Modules:
    :maxdepth: 2
    :caption: Contents:
 
-   MullerBrown
    MullerBrown_I
    MullerBrown_II
    GPAO_I
