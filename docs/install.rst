@@ -22,13 +22,11 @@ Simple installation
 
 With conda one needs python 3.7 environment.
 
-```conda create --new py37 python=3.7
-conda activate py37
-conda install -c schinavro tapse
-```
+```conda create --new py37 python=3.7```
 
-Parallelization
-===============
+To activate the environment,
 
-To use parallelization we use `taps_parallel` which based on the Julia lang.
-One must install Julia.
+```conda activate py37```
+
+and,
+```conda install -c schinavro tapse ```
