@@ -253,7 +253,7 @@ class DAO(PathFinder):
             Et = self.get_target_energy(paths)
         if muE is None:
             muE = self.muE
-        prj_search = prj_search or self.prj_search
+        prj_search = prj_search or self.__dict__.get("prj_search", True)
 
         D, Nk, N = paths.D, paths.Nk, paths.N
 
@@ -426,8 +426,9 @@ class DAO(PathFinder):
                 break
 
         if self.prj_search:
-            x0 = self.prj.x(paths.coords(index=np.s_[1:-1])).flatten()
+            x0 = self.prj.x(paths.coords(index=np.s_[1:-1]))
             origshape = x0.shape
+            x0 = x0.flatten()
         else:
             x0 = paths.coords[..., 1:-1].flatten()
         om = 'Onsager Machlup'

@@ -48,7 +48,7 @@ class MullerBrown(Model):
         'x0': {'default': 'np.array([1, 0, -0.5, -1])', 'assert': 'True'},
         'y0': {'default': 'np.array([0, 0.5, 1.5, 1])', 'assert': 'True'},
      }
-    A = np.array([-200, -100, -170, 15])
+    A = np.array([-200, -100, -170, 15]) / 100
     a = np.array([-1, -1, -6.5, 0.7])
     b = np.array([0, 0, 11, 0.6])
     c = np.array([-10, -10, -6.5, 0.7])
@@ -64,26 +64,25 @@ class MullerBrown(Model):
     def calculate(self, paths, coords, properties=['potential'],
                   **kwargs):
         """
-        x : P shape array
-        y : P shape array
-        return D x P
+        x : N shape array
+        y : N shape array
+        return D x N
         """
         self.results = getattr(self, 'results', {})
         if len(coords.shape) == 1:
             coords = coords[:, np.newaxis]
         x, y = coords
         A, a, b, c, x0, y0 = self.A, self.a, self.b, self.c, self.x0, self.y0
-        x_x0 = (x[:, np.newaxis] - x0)  # P x 4
-        y_y0 = (y[:, np.newaxis] - y0)  # P x 4
-        Vk = A * np.exp(a * x_x0 ** 2 + b * x_x0 * y_y0 + c * y_y0 ** 2) / 100
+        x_x0 = (x[:, np.newaxis] - x0)  # N x 4
+        y_y0 = (y[:, np.newaxis] - y0)  # N x 4
+        Vk = A * np.exp(a * x_x0 ** 2 + b * x_x0 * y_y0 + c * y_y0 ** 2)
         if 'potential' in properties:
             potential = Vk.sum(axis=1)
             self.results['potential'] = potential
         if 'gradients' in properties:
             Fx = (Vk * (2 * a * x_x0 + b * y_y0)).sum(axis=1)
             Fy = (Vk * (b * x_x0 + 2 * c * y_y0)).sum(axis=1)
-            if 'gradients' in properties:
-                self.results['gradients'] = np.array([Fx, Fy])
+            self.results['gradients'] = np.array([Fx, Fy])
             # if 'forces' in properties:
             #     self.results['forces'] = -np.array([[Fx], [Fy]])
         if 'hessian' in properties:
