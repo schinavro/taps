@@ -150,13 +150,13 @@ class Kernel:
             self.hyperparameters[key] = hyperparameters_list[idx]
 
     def get_hyperparameters(self, hyperparameters_list=None):
+        if hyperparameters_list is None:
+            return self.hyperparameters
         hyperparameters = {}
         for key, idx in self.key2idx.items():
             hyperparameters[key] = hyperparameters_list[idx]
         return hyperparameters
 
-        if hyperparameters_list is None:
-            return self.hyperparameters
 
     def shape_data(self, data, hess=True):
         shape = data['X'].shape

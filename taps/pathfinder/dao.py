@@ -424,6 +424,7 @@ class DAO(PathFinder):
                    '{fun:8.4f} {jac_max:8.4f}'.format(**self.results))
             if res.nit < 3:
                 break
+        printt(paths.model.get_state_info())
 
         if self.prj_search:
             x0 = self.prj.x(paths.coords(index=np.s_[1:-1]))

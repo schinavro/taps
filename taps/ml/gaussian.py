@@ -336,6 +336,12 @@ class Gaussian(Model):
         self._cache['data_ids_image'].extend(new_data_ids_image)
         return data
 
+    def get_state_info(self):
+        info = []
+        for k, v in self.kernel.hyperparameters.items():
+            info.append(f"{k: <11}" + ": " + str(v))
+        return '\n'.join(info)
+
     def flatten(self, paths, coords):
         """
         3 x A x N -> 3A x N

@@ -8,7 +8,7 @@ from numpy import dot
 from numpy.linalg import norm
 from scipy.optimize import check_grad
 from ase.atoms import Atoms
-from taps.utils.shortcut import isdct, isstr
+from taps.utils.shortcut import isdct, isstr, issclr
 from taps.projectors import Projector
 
 
@@ -497,6 +497,9 @@ class Model:
         self._cache['data_ids_image'].extend(new_data_ids_image)
         return data
 
+    def get_state_info(self):
+        return ""
+
     def prj_f_inv(self, *args, **kwargs):
         return self.prj.f_inv(*args, **kwargs)
 
@@ -528,7 +531,7 @@ class Model:
         if coords is None:
             coords = model.prj.x(paths.coords(index=index))
 
-        model.write(paths, coords)
+        model.write(paths, coords, **kwargs)
 
 
 
@@ -813,7 +816,7 @@ class PeriodicModel(Model):
         return angle.flatten()
 
 
-class PeriodicModel2(Model):
+class SineModel(Model):
     """
     TODO: Document it and move it to separate files
     """
@@ -839,20 +842,38 @@ class PeriodicModel2(Model):
         self.results['hessian'] = H
 
 
-class PeriodicModel3(Model):
+class Cosine(Model):
     """
     TODO: Document it and move it to separate files
+    init : -pi -> pi
+    fin : -pi -> pi
+    $V(x) = V0 + A*\sum_i{cos(\omega * (x + phi))}$
     """
     implemented_properties = {'potential', 'gradients', 'forces', 'hessian'}
+    model_parameters = {
+        'A': {'default': "-1", 'assert': issclr},
+        'omega': {'default': "4", 'assert': issclr},
+        'phi': {'default': '0.', 'assert': issclr},
+        'V0': {'default': '0.', 'assert': issclr},
+    }
+    A = -1.
+    omega = 4.
+    phi = 0.
+    V0 = 0.
+
+    def __init__(self, **kwargs):
+        super().model_parameters.update(self.model_parameters)
+        self.model_parameters.update(super().model_parameters)
+        super().__init__(**kwargs)
 
     def calculate(self, paths, coords, properties=['potential'], **kwargs):
         if len(coords.shape) == 1:
             coords = coords[:, np.newaxis]
         if 'potential' in properties:
-            V = -np.cos(4 * coords).sum(axis=0)
+            V = self.V0+self.A*np.cos(self.omega*(coords+self.phi)).sum(axis=0)
             self.results['potential'] = V
         if 'gradients' in properties or 'forces' in properties:
-            F = -4 * np.sin(4 * coords)
+            F = self.omega * self.A * np.sin(self.omega * (coords+self.phi))
             if 'gradients' in properties:
                 self.results['gradients'] = -F
             if 'forces' in properties:
@@ -860,11 +881,12 @@ class PeriodicModel3(Model):
 
         if 'hessian' in properties:
             shape = coords.shape
+            omega2A = self.omega * self.omega * self.A
             D = np.prod(shape[:-1])
             N = shape[-1]
             _coords = coords.reshape(D, N)
             H = np.zeros((D, N))  # D x N
-            H = 16 * np.cos(4 * _coords)
+            H = omega2A*np.cos(self.omega * (_coords+self.phi))
             H = np.einsum('i..., ij->ij...', H, np.identity(D))
             H = H.reshape((D, D, N))
             self.results['hessian'] = H

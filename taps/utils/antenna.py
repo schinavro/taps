@@ -1,6 +1,7 @@
 import json
 import numpy as np
 from collections import deque
+from importlib import import_module
 
 Int, Float, Real, Number, Bool = 1, 2, 3, 4, 5
 Int8, Int16, Int32, Int64 = 6, 7, 8, 9
@@ -51,6 +52,35 @@ def read_header(arrbytes):
     return header_size, pointer, dtype, ndim, shape, order
 
 
+def dictify(obj, ignore_cache=True):
+    dct = {}
+    for k, v in vars(obj).items():
+        if v is None or isinstance(v, type):
+            continue
+        elif (k[0] == '_' and ignore_cache):
+            continue
+        elif v.__class__.__module__ in ['builtins', 'numpy']:
+            dct[k] = v
+        else:
+            dct[k] = {'__name__': v.__class__.__name__,
+                      '__module__': v.__class__.__module__,
+                      'kwargs':dictify(v)}
+    return dct
+
+def classify(dic):
+    kwargs = {}
+    for k, v in dic.items():
+        if isinstance(v, (np.ndarray, bool, int, float, complex,
+                            list, tuple, range, str, set, frozenset)):
+            kwargs[k] = v
+        elif isinstance(v, dict) and v.get('__module__') is not None:
+            module = import_module(v['__module__'])
+            kwargs[k] = getattr(module, v['__name__'])(**(classify(v['kwargs'])))
+        else:
+            kwargs[k] = v
+    return kwargs
+
+
 def statify(arrlist, d):
     pointerlist = ['__%d__' % arr[0] for arr in arrlist]
     queue = deque([(id(d), d)])
@@ -76,7 +106,7 @@ def statify(arrlist, d):
     return d
 
 
-def pointify(d, pointer, binarylist):
+def pointify(d, pointer=0, binarylist=[]):
     queue = deque([(id(d), d)])
     memo = set()
     while queue:
@@ -129,7 +159,9 @@ def packing(*args, **kwargs):
     return header + data
 
 
-def unpacking(bytesarr):
+def unpacking(bytesarr, includesize=False):
+    if includesize:
+        bytesarr = bytesarr[8:]
     nargs, nkwargs = np.frombuffer(bytesarr[:16], dtype=np.int64, count=2)
     partition = 16 + nargs
 

@@ -324,8 +324,11 @@ class Sine(Projector):
         self.Nk = Nk
         self.init = init
         self.fin = fin
-        self.shape = init.shape
         super().__init__(**kwargs)
+
+    @property
+    def shape(self):
+        return self.init.shape
 
     @Projector.pipeline
     def x(self, coords):

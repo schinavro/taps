@@ -2,9 +2,11 @@ import numpy as np
 
 
 class Mean:
-    def __init__(self, type='average', data=None):
+    def __init__(self, type='average', data=None, **kwargs):
         self.type = type
         self._data = data
+        for k, v in kwargs.items():
+            setattr(self, k, v)
 
     def __call__(self, X, data=None, hess=True, type=None):
         """
@@ -27,6 +29,8 @@ class Mean:
             e = np.zeros(M) + np.average(V)
         elif type == 'min':
             e = np.zeros(M) + np.min(V)
+        elif type == 'manual':
+            e = np.zeros(M) + self.Em
         else:
             e = np.zeros(M) + np.max(V)
         if not hess:

@@ -1,10 +1,12 @@
 import os
 import numpy as np
+from numpy import newaxis as nax
 from collections import OrderedDict
 
 from taps.db.data import PathsData
 from taps.pathfinder import PathFinder
-from taps.utils.shortcut import isstr, isLst
+from taps.utils.shortcut import isstr, isLst, isdct
+from taps.visualize import view
 
 
 class GPAO(PathFinder):
@@ -21,9 +23,9 @@ class GPAO(PathFinder):
         'cov_max_tol': {'default': '0.05', 'assert': 'True'},
         'E_max_tol': {'default': '0.05', 'assert': 'True'},
         'distance_tol': {'default': '0.05', 'assert': 'True'},
-        'plot': {'default': 'None', 'assert': 'True'},
-        'last_checker': {'default': "'auto et'",
-                         'assert': 'True'}
+        'plot': {'default': "view()", 'assert': 'True'},
+        'plot_kwargs': {'default': 'dict()', 'assert': isdct},
+        'last_checker': {'default': "'auto et'", 'assert': 'True'}
     }
 
     display_map_parameters = OrderedDict({})
@@ -67,8 +69,8 @@ class GPAO(PathFinder):
 
     def __init__(self, real_finder=None, log=None, gptol=None,
                  cov_max_tol=None, E_max_tol=None, maxtrial=None, phase=0,
-                 phases=None,
-                 last_checker=None, distance_tol=None, plot=None,
+                 phases=None, last_checker=None, distance_tol=None,
+                 plot=view, plot_kwargs=None,
                  _pbs_walltime="walltime=48:00:00", **kwargs):
         self.real_finder = real_finder
         self.finder_parameters.update(self.real_finder.finder_parameters)
@@ -84,6 +86,7 @@ class GPAO(PathFinder):
         self.E_max_tol = E_max_tol
         self.distance_tol = distance_tol
         self.plot = plot
+        self.plot_kwargs = plot_kwargs
         self.maxtrial = maxtrial
         self.phase = phase
         self.phases = phases
@@ -178,10 +181,9 @@ class GPAO(PathFinder):
         return self.check_maximum_energy_convergence(paths, idx=idx, **kwargs)
 
     def auto_et(self, paths, **kwargs):
-        paths.real_finder.Et = self.get_next_et(paths)
-        paths.real_finder.Et_type = 'manual'
+        paths.finder.real_finder.Et = self.get_next_et(paths)
+        paths.finder.real_finder.Et_type = 'manual'
         return self.uncertain_or_maximum_energy(paths, **kwargs)
-        # return self.maximum_uncertainty(paths, **kwargs)
 
     def check_auto_et_convergence(self, paths, idx=None, **kwargs):
         V = paths.get_potential_energy(index=np.s_[1:-1])
@@ -193,11 +195,42 @@ class GPAO(PathFinder):
         cov = paths.get_covariance(index=np.s_[:])
         # self._cov_max = cov.max() / paths.model.hyperparameters['sigma_f']
         self._cov_max = cov.max()
-        if np.abs(V.max() - paths.real_finder.Et) < self.Et_opt_tol and \
+        if np.abs(V.max() - paths.finder.real_finder.Et) < self.Et_opt_tol and \
                 self._cov_max > self.cov_max_tol:
             return 1
         # @@@@@@@@@@@@@@@
-        # if np.abs(V.max() - paths.real_finder.Et) < self.Et_opt_tol and \
+        # if np.abs(V.max() - paths.finder.real_finder.Et) < self.Et_opt_tol and \
+        #         self._cov_max > self.cov_max_tol:
+        #     return 1
+        return 0
+
+    def auto_et2(self, paths, **kwargs):
+        paths.finder.real_finder.Et = self.get_next_et(paths)
+        paths.finder.real_finder.Et_type = 'manual'
+        paths.model.mean.Em = self.get_next_mean(paths)
+        paths.model.mean.type = 'manual'
+
+        idx = self.uncertain_or_maximum_energy(paths, **kwargs)
+        if paths.imgdata.search(paths, paths.coords(index=idx),
+                                search_similar_image=False):
+            return np.random.randint(1, paths.coords.N)
+        return idx
+
+    def check_auto_et2_convergence(self, paths, idx=None, **kwargs):
+        V = paths.get_potential_energy(index=np.s_[1:-1])
+        data_ids = paths.add_data(index=idx)
+        imgdata = paths.get_data(data_ids=data_ids)
+        if self._maximum_energy_checked:
+            self._muErr = np.abs(self._E_max - imgdata['V'][-1])
+        # @@@@@@@@@@@@@@@@@@@@
+        cov = paths.get_covariance(index=np.s_[:])
+        # self._cov_max = cov.max() / paths.model.hyperparameters['sigma_f']
+        self._cov_max = cov.max()
+        if np.abs(V.max() - paths.finder.real_finder.Et) < self.Et_opt_tol and \
+                self._cov_max > self.cov_max_tol:
+            return 1
+        # @@@@@@@@@@@@@@@
+        # if np.abs(V.max() - paths.finder.real_finder.Et) < self.Et_opt_tol and \
         #         self._cov_max > self.cov_max_tol:
         #     return 1
         return 0
@@ -221,19 +254,24 @@ class GPAO(PathFinder):
     def get_next_et(self, paths, **kwargs):
         V = paths.get_potential_energy(index=np.s_[1:-1])
         self._target_energy_checked = True
-        self._mu_Et = V.max() - paths.real_finder.Et
+        self._mu_Et = V.max() - paths.finder.real_finder.Et
 
         # self._Kinetic = self.__dict__.get('_Kinetic', 0.1)
         # Et too low
         # Et = (np.max(V) + self.Et - self.Et_opt_tol) / 2
         # Et = np.max(V)
-        # Et = (np.max(V) + paths.real_finder.Et) / 2
+        # Et = (np.max(V) + paths.finder.real_finder.Et) / 2
         maxV = np.max(V)
-        if paths.real_finder.Et > maxV:
+        if paths.finder.real_finder.Et > maxV:
             Et = np.min(V)
         else:
-            Et = (maxV + paths.real_finder.Et - self.Et_opt_tol / 2) / 2
+            Et = (maxV + paths.finder.real_finder.Et - self.Et_opt_tol / 2) / 2
         return Et
+
+    def get_next_mean(self, paths, **kwargs):
+        V = paths.get_potential_energy(index=np.s_[1:-1])
+        return V.max()
+
 
     def alternate_energy(self, paths, gptol=None, iter=None):
         if iter % 2 == 0:
@@ -282,8 +320,7 @@ class GPAO(PathFinder):
 
     def check_convergence(self, paths, phase=None, iter=None, logfile=None,
                           **kwargs):
-        if phase is None:
-            phase = self.phase
+        phase = phase or self.phase
         imgdata = paths.get_data()
         if len(imgdata['V']) < 3:
             paths.add_data(index=paths.N // 3)
@@ -302,7 +339,7 @@ class GPAO(PathFinder):
         logfile.flush()
         if self.phase >= len(self.Phases):
             logfile.write("Last phase. Checking dS...")
-            if paths.real_finder.isConverged(paths):
+            if paths.finder.real_finder.isConverged(paths):
                 cov_max = np.max(paths.get_covariance())
                 logfile.write(" converged, checking Cov max %f" % cov_max)
                 if cov_max < self.cov_max_tol:
@@ -368,7 +405,7 @@ class GPAO(PathFinder):
                 filename = label + '_{i:02d}'.format(i=i)
                 self.I_prepared_my_paths_in_various_ways(paths, logfile=logfile)
                 paths.search(real_finder=True, logfile=logfile, **search_kwargs)
-                self.results.update(paths.real_finder.results)
+                self.results.update(paths.finder.real_finder.results)
                 self._save(paths, filename=filename)
                 i += 1
                 if self.maxtrial < i:
@@ -383,14 +420,14 @@ class GPAO(PathFinder):
             filename = label + '_{i:02d}'.format(i=i)
             self.I_prepared_my_paths_in_various_ways(paths, logfile=logfile)
             paths.search(real_finder=True, logfile=logfile, **search_kwargs)
-            self.results.update(paths.real_finder.results)
+            self.results.update(paths.finder.real_finder.results)
             self._save(paths, filename=filename)
         return paths
 
-    def _save(self, paths, filename=None):
+    def _save(self, paths, filename=None, plot_kwargs=None):
         label = getattr(self, 'label', None) or paths.label
-        self.plot(paths, viewer="Alaninedipeptide",
-                  filename=filename, savefig=True, gaussian=True)
+        plot_kwargs = plot_kwargs or self.plot_kwargs
+        self.plot(paths, filename=filename, **plot_kwargs)
         # paths.plot(filename=filename, savefig=True, gaussian=True)
         pathsdata = PathsData(label + '_pathsdata.db')
         data = [{'paths': paths}]

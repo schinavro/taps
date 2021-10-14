@@ -7,8 +7,10 @@ from sqlite3 import OperationalError
 from collections import OrderedDict
 from scipy.spatial import KDTree
 
+from taps.paths import Paths
+
 from taps.utils.shortcut import isStr, isbool
-from taps.utils.antenna import write_header, read_header
+from taps.utils.antenna import write_header, read_header, packing, unpacking, classify, dictify
 # from taps.descriptor import SphericalHarmonicDescriptor
 
 
@@ -22,13 +24,13 @@ def blob(array):
                       np.ascontiguousarray(array).tobytes())
 
 
-def deblob(buf, dtype=float, shape=None):
+def deblob(buf):
     """Convert blob/buffer object to ndarray of correct dtype and shape.
     (without creating an extra view)."""
     if buf is None:
         return None
     if len(buf) == 0:
-        array = np.zeros(0, dtype)
+        array = np.zeros(0)
     else:
         header_size, pointer, dtype, ndim, shape, order = read_header(buf)
         arr = np.frombuffer(buf[header_size+8:], dtype=dtype)
@@ -40,19 +42,15 @@ def deblob(buf, dtype=float, shape=None):
 
 class PathsData:
     """
-    Current
-      Save : Paths ->  pickle serialize -> sqlite
-      load : Sqlite -> pickle serialize -> Paths
     Future plan
-      Save : Paths -> Pathsrow(ver ctrl) -> dct -> json serialize -> sqlite
-      load : Sqlite -> json serialize -> dct -> Pathsrow(ver ctrl) -> Paths
+      Save : Paths -> dictionary -> json+ binary -> sqlite
+      load : Sqlite -> json+ binary -> dictionary -> Paths
     """
     metadata = {
+        'version': 'text',
         'ctime': 'real'
     }
-    invariants = {
-        'symbols': 'text',
-    }
+    invariants = {}
     variables = dict(
         paths='blob',
         **dict(zip(['rel%d' % i for i in range(5)], ['real'] * 5)),
@@ -64,7 +62,7 @@ class PathsData:
     key_mapper = {'blb0': 'coords', 'coords': 'blb0'}
 
     create_table_list = ['metadata', 'invariants', 'variables']
-    target_variables = ['symbols', 'coords']
+    target_variables = ['coords']
 
     def __init__(self, filename='pathsdata.db', metadata=None, invariants=None,
                  variables=None, key_mapper=None, **kwargs):
@@ -239,9 +237,11 @@ class PathsData:
         for i, datum in enumerate(data):
             for column in columns:
                 if column == 'paths':
-                    data[i][column] = pickle.loads(data[i][column])
+                    #data[i][column] = pickle.loads(data[i][column])
+                    data[i][column] = Paths(**classify(unpacking(
+                                        data[i][column], includesize=True)[1]))
                 elif 'blb' in key_mapper.get(column, column):
-                    data[i][column] = deblob(data[i][column], shape=None)
+                    data[i][column] = deblob(data[i][column])
                 else:
                     pass
         return data
@@ -253,10 +253,12 @@ class PathsData:
                 if dat is None:
                     pass
                 elif class_name == 'Paths':
-                    data[i][name] = memoryview(pickle.dumps(dat))
-                elif class_name in ['list', 'tuple', 'ndarray']:
+                    # data[i][name] = memoryview(pickle.dumps(dat))
+                    data[i][name] = packing(**dictify(dat, ignore_cache=False))
+                elif class_name in ['list', 'tuple', 'ndarray', 'set', 'range',
+                                    'frozenset']:
                     data[i][name] = blob(np.array(dat))
-                elif class_name in ['str', 'int', 'int64', 'float', 'float64']:
+                elif class_name in ['bool', 'str', 'int', 'int64', 'float', 'float64']:
                     pass
                 else:
                     raise NotImplementedError("Can't encode %s" % class_name)
@@ -344,9 +346,9 @@ class ImageData:
             self.forces_shape = self.coord_shape
         elif len(paths.coords.shape) == 3:
             self.desc_shape = (15)
-            self.potentials_shape = (paths.real_model.prj.x(paths.coords).A)
-            self.positions_shape = (paths.real_model.prj.x(coords).A, 3)
-            self.forces_shape = (paths.real_model.prj.x(coords).A, 3)
+            self.potentials_shape = (paths.model.real_model.prj.x(paths.coords).A)
+            self.positions_shape = (paths.model.real_model.prj.x(coords).A, 3)
+            self.forces_shape = (paths.model.real_model.prj.x(coords).A, 3)
         # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ #
 
     def create_tables(self, tables=None):
@@ -618,6 +620,8 @@ class ImageData:
                                                         pack_null=True,
                                                         **kwargs)
                 id = self.write(data)['image']
+            elif id is None:
+                id = []
             ids.extend(id)
         conn.commit()
         conn.close()
@@ -843,8 +847,8 @@ class ImageData:
         n2i = self.name2idx['image']
         properties = n2i.keys()
         properties
-        # paths.real_model.update_implemented_properties(paths)
-        model_properties = paths.real_model.implemented_properties
+        # paths.model.real_model.update_implemented_properties(paths)
+        model_properties = paths.model.real_model.implemented_properties
         props = [p for p in properties if p in model_properties]
         # if np.all(coords.shape == self.coord_shape):
         #   coords = coords[..., np.newaxis]

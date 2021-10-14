@@ -125,6 +125,8 @@ class AtomicModel(Model):
         Use trajectory to write..
         """
         from ase.io.trajectory import TrajectoryWriter
+        if ".traj" not in filename or ".trj" not in filename:
+            filename = filename + ".traj"
         trj = TrajectoryWriter(filename, mode="a")
         N = coords.shape[-1]
         image = self.image.copy()

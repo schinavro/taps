@@ -194,10 +194,14 @@ class Plotter:
         if dim == 1:
             raise NotImplementedError('No 1D plot')
         elif dim == 2:
+            p0max, p0min = p[0].max(), p[0].min()
+            p1max, p1min = p[1].max(), p[1].min()
+            p0pad = 0.1 * (p0max - p0min)
+            p1pad = 0.1 * (p1max - p1min)
             if self.xlim2d is None:
-                self.xlim2d = np.array([p[0].min(), p[0].max()])
+                self.xlim2d = np.array([p0min - p0pad, p0max + p0pad])
             if self.ylim2d is None:
-                self.ylim2d = np.array([p[1].min(), p[1].max()])
+                self.ylim2d = np.array([p1min - p1pad, p1max + p1pad])
             self.plot_2D(paths, savefig, filename)
         elif dim == 3:
             if self.xlim3d is None:
@@ -210,7 +214,7 @@ class Plotter:
             self.plot_3D(paths, savefig, filename)
         else:
             raise NotImplementedError("Can't plot ")
-        if gaussian:
+        if gaussian and dim == 2:
             self.plot_gaussian(paths, savefig, filename, gaussian)
         if energy_paths:
             self.plot_energy_paths(paths, savefig, filename, gaussian)
@@ -232,9 +236,13 @@ class Plotter:
         self.plot_trajectory(paths, plt, ax)
 
         if savefig:
-            plt.tight_layout()
-            with open(filename + '_fig3D.pkl', 'wb') as f:
-                pickle.dump(fig, f)
+            # plt.tight_layout()
+            paths.save(real_model=True, filename=filename)
+            coords = paths.coords[:]
+            with open(filename + '_3D.npz', 'wb') as fd:
+                np.savez(fd, coords=coords)
+            with open(filename + '_fig3D.pkl', 'wb') as fd:
+                pickle.dump(fig, fd)
             plt.savefig(filename + '_3D.' + self.save_format,
                         format=self.save_format)
 
@@ -380,7 +388,7 @@ class Plotter:
 
     def plot_energy_paths(self, paths, savefig, filename, gaussian):
         Vunit, Kunit = '', ''
-        if paths.real_model.potential_unit != 'unitless':
+        if paths.model.real_model.potential_unit != 'unitless':
             Vunit = '$(%s)$' % paths.model.potential_unit
         Kunit = '$(%s)$' % (paths.coords.unit or 'unitless')
 
@@ -496,7 +504,7 @@ class Plotter:
                     pickle.dump(H, f)
                     pickle.dump(T, f)
                     pickle.dump(cov_coords, f)
-                    pickle.dump(paths.real_finder.Et, f)
+                    pickle.dump(paths.finder.real_finder.Et, f)
             else:
                 np.savez(filename + '_Egraph.npz', V=V, H=H, T=T)
                 with open(filename + '_figE.pkl', 'wb') as f:
@@ -529,8 +537,9 @@ class Plotter:
             # scatter_color = ['orange']
         else:
             coords = plotter_coords
-            # line_color = jmol_colors[paths.model.image.symbols.numbers]
-            line_color = jmol_colors[[13]*12 + [79]]
+            line_color = jmol_colors[paths.model.real_model.image.symbols.numbers]
+            # line_color = jmol_colors[[13]*12 + [79]]
+            # line_color = jmol_colors[[13]*12 + [79]]
             scatter_color = [lighten_color(c) for c in line_color]
         for i in range(A):
             coord = coords[..., i, :]
