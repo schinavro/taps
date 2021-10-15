@@ -3,6 +3,7 @@ import numpy as np
 from numpy import newaxis as nax
 from numpy import log, sum, diagonal
 from numpy.linalg import inv, cholesky
+from numpy.linalg.linalg import LinAlgError
 from scipy.optimize import minimize
 
 from taps.model.model import Model
@@ -219,8 +220,17 @@ class Gaussian(Model):
             def likelihood(hyperparameters_list):
                 k.set_hyperparameters(hyperparameters_list)
                 K = k(X, X, orig=True)
-                detK = diagonal(cholesky(K))
-                return sum(log(detK)) + 0.5 * (Y_m.T @ (inv(K) @ Y_m))
+                try:
+                    detK = diagonal(cholesky(K))
+                    log_detK = sum(log(detK))
+                except LinAlgError:
+                    # Postive definite matrix
+                    detK = np.linalg.det(K)
+                    if detK <= 1e-5:
+                        log_detK = -5
+                    else:
+                        log_detK = log(detK)
+                return log_detK + 0.5 * (Y_m.T @ (inv(K) @ Y_m))
 
             def gradient_likelihood(hyperparameters_list):
                 k.set_hyperparameters(hyperparameters_list)
@@ -230,7 +240,6 @@ class Gaussian(Model):
                     log_detK = -5
                 else:
                     log_detK = log(detK)
-                print()
                 return log_detK + 0.5 * (Y_m.T @ (inv(K) @ Y_m))
 
             def pseudo_gradient_likelihood(hyperparameters_list):
@@ -270,71 +279,6 @@ class Gaussian(Model):
         if no_boundary:
             bounds = None
         return {'x0': x0, 'bounds': bounds, 'method': method}
-
-    def get_data(self, paths, coords=None, data_ids=None,
-                 keys=['coords', 'potential', 'gradients']):
-        """
-        data_ids : dictionary of lists
-            {'image': [...], 'descriptor': [...]}
-        for each key, return
-         'coords' -> 'X'; D x M x P
-         'potential'    -> 'V'; P
-         'gradient'    -> 'F'; D x M x P
-        return : dictionary contain X, V, F
-            {'X' : np.array(D x M x P), 'V': np.array(P), }
-        """
-        data_ids = data_ids or getattr(self, 'data_ids', None)
-        if data_ids is None or len(data_ids.get('image', [])) == 0:
-            return None
-        # shape = coords.shape[:-1]
-        # shape = (3, 5)
-        M = len(data_ids['image'])
-        if self._cache.get('data_ids_image') is None:
-            shape = self.prj.x(paths.coords(index=[0])).shape[:-1]
-            self._cache['data_ids_image'] = []
-            self._cache['data'] = {'X': np.zeros((*shape, 0), dtype=float),
-                                   'V': np.zeros(0, dtype=float),
-                                   'F': np.zeros((*shape, 0), dtype=float)}
-        if self._cache.get('data_ids_image') == data_ids['image']:
-            return self._cache['data']
-        else:
-            new_data_ids_image = []
-            for id in data_ids['image']:
-                if id not in self._cache['data_ids_image']:
-                    new_data_ids_image.append(id)
-        atomdata = paths.imgdata
-        name2idx = atomdata.name2idx
-        n2i = name2idx['image']
-        new_data = atomdata.read({'image': new_data_ids_image})['image']
-        M = len(new_data_ids_image)
-        data = self._cache['data']
-        if 'coords' in keys:
-            coords_raw = []
-            for i in range(M):
-                coord_raw = new_data[i][n2i['coord']][..., nax]
-                coords_raw.append(self.prj._x(coord_raw))
-            if M != 0:
-                new_coords = np.concatenate(coords_raw, axis=-1)
-                data['X'] = np.concatenate([data['X'], new_coords], axis=-1)
-        if 'potential' in keys:
-            potential = []
-            for i in range(M):
-                potential.append(new_data[i][n2i['potential']])
-            if M != 0:
-                new_potential = np.concatenate(potential, axis=-1)
-                data['V'] = np.concatenate([data['V'], new_potential], axis=-1)
-        if 'gradients' in keys:
-            gradients = []
-            for i in range(M):
-                coords_raw = new_data[i][n2i['coord']][..., nax]
-                gradients_raw = new_data[i][n2i['gradients']]
-                gradients_prj, _ = self.prj.f(gradients_raw, coords_raw)
-                gradients.append(gradients_prj)
-            if M != 0:
-                new_gradients = np.concatenate(gradients, axis=-1)
-                data['F'] = np.concatenate([data['F'], -new_gradients], axis=-1)
-        self._cache['data_ids_image'].extend(new_data_ids_image)
-        return data
 
     def get_state_info(self):
         info = []

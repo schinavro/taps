@@ -25,7 +25,7 @@ class GPAO(PathFinder):
         'distance_tol': {'default': '0.05', 'assert': 'True'},
         'plot': {'default': "view()", 'assert': 'True'},
         'plot_kwargs': {'default': 'dict()', 'assert': isdct},
-        'last_checker': {'default': "'auto et'", 'assert': 'True'}
+        'last_checker': {'default': "'auto et2'", 'assert': 'True'}
     }
 
     display_map_parameters = OrderedDict({})

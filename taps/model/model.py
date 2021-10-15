@@ -3,8 +3,8 @@ import hashlib
 import binascii
 import numpy as np
 from collections import OrderedDict
-from numpy import pi
-from numpy import dot
+from numpy import pi, dot
+from numpy import newaxis as nax
 from numpy.linalg import norm
 from scipy.optimize import check_grad
 from ase.atoms import Atoms
@@ -448,15 +448,14 @@ class Model:
         return : dictionary contain X, V, F
             {'X' : np.array(D x M x P), 'V': np.array(P), }
         """
-        nax = np.newaxis
         data_ids = data_ids or getattr(self, 'data_ids', None)
         if data_ids is None or len(data_ids.get('image', [])) == 0:
             return None
         # shape = coords.shape[:-1]
-        shape = self.prj.x(paths.coords(index=[0])).shape[:-1]
         # shape = (3, 5)
         M = len(data_ids['image'])
         if self._cache.get('data_ids_image') is None:
+            shape = self.prj.x(paths.coords(index=[0])).shape[:-1]
             self._cache['data_ids_image'] = []
             self._cache['data'] = {'X': np.zeros((*shape, 0), dtype=float),
                                    'V': np.zeros(0, dtype=float),
@@ -475,25 +474,30 @@ class Model:
         M = len(new_data_ids_image)
         data = self._cache['data']
         if 'coords' in keys:
-            coords_raw = np.zeros((*shape, M), dtype=float)
+            coords_raw = []
             for i in range(M):
                 coord_raw = new_data[i][n2i['coord']][..., nax]
-                coords_raw[..., i] = self.prj._x(coord_raw)[..., 0]
-            data['X'] = np.concatenate([data['X'], coords_raw], axis=-1)
+                coords_raw.append(self.prj._x(coord_raw))
+            if M != 0:
+                new_coords = np.concatenate(coords_raw, axis=-1)
+                data['X'] = np.concatenate([data['X'], new_coords], axis=-1)
         if 'potential' in keys:
-            potential = np.zeros(M, dtype=float)
+            potential = []
             for i in range(M):
-                potential[i] = new_data[i][n2i['potential']]
-            data['V'] = np.concatenate([data['V'], potential])
-
+                potential.append(new_data[i][n2i['potential']])
+            if M != 0:
+                new_potential = np.concatenate(potential, axis=-1)
+                data['V'] = np.concatenate([data['V'], new_potential], axis=-1)
         if 'gradients' in keys:
-            gradients = np.zeros((*shape, M), dtype=float)
+            gradients = []
             for i in range(M):
                 coords_raw = new_data[i][n2i['coord']][..., nax]
-                gradients_raw = new_data[i][n2i['gradients']][..., nax]
+                gradients_raw = new_data[i][n2i['gradients']]
                 gradients_prj, _ = self.prj.f(gradients_raw, coords_raw)
-                gradients[..., i] = gradients_prj[..., 0]
-            data['F'] = np.concatenate([data['F'], -gradients], axis=-1)
+                gradients.append(gradients_prj)
+            if M != 0:
+                new_gradients = np.concatenate(gradients, axis=-1)
+                data['F'] = np.concatenate([data['F'], -new_gradients], axis=-1)
         self._cache['data_ids_image'].extend(new_data_ids_image)
         return data
 

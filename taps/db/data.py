@@ -238,8 +238,8 @@ class PathsData:
             for column in columns:
                 if column == 'paths':
                     #data[i][column] = pickle.loads(data[i][column])
-                    data[i][column] = Paths(**classify(unpacking(
-                                        data[i][column], includesize=True)[1]))
+                    data[i][column] = classify(unpacking(data[i][column],
+                                               includesize=True)[1])
                 elif 'blb' in key_mapper.get(column, column):
                     data[i][column] = deblob(data[i][column])
                 else:
@@ -335,21 +335,6 @@ class ImageData:
             self.filename = 'imagedata.db'
 
         self._cache = {}
-
-    def initialize_shapes(self, paths, coords, **kwargs):
-        # ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ #
-        self.coord_shape = paths.coords.shape[:-1]
-        self.gradients_shape = paths.coords.shape[:-1]
-        if len(paths.coords.shape) == 2:
-            self.potentials_shape = (1)
-            self.positions_shape = self.coord_shape
-            self.forces_shape = self.coord_shape
-        elif len(paths.coords.shape) == 3:
-            self.desc_shape = (15)
-            self.potentials_shape = (paths.model.real_model.prj.x(paths.coords).A)
-            self.positions_shape = (paths.model.real_model.prj.x(coords).A, 3)
-            self.forces_shape = (paths.model.real_model.prj.x(coords).A, 3)
-        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ #
 
     def create_tables(self, tables=None):
         tables = tables or self.tables
@@ -541,7 +526,7 @@ class ImageData:
             c.execute(select_statement, [blob(coord)])
             id = c.fetchone()
             # Check Similar match
-            if id is None and search_similar_image:
+            if (id is None) and search_similar_image:
                 cache = self._cache.get('image', {})
                 last_id = max(cache.get('coords_ids', [0]))
                 tol = similar_image_tol
@@ -549,22 +534,30 @@ class ImageData:
                 new_data = self.read_all(tables=read_tables, last_id=last_id,
                                          query=' WHERE rowid>%d' % last_id
                                          )['image']
+                 # Initial case / No additional data found
                 if new_data is None or new_data == []:
                     kdtree = cache.get('kdtree')
-                    if kdtree is None:
+
+                    if kdtree is None:  # Initial
                         exist_similar = False
-                    else:
-                        res = kdtree.query_ball_point(coord, tol)
+                    else:  # There has been no additional calculation
+                        # Query similar point exists
+
+                        res = kdtree.query_ball_point(coord.flatten(), tol)
 
                         if res is None or res == []:
                             exist_similar = False
                         else:
-                            similar_idx = res
                             exist_similar = True
-                            similar_ids = cache.get(
-                                'ids')[similar_idx].reshape(-1)
+                            similar_idx = res
+                            similar_ids = np.array(
+                                cache.get('ids'))[similar_idx].reshape(-1)
+                            similar_coords = np.array(
+                                cache.get('coords'))[similar_idx]
+                            similar_coords_flat = np.array(cache.get(
+                                'coords_flat'))[similar_idx]
 
-                else:
+                else:  # There is new data add it to the cache
                     M = len(new_data)
                     new_coords, new_coords_flat, new_ids = [], [], []
                     for i in range(M):
@@ -579,36 +572,71 @@ class ImageData:
                     cache['ids'].extend(new_ids)
                     cache['coords'].extend(new_coords)
                     cache['coords_flat'].extend(new_coords_flat)
-
                     cache['kdtree'] = KDTree(cache['coords_flat'])
 
+                    # Query similar point exists
                     kdtree = cache['kdtree']
                     res = kdtree.query_ball_point(coord.flatten(), tol)
                     if res is None or res == []:
                         exist_similar = False
                     else:
-                        similar_idx = res
                         exist_similar = True
+                        similar_idx = res
                         similar_ids = np.array(
                             cache['ids'])[similar_idx].reshape(-1)
+                        # M x D
+                        similar_coords = np.array(cache['coords'])[similar_idx]
+                        similar_coords_flat = np.array(
+                            cache['coords_flat'])[similar_idx]
                 # Check similar results exists
                 if exist_similar:
                     cur_data_ids = paths.model.data_ids.get('image', [])
+                    # D x M -> M x D
+                    cur_data_X = (paths.get_data() or {}).get('X')
+                    if cur_data_X is not None:
+                        shape = cur_data_X.shape
+                        if len(shape) == 3:
+                            _D, _M = np.prod(shape[:-1]), shape[-1]
+                        else:
+                            _D, _M = shape
+                        cur_data_Xtree = KDTree(cur_data_X.reshape(_D, _M).T)
+
                     n_similar = len(similar_ids)
-                    # Check searched id is already exist in model data ids
+                    print('Exist similar', similar_ids)
                     similar_yet_fresh_ids = []
+                    similar_yet_fresh_coords = []
                     for i in range(n_similar):
-                        if similar_ids[i] not in cur_data_ids:
-                            similar_yet_fresh_ids.append(similar_ids[i])
+                        # Check searched id is already exist in model data ids
+                        if similar_ids[i] in cur_data_ids:
+                            continue
+                        dist, prxi = cur_data_Xtree.query(
+                            similar_coords_flat[i])
+                        # Too close to data currently having
+                        print('Dist from ', i, dist)
+                        if dist < tol:
+                            continue
+                        similar_yet_fresh_ids.append(similar_ids[i])
+                        similar_yet_fresh_coords.append(similar_coords[i])
+
                     # Emergency mode
                     if similar_yet_fresh_ids == []:
-                        # M x D or M x 3 x A
-                        similar_coords = np.array(cache['coords'])[similar_idx]
-                        # Create new coord
-                        center = similar_coords.sum(axis=0) / n_similar
-                        ce = coord - center
-                        e_ce = ce / np.linalg.norm(ce)
-                        coord = coord + tol * e_ce
+                        # Randomly walk until it finds no overlap
+                        new_coord = coord.copy()
+                        shape = new_coord.shape
+                        while True:
+                            walk = np.random.normal(size=shape, scale=2*tol)
+                            new_coord += walk
+                            dist, prxi = cur_data_Xtree.query(new_coord)
+                            print('Wakingdist', dist)
+                            if dist > tol:
+                                break
+                        # Generate empty Data
+                        data = {}
+                        data['image'] = self._create_image_data(
+                            paths, new_coord[..., np.newaxis], pack_null=True,
+                            **kwargs)
+                        id = self.write(data)['image']
+                        print(id)
                     else:
                         # pick among fresh ids
                         id = [np.random.choice(similar_yet_fresh_ids)]

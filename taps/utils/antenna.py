@@ -37,7 +37,8 @@ def write_header(pointer, arr):
     ndim = arr.ndim
     shape = arr.shape
     order = "C"
-    header = np.array([pointer, typemaps[dtype], ndim, *shape, ordermaps[order]], dtype=np.int64)
+    header = np.array([pointer, typemaps[dtype], ndim, *shape,
+                       ordermaps[order]], dtype=np.int64)
     headerbytes = header.tobytes()
     return headerbytes
 
@@ -45,7 +46,8 @@ def write_header(pointer, arr):
 def read_header(arrbytes):
     header_size = int.from_bytes(arrbytes[:8], 'little', signed=True)
 
-    header = np.frombuffer(arrbytes[8:8+8*header_size], dtype=np.int64, count=header_size//8)
+    header = np.frombuffer(arrbytes[8:8+8*header_size], dtype=np.int64,
+                           count=header_size//8)
     pointer, dtype, ndim = header[0], typemaps[header[1]], header[2]
     shape = header[3:3+ndim]
     order = ordermaps[header[3+ndim]]
@@ -53,32 +55,89 @@ def read_header(arrbytes):
 
 
 def dictify(obj, ignore_cache=True):
-    dct = {}
-    for k, v in vars(obj).items():
-        if v is None or isinstance(v, type):
-            continue
-        elif (k[0] == '_' and ignore_cache):
-            continue
-        elif v.__class__.__module__ in ['builtins', 'numpy']:
-            dct[k] = v
-        else:
-            dct[k] = {'__name__': v.__class__.__name__,
-                      '__module__': v.__class__.__module__,
-                      'kwargs':dictify(v)}
-    return dct
+    if isinstance(obj, dict):
+        dct = {}
+        for k, v in obj.items():
+            if isinstance(k, int):
+                pass
+            elif isinstance(k, bytes):
+                k = '___' + k.hex()
+            elif (k[0] == '_' and ignore_cache):
+                continue
 
-def classify(dic):
-    kwargs = {}
-    for k, v in dic.items():
-        if isinstance(v, (np.ndarray, bool, int, float, complex,
-                            list, tuple, range, str, set, frozenset)):
-            kwargs[k] = v
-        elif isinstance(v, dict) and v.get('__module__') is not None:
-            module = import_module(v['__module__'])
-            kwargs[k] = getattr(module, v['__name__'])(**(classify(v['kwargs'])))
-        else:
-            kwargs[k] = v
-    return kwargs
+            if v is None or isinstance(v, type):
+                continue
+            elif isinstance(v, (dict, list)):
+                dct[k] = dictify(v, ignore_cache=ignore_cache)
+            elif v.__class__.__module__ in ['builtins', 'numpy']:
+                dct[k] = v
+            else:
+                dct[k] = dictify(v, ignore_cache=ignore_cache)
+        return dct
+
+    elif isinstance(obj, list):
+        lst = []
+        for v in obj:
+            if v is None or isinstance(v, type):
+                continue
+            elif isinstance(v, (dict, list)):
+                lst.append(dictify(v, ignore_cache=ignore_cache))
+            elif v.__class__.__module__ in ['builtins', 'numpy']:
+                lst.append(v)
+            else:
+                lst.append(dictify(v, ignore_cache=ignore_cache))
+        return lst
+    else:
+        dct = {}
+        for k, v in vars(obj).items():
+            if isinstance(k, int):
+                pass
+            elif isinstance(k, bytes):
+                k = '___' + k.hex()
+            elif (k[0] == '_' and ignore_cache):
+                continue
+
+            if v is None or isinstance(v, type):
+                continue
+            elif isinstance(v, (dict, list)):
+                dct[k] = dictify(v, ignore_cache=ignore_cache)
+            elif v.__class__.__module__ in ['builtins', 'numpy']:
+                dct[k] = v
+            else:
+                dct[k] = dictify(v, ignore_cache=ignore_cache)
+        return {'__name__': obj.__class__.__name__,
+            '__module__': obj.__class__.__module__, 'kwargs':dct}
+
+def classify(obj):
+    if isinstance(obj, dict) and obj.get('__module__') is not None:
+        module = import_module(obj['__module__'])
+        return getattr(module, obj['__name__'])(**(classify(obj['kwargs'])))
+    elif isinstance(obj, list):
+        lst = []
+        for v in obj:
+            if isinstance(v, (list, dict)):
+                lst.append(classify(v))
+            elif v.__class__.__module__ in ['builtins', 'numpy']:
+                lst.append(v)
+            else:
+                typename = v.__class__.__name__
+                raise NotImplementedError("Type invalid %s" % typename)
+        return lst
+    elif isinstance(obj, dict):
+        kwargs = {}
+        for k, v in obj.items():
+            if len(k) > 3 and (k[:3] == '___'):
+                k = bytes.fromhex(k[3:])
+            if isinstance(v, (list, dict)):
+                kwargs[k] = classify(v)
+            elif v.__class__.__module__ in ['builtins', 'numpy']:
+                kwargs[k] = v
+            else:
+                typename = (k, v.__class__)
+                raise NotImplementedError("Type invalid %s %s" % typename)
+        return kwargs
+    else:
+        raise NotImplementedError("Invalid type %s" % obj.__class__.__name__)
 
 
 def statify(arrlist, d):
@@ -95,14 +154,20 @@ def statify(arrlist, d):
                 queue.append((id(v), v))
                 if v in pointerlist:
                     i = pointerlist.index(v)
-                    o[k] = arrlist[i][1]
+                    arr = arrlist[i][1]
+                    if arr.dtype == np.uint8:
+                        arr = arr.tobytes()
+                    o[k] = arr
         elif isinstance(o, (list, tuple)):
             for i in range(len(o)):
                 v = o[i]
                 queue.append((id(v), v))
                 if v in pointerlist:
                     j = pointerlist.index(v)
-                    o[i] = pointerlist.index[j]
+                    arr = pointerlist.index[j]
+                    if arr.dtype == np.uint8:
+                        arr = arr.tobytes()
+                    o[i] = arr
     return d
 
 
@@ -117,27 +182,32 @@ def pointify(d, pointer=0, binarylist=[]):
         if isinstance(o, dict):
             for k, v in o.items():
                 queue.append((id(v), v))
-                typename = v.__class__.__name__
-
-                if typename == "ndarray":
+                if isinstance(v, (np.ndarray, bytes)):
+                    vv = v.copy()
+                    if isinstance(vv, bytes):
+                        vv = np.frombuffer(vv, dtype=np.uint8)
                     pstr = "__%d__" % pointer
-                    headerbytes = write_header(pointer, o[k])
-                    binar = int.to_bytes(len(headerbytes), 8, 'little') + headerbytes + v.tobytes()
-                    binarylist.append(binar)
+                    headerbytes = write_header(pointer, vv)
+                    hsize = int.to_bytes(len(headerbytes), 8, 'little')
+                    binarylist.append(hsize + headerbytes + vv.tobytes())
                     o[k] = pstr
                     pointer += 1
+
         elif isinstance(o, (list, tuple)):
             for i in range(len(o)):
                 v = o[i]
                 queue.append((id(v), v))
-                typename = v.__class__.__name__
-                if typename == "ndarray":
+                if isinstance(v, (np.ndarray, bytes)):
+                    vv = v.copy()
+                    if isinstance(vv, bytes):
+                        vv = np.frombuffer(vv, dtype=np.uint8)
                     pstr = '__%d__' % pointer
-                    headerbytes = write_header(pointer, o[i])
-                    binar = int.to_bytes(len(header), 8, 'little') + headerbytes + v.tobytes()
-                    binarylist.append(binar)
+                    headerbytes = write_header(pointer, vv)
+                    hsize = int.to_bytes(len(headerbytes), 8, 'little')
+                    binarylist.append(hsize + headerbytes + vv.tobytes())
                     o[i] = pstr
                     pointer += 1
+
     return d, pointer, binarylist
 
 
