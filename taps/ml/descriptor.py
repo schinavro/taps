@@ -41,12 +41,12 @@ class SphericalHarmonicDescriptor(Descriptor):
         M, A = positions_arr.shape[:2]
         Dm = np.zeros((M, A, self.Q))
         for i, positions in enumerate(positions_arr):
-            displacements = self.get_displacements(positions)
+            displacements = self.get_distances(positions)
             for j, disp in enumerate(displacements):
                 Dm[i, j] = self.sb_desc(disp, w[j], cr, na, nm)
         return Dm
 
-    def get_displacements(self, positions):
+    def get_distances(self, positions):
         """
         positions : A x 3
         disp : A x 3(A-1)

@@ -104,14 +104,14 @@ class Paths:
         self.directory = directory
         self.prefix = prefix
 
-    def get_displacements(self, **kwargs):
+    def get_distances(self, **kwargs):
         """ Calculate the distances of the pathway (accumulative)
 
         It usually used for plotting, i.e. potential energy / distance
-        Calls the :meth:`get_displacements` at the ``paths.model``.
-        Model calls the :meth:`get_displacements` in the ``paths.coords``.
+        Calls the :meth:`get_distances` at the ``paths.model``.
+        Model calls the :meth:`get_distances` in the ``paths.coords``.
         """
-        return self.model.get_displacements(self, **kwargs)
+        return self.model.get_distances(self, **kwargs)
 
     def get_momentum(self, **kwargs):
         """ Calculate momentum of the pathway"""
@@ -215,7 +215,7 @@ class Paths:
         return self.model.get_data(self, **kwargs)
 
     def add_data(self, index=None, coords=None, cache_model=True,
-                 regression=True, **kwargs):
+                 regression=True, blackids=None, **kwargs):
         """ Adding a calculation data to image database
 
         if index given -> create coords -> add_data
@@ -232,7 +232,8 @@ class Paths:
         if coords is None:
             # Create positional descriptor
             coords = self.coords(index=index)
-        ids = self.imgdata.add_data(self, coords, search_similar_image=True)
+        ids = self.imgdata.add_data(self, coords, search_similar_image=True,
+                                    blackids=blackids)
         if cache_model:
             self.model.add_data_ids(ids)
         if regression:

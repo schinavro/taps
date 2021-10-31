@@ -106,7 +106,15 @@ class Cartesian:
             return 1
 
     def get_displacements(self, coords=None, epoch=None, index=np.s_[:]):
-        """Return displacements of each steps.
+        """
+        Return vector
+        """
+        init = self.coords[..., -1, nax]
+        p = coords or self.coords
+        return p - init
+
+    def get_distances(self, coords=None, epoch=None, index=np.s_[:]):
+        """Return distance of each steps.
         Get coords(array) and return length N array. Useful for plotting E/dist
 
         Parameters

@@ -1,13 +1,14 @@
 import time
 import numpy as np
 from numpy import newaxis as nax
+from numpy import concatenate as cat
 from numpy import log, sum, diagonal
 from numpy.linalg import inv, cholesky
 from numpy.linalg.linalg import LinAlgError
 from scipy.optimize import minimize
 
 from taps.model.model import Model
-from taps.utils.shortcut import dflt, isstr, isbool, isDct, asst
+from taps.utils.shortcut import dflt, isstr, isbool, isDct, asst, isdct
 from taps.ml.kernels.kernel import Kernel
 from taps.ml.neural import Mean
 
@@ -45,15 +46,16 @@ class Gaussian(Model):
         'hyperparameters_bounds': {'default': 'dict()', 'assert': isDct},
         'regression_method': {'default': '"L-BFGS-B"', 'assert': isstr},
         # 'likelihood_type': {dflt: '"pseudo_gradient_likelihood"', asst: isstr}
-        # 'likelihood_type': {dflt: '"gradient_likelihood"', asst: isstr},
-        'likelihood_type': {dflt: '"likelihood"', asst: isstr}
+        'likelihood_type': {dflt: '"gradient_likelihood"', asst: isstr},
+        # 'likelihood_type': {dflt: '"likelihood"', asst: isstr}
+        'data_bounds': {dflt: 'dict()', asst: isdct},
     }
 
     def __init__(self, real_model='Model', kernel='Kernel', mean='Mean',
                  mean_type=None, kernel_type=None,
                  optimized=None, hyperparameters=None,
                  hyperparameters_bounds=None, regression_method=None,
-                 likelihood_type=None, **kwargs):
+                 likelihood_type=None, data_bounds=None, **kwargs):
         """
         data array
         """
@@ -73,6 +75,7 @@ class Gaussian(Model):
         self.regression_method = regression_method
         self.likelihood_type = likelihood_type
         self.data_ids = {}
+        self.data_bounds = data_bounds
 
         super().__init__(**kwargs)
 
@@ -236,10 +239,17 @@ class Gaussian(Model):
                 k.set_hyperparameters(hyperparameters_list)
                 K = k(X, X, noise=True)
                 detK = np.linalg.det(K)
-                if detK <= 1e-5:
-                    log_detK = -5
-                else:
-                    log_detK = log(detK)
+                try:
+                    detK = diagonal(cholesky(K))
+                    log_detK = sum(log(detK))
+                except LinAlgError:
+                    # Postive definite matrix
+                    detK = np.linalg.det(K)
+                    print(detK)
+                    if detK <= 1e-5:
+                        log_detK = -5
+                    else:
+                        log_detK = log(detK)
                 return log_detK + 0.5 * (Y_m.T @ (inv(K) @ Y_m))
 
             def pseudo_gradient_likelihood(hyperparameters_list):
@@ -296,6 +306,110 @@ class Gaussian(Model):
             D, N = np.prod(shape[:-1]), shape[-1]
             return coords.reshape(D, N)
         return coords
+
+    def get_data(self, paths, coords=None, data_ids=None, data_bounds=None,
+                 keys=['coords', 'potential', 'gradients'], **kwargs):
+        """
+        data_ids : dictionary of lists
+            {'image': [...], 'descriptor': [...]}
+        for each key, return
+         'coords' -> 'X'; D x M
+         'potential'    -> 'V'; M
+         'gradient'    -> 'F'; D x M
+        return : dictionary contain X, V, F
+            {'X' : np.array(D x M), 'V': np.array(M), }
+        """
+        data_ids = data_ids or getattr(self, 'data_ids', None)
+        data_bounds = data_bounds or getattr(self, 'data_bounds', {})
+        if data_ids is None or len(data_ids.get('image', [])) == 0:
+            return None
+        M = len(data_ids['image'])
+        if self._cache.get('data_ids_image') is None:
+            shape_raw = paths.coords(index=[0]).shape[:-1]
+            shape = self.prj.x(paths.coords(index=[0])).shape[:-1]
+            self._cache['data_ids_image'] = []
+            self._cache['data'] = {
+                'X': np.zeros((*shape, 0), dtype=float),
+                'V': np.zeros(0, dtype=float),
+                'F': np.zeros((*shape, 0), dtype=float),
+                'X_raw': np.zeros((*shape_raw, 0), dtype=float),
+                'F_raw': np.zeros((*shape_raw, 0), dtype=float),
+            }
+        if self._cache.get('data_ids_image') == data_ids['image']:
+            return self._cache['data']
+        else:
+            new_data_ids_image = []
+            for id in data_ids['image']:
+                if id not in self._cache['data_ids_image']:
+                    new_data_ids_image.append(id)
+        atomdata = paths.imgdata
+        name2idx = atomdata.name2idx
+        n2i = name2idx['image']
+        new_data = atomdata.read({'image': new_data_ids_image})['image']
+        M = len(new_data_ids_image)
+        data = self._cache['data']
+        if 'coords' in keys:
+            coords_raw = []
+            coords_prj = []
+            for i in range(M):
+                coord_raw = new_data[i][n2i['coord']][..., nax]
+                coord_prj = self.prj._x(new_data[i][n2i['coord']][..., nax])
+                coords_raw.append(coord_raw)
+                coords_prj.append(coord_prj)
+            if M != 0:
+                new_coords_raw = cat(coords_raw, axis=-1)
+                new_coords_prj = cat(coords_prj, axis=-1)
+
+                data['X'] = cat([data['X'], new_coords_prj], axis=-1)
+                data['X_raw'] = cat([data['X_raw'], new_coords_raw], axis=-1)
+        if 'potential' in keys:
+            potential = []
+            for i in range(M):
+                new_pot = new_data[i][n2i['potential']]
+                # Bounds for pot
+                if data_bounds.get('potential') is not None:
+                    ub = data_bounds['potential'].get('upperbound')
+                    lb = data_bounds['potential'].get('lowerbound')
+                    if ub is not None and new_pot[0] > ub:
+                        print('Potential ub fix')
+                        new_pot = [ub]
+                    elif lb is not None and new_pot[0] < lb:
+                        print('Potential lb fix')
+                        new_pot = [lb]
+                potential.append(new_pot)
+            if M != 0:
+                new_potential = np.concatenate(potential, axis=-1)
+                data['V'] = np.concatenate([data['V'], new_potential], axis=-1)
+        if 'gradients' in keys:
+            gradients_raws = []
+            gradients_prjs = []
+            for i in range(M):
+                coords_raw = new_data[i][n2i['coord']][..., nax]
+                gradients_raw = new_data[i][n2i['gradients']].copy()
+                gradients_prj, _ = self.prj.f(gradients_raw, coords_raw)
+
+                if data_bounds.get('gradients') is not None:
+                    ub = data_bounds['gradients'].get('upperbound')
+                    lb = data_bounds['gradients'].get('lowerbound')
+                    if ub is not None:
+                        if np.any(gradients_raw > ub):
+                            print('Gradients ub fix')
+                        gradients_raw[gradients_raw > ub] = ub
+                        gradients_prj[gradients_prj > ub] = ub
+                    elif lb is not None:
+                        if np.any(gradients_raw < lb):
+                            print('Gradients lb fix')
+                        gradients_raw[gradients_raw < lb] = lb
+                        gradients_prj[gradients_prj < lb] = lb
+                gradients_raws.append(gradients_raw)
+                gradients_prjs.append(gradients_prj)
+            if M != 0:
+                new_grad_raw = cat(gradients_raws, axis=-1)
+                new_grad_prj = cat(gradients_prjs, axis=-1)
+                data['F_raw'] = cat([data['F_raw'], -new_grad_raw], axis=-1)
+                data['F'] = cat([data['F'], -new_grad_prj], axis=-1)
+        self._cache['data_ids_image'].extend(new_data_ids_image)
+        return data
 
 
 class Atomic(Model):

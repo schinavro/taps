@@ -24,10 +24,12 @@ class Projector:
       projector nested in the projector. It will recursively call the projector
     """
 
-    def __init__(self, domain=None, codomain=None, pipeline=None):
+    def __init__(self, domain=None, codomain=None, pipeline=None, **kwargs):
         self.domain = domain
         self.codomain = codomain
         self.pipeline = pipeline
+        for k, v in kwargs.items():
+            setattr(self, k, v)
 
     def pipeline(prj):
         """

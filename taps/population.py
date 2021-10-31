@@ -49,9 +49,11 @@ class Population:
         self.candidates = self.read_candidates()
 
     def write_candidate(self, candidate, trustworthy=1):
+        candidate.tag = candidate.__dict__.get('tag') or {}
         data = {'paths': candidate, 'init': candidate.coords[..., 0],
                 'fin': candidate.coords[..., -1], 'candidate': trustworthy}
         id = self.pathsdata.write([data])
+        print(id, candidate.tag)
         candidate.tag['id'] = id[0]
         return id
 
@@ -89,8 +91,10 @@ class Population:
         return metadata[0]
 
     def update_candidate(self, candidate, trustworthy=1):
+        candidate.tag = candidate.__dict__.get('tag') or {}
         data = {'paths': candidate, 'init': candidate.coords[..., 0],
                 'fin': candidate.coords[..., -1], 'candidate': trustworthy}
+
         id = candidate.tag['id']
         self.pathsdata.update([id], [data])
 
@@ -164,7 +168,8 @@ class Population:
         return [self.objective_function(paths) for paths in self.pop[:]]
 
     def objective_function(self, paths):
-        return 1 / paths.results.get(self.object)
+        paths.finder.real_finder.results['Onsager Machlup']
+        # return 1 / paths.results.get(self.object)
 
     def attatch_birth_certificate(self, candidate):
         id = self.write_candidate(candidate, trustworthy=0)[0]

@@ -43,11 +43,6 @@ class SocketIO:
             assert lensend == lenrecv, "Comm err"
 
     def recv(self):
-
-        #with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            #sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            #sock.bind((chost, cport))
-            #sock.listen()
         tcp, client_address = self.sock.accept()
         lenbytes = b2int(tcp.recv(8, fwait))
         argsbytes = tcp.recv(lenbytes, fwait)

@@ -418,7 +418,7 @@ class Plotter:
         # ax.set_ylabel(self.ylblV + Vunit, fontsize=self.ftszVYlbl)
         ax.set_ylabel('Total & Potential', fontsize=self.ftszVYlbl)
 
-        dist = paths.get_displacements(index=np.s_[1:-1])
+        dist = paths.get_distances(index=np.s_[1:-1])
         V = paths.get_potential_energy(index=np.s_[1:-1])
         T = paths.get_kinetic_energy(index=np.s_[1:-1])
         lns = ax.plot(dist, V, self.mrkrV, label='$V$')

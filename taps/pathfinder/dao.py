@@ -2,8 +2,6 @@ from taps.pathfinder import PathFinder
 from taps.utils.shortcut import isbool, isstr, isflt, issclr
 from collections import OrderedDict
 import numpy as np
-import sys
-from scipy.fftpack import dst
 from scipy.optimize import minimize, check_grad
 
 
@@ -60,7 +58,7 @@ class DAO(PathFinder):
         'muT': {'default': '0.', 'assert': 'np.isscalar({name:s})'},
         'muP': {'default': '0.', 'assert': 'np.isscalar({name:s})'},
         'muL': {'default': '0.', 'assert': 'np.isscalar({name:s})'},
-        'tol': {'default': '0.1', 'assert': '{name:s} > 0'},
+        'tol': {'default': '0.05', 'assert': '{name:s} > 0'},
         'Et_opt_tol': {'default': '0.05', 'assert': isflt},
         'gam': {'default': '1', 'assert': '{name:s} > 0'},
         'method': {'default': "'BFGS'", 'assert': 'isinstance({name:s}, str)'},
@@ -412,18 +410,18 @@ class DAO(PathFinder):
 
         # Gradient - Error handling by directly use action
         # cart = False
-        while self.results['jac_max'] > self.tol:
-            if self.prj_search:
-                x0 = self.prj.x(paths.coords(index=np.s_[1:-1])).flatten()
-            else:
-                x0 = paths.coords[..., 1:-1].flatten()
-            printt("jac_max > tol(%.2f); Run without gradient" % self.tol)
-            res = minimize(act, x0, jac=jac, **search_kwargs)
-            self.set_results(res)
-            printt('{msg} : {nit:6d} {nfev:6d} {njev:6d} '
-                   '{fun:8.4f} {jac_max:8.4f}'.format(**self.results))
-            if res.nit < 3:
-                break
+        # while self.results['jac_max'] > self.tol:
+        #     if self.prj_search:
+        #         x0 = self.prj.x(paths.coords(index=np.s_[1:-1])).flatten()
+        #     else:
+        #         x0 = paths.coords[..., 1:-1].flatten()
+        #     printt("jac_max > tol(%.2f); Run without gradient" % self.tol)
+        #     res = minimize(act, x0, jac=jac, **search_kwargs)
+        #     self.set_results(res)
+        #     printt('{msg} : {nit:6d} {nfev:6d} {njev:6d} '
+        #            '{fun:8.4f} {jac_max:8.4f}'.format(**self.results))
+        #     if res.nit < 3:
+        #         break
         printt(paths.model.get_state_info())
 
         if self.prj_search:
@@ -435,6 +433,7 @@ class DAO(PathFinder):
         om = 'Onsager Machlup'
         self.results[om] = self.action(paths, action_name=om,
                                        muE=0.)(x0)
+        printt('OM      : %.2f' % self.results[om])
         if close_log:
             logfile.close()
         if self.prj_search:
@@ -584,14 +583,11 @@ class DAO(PathFinder):
             paths.coords = x0.reshape((paths.D, paths.M, paths.N))
 
     def isConverged(self, paths):
-        # jac = self.grad_action(paths)
-        # grad = jac(paths.coords.rcoords.flatten())
-        # if np.abs(np.max(grad) / np.sqrt(2 * paths.N)) < self.tol:
-        #     return True
-        # return False
         if self.results.get('jac_max') is None:
             return False
-        return self.results.get('jac_max') < self.tol
+        # return self.results.get('jac_max') < self.tol
+        err = self.results.get('jac_max') / np.abs(self.results.get('fun', 1.))
+        return err < self.tol
 
 
 def two_points_e_grad(p, H, F, Et, muE, dt):

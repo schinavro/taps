@@ -71,7 +71,7 @@ epoch : float
 index : slice obj; Default `np.s_[:]`
     Choose the steps want it to be returned. Default is all steps.
 """
-function get_displacements(coords::Cartesian; epoch=nothing, index=1⁝0)
+function get_distances(coords::Cartesian; epoch=nothing, index=1⁝0)
     axis = 1
     p = copy(coords.coords)
     d = map(norm, eachslice(diff(p, dims=axis), dims=axis))

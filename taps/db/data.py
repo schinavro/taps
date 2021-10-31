@@ -3,6 +3,7 @@ import time
 import pickle
 import sqlite3
 import numpy as np
+from numpy import newaxis as nax
 from sqlite3 import OperationalError
 from collections import OrderedDict
 from scipy.spatial import KDTree
@@ -100,7 +101,7 @@ class PathsData:
         pass
 
     def read(self, ids=None, query=None, columns=None, key_mapper=None,
-             where=" WHERE ", table_name='variables'):
+             where=" WHERE ", table_name='variables', get_dict=False):
         """
         ids : list of int
         query : 'rowid=1' or 'rowid IN (1, 2, 3, 4)' ...
@@ -127,7 +128,33 @@ class PathsData:
         data = c.fetchall()
         conn.commit()
         conn.close()
-        return self.decode(data, columns, key_mapper=key_mapper)
+        return self.decode(data, columns, key_mapper=key_mapper,
+                           get_dict=get_dict)
+
+    def read_all(self, query=None, columns=None, key_mapper=None,
+             where=" WHERE ", table_name='variables', get_dict=False):
+        key_mapper = key_mapper or self.key_mapper
+        columns = columns or ['paths']
+        columns = [key_mapper.get(column, column) for column in columns]
+
+        if query is not None:
+            for mapper in key_mapper.items():
+                query = query.replace(*mapper)
+
+        conn = sqlite3.connect(self.filename)
+        c = conn.cursor()
+
+        select_statement = "SELECT " + ', '.join(columns)
+        select_statement += " FROM %s" % table_name
+        select_statement += " ORDER BY rowid DESC"
+        c.execute(select_statement)
+        data = c.fetchall()
+
+        conn.commit()
+        conn.close()
+        return self.decode(data, columns, key_mapper=key_mapper,
+                           get_dict=get_dict)
+
 
     def write(self, data=None, key_mapper=None, table_name='variables'):
         """
@@ -208,28 +235,28 @@ class PathsData:
         if os.path.exists(self.filename + '.lock'):
             os.remove(self.filename + '.lock')
 
-    def count(self, query=None, key_mapper=None):
-        if query is None:
-            return None
-        table_name = 'variables'
-        key_mapper = key_mapper or self.key_mapper
-        for mapper in key_mapper.items():
-            query = query.replace(*mapper)
-
+    def count(self, query=None, key_mapper=None, table_name='variables'):
         conn = sqlite3.connect(self.filename)
         c = conn.cursor()
 
-        select_statement = "SELECT COUNT(*) FROM "
-        select_statement += table_name + " WHERE " + query
+        select_statement = "SELECT COUNT(*) FROM %s" % table_name
+        if query is not None:
+            key_mapper = key_mapper or self.key_mapper
+            for mapper in key_mapper.items():
+                query = query.replace(*mapper)
+            select_statement += " WHERE " + query
         c.execute(select_statement)
         count = c.fetchone()
         conn.commit()
         conn.close()
         return count[0]
 
-    def decode(self, data, columns, key_mapper=None):
+    def decode(self, data, columns, key_mapper=None, get_dict=False):
         """
+        data : list of tuple
+            [(b'akdfh..', 'Onsager', b'pathsbinary'), ...]
         columns = ['blb0', 'txt2', 'paths']
+        return : list of dictionary [{'paths': Paths, 'txt2': 'Onsager', ..]
         """
         key_mapper = key_mapper or self.key_mapper
         columns = [key_mapper.get(column, column) for column in columns]
@@ -238,8 +265,10 @@ class PathsData:
             for column in columns:
                 if column == 'paths':
                     #data[i][column] = pickle.loads(data[i][column])
-                    data[i][column] = classify(unpacking(data[i][column],
-                                               includesize=True)[1])
+                    dct = unpacking(data[i][column], includesize=True)[1]
+                    if not get_dict:
+                        dct = classify(dct)
+                    data[i][column] = dct
                 elif 'blb' in key_mapper.get(column, column):
                     data[i][column] = deblob(data[i][column])
                 else:
@@ -504,8 +533,8 @@ class ImageData:
         return ids
 
     def _search_image(self, paths, coords, pack_null=False,
-                      search_similar_image=True, similar_image_tol=0.1,
-                      **kwargs):
+                      search_similar_image=True, similar_image_tol=0.05,
+                      blackids=None, **kwargs):
         """
         Only search image table positions_arr exists.
         coords: 3 x A x M  or  D x M  array
@@ -514,145 +543,93 @@ class ImageData:
         Search perfect match exist,
         if not, check similar structure, or lower distance calculate
         """
-        conn = sqlite3.connect(self.filename)
-        c = conn.cursor()
+
+        db_data = []
+        # Initialize
+        if search_similar_image:
+            read_tables = {'image': OrderedDict(coord='blob', rowid='int')}
+            db_data = self.read_all(tables=read_tables)['image']
+            if db_data != []:
+                db_coord_list = []
+                db_coord_flat_list = []
+                db_ids = []
+                for data in db_data:
+                    _coord, _id = data
+                    db_coord_list.append(_coord)
+                    db_coord_flat_list.append(_coord.flatten())
+                    db_ids.append(_id)
+                dbtree = KDTree(db_coord_flat_list)
+
+            paths_ids = paths.model.data_ids.get('image')
+            if paths_ids is not None:
+                paths_data = paths.get_data()
+                paths_coord_flat_list = []
+                paths_coord_list = paths_data['X'].T
+                for m in range(paths_data["X"].shape[-1]):
+                    paths_coord_flat_list.append(paths_coord_list[m].flatten())
+                pathstree = KDTree(paths_coord_flat_list)
+
         M = coords.shape[-1]
         ids = []
         for m in range(M):
+            conn = sqlite3.connect(self.filename)
+            c = conn.cursor()
             coord = coords[..., m]
             # Check Perfect match
             select_statement = "SELECT rowid FROM image WHERE "
             select_statement += "coord=?"
             c.execute(select_statement, [blob(coord)])
             id = c.fetchone()
-            # Check Similar match
-            if (id is None) and search_similar_image:
-                cache = self._cache.get('image', {})
-                last_id = max(cache.get('coords_ids', [0]))
-                tol = similar_image_tol
-                read_tables = {'image': OrderedDict(coord='blob', rowid='int')}
-                new_data = self.read_all(tables=read_tables, last_id=last_id,
-                                         query=' WHERE rowid>%d' % last_id
-                                         )['image']
-                 # Initial case / No additional data found
-                if new_data is None or new_data == []:
-                    kdtree = cache.get('kdtree')
-
-                    if kdtree is None:  # Initial
-                        exist_similar = False
-                    else:  # There has been no additional calculation
-                        # Query similar point exists
-
-                        res = kdtree.query_ball_point(coord.flatten(), tol)
-
-                        if res is None or res == []:
-                            exist_similar = False
-                        else:
-                            exist_similar = True
-                            similar_idx = res
-                            similar_ids = np.array(
-                                cache.get('ids'))[similar_idx].reshape(-1)
-                            similar_coords = np.array(
-                                cache.get('coords'))[similar_idx]
-                            similar_coords_flat = np.array(cache.get(
-                                'coords_flat'))[similar_idx]
-
-                else:  # There is new data add it to the cache
-                    M = len(new_data)
-                    new_coords, new_coords_flat, new_ids = [], [], []
-                    for i in range(M):
-                        _coord, _id = new_data[i]
-                        new_coords.append(_coord)
-                        new_coords_flat.append(_coord.flatten())
-                        new_ids.append(_id)
-                    cache['ids'] = cache.get('ids', [])
-                    cache['coords'] = cache.get('coords', [])
-                    cache['coords_flat'] = cache.get('coords_flat', [])
-
-                    cache['ids'].extend(new_ids)
-                    cache['coords'].extend(new_coords)
-                    cache['coords_flat'].extend(new_coords_flat)
-                    cache['kdtree'] = KDTree(cache['coords_flat'])
-
-                    # Query similar point exists
-                    kdtree = cache['kdtree']
-                    res = kdtree.query_ball_point(coord.flatten(), tol)
-                    if res is None or res == []:
-                        exist_similar = False
-                    else:
-                        exist_similar = True
-                        similar_idx = res
-                        similar_ids = np.array(
-                            cache['ids'])[similar_idx].reshape(-1)
-                        # M x D
-                        similar_coords = np.array(cache['coords'])[similar_idx]
-                        similar_coords_flat = np.array(
-                            cache['coords_flat'])[similar_idx]
-                # Check similar results exists
-                if exist_similar:
-                    cur_data_ids = paths.model.data_ids.get('image', [])
-                    # D x M -> M x D
-                    cur_data_X = (paths.get_data() or {}).get('X')
-                    if cur_data_X is not None:
-                        shape = cur_data_X.shape
-                        if len(shape) == 3:
-                            _D, _M = np.prod(shape[:-1]), shape[-1]
-                        else:
-                            _D, _M = shape
-                        cur_data_Xtree = KDTree(cur_data_X.reshape(_D, _M).T)
-
-                    n_similar = len(similar_ids)
-                    print('Exist similar', similar_ids)
-                    similar_yet_fresh_ids = []
-                    similar_yet_fresh_coords = []
-                    for i in range(n_similar):
-                        # Check searched id is already exist in model data ids
-                        if similar_ids[i] in cur_data_ids:
-                            continue
-                        dist, prxi = cur_data_Xtree.query(
-                            similar_coords_flat[i])
-                        # Too close to data currently having
-                        print('Dist from ', i, dist)
-                        if dist < tol:
-                            continue
-                        similar_yet_fresh_ids.append(similar_ids[i])
-                        similar_yet_fresh_coords.append(similar_coords[i])
-
-                    # Emergency mode
-                    if similar_yet_fresh_ids == []:
-                        # Randomly walk until it finds no overlap
-                        new_coord = coord.copy()
-                        shape = new_coord.shape
-                        while True:
-                            walk = np.random.normal(size=shape, scale=2*tol)
-                            new_coord += walk
-                            dist, prxi = cur_data_Xtree.query(new_coord)
-                            print('Wakingdist', dist)
-                            if dist > tol:
-                                break
-                        # Generate empty Data
-                        data = {}
-                        data['image'] = self._create_image_data(
-                            paths, new_coord[..., np.newaxis], pack_null=True,
-                            **kwargs)
-                        id = self.write(data)['image']
-                        print(id)
-                    else:
-                        # pick among fresh ids
-                        id = [np.random.choice(similar_yet_fresh_ids)]
-            # PAD empty slots
-            if id is None and pack_null:
-                data = {}
-                data['image'] = self._create_image_data(paths,
-                                                        coord[..., np.newaxis],
-                                                        pack_null=True,
-                                                        **kwargs)
-                id = self.write(data)['image']
-            elif id is None:
+            conn.commit()
+            conn.close()
+            if id is None:
                 id = []
+            elif isinstance(id, tuple):
+                id = list(id)
+
+            # Check Similar match
+            if search_similar_image and db_data != []:
+                # Query similar point exists in db
+                res = dbtree.query_ball_point(coord.flatten(),
+                                              similar_image_tol)
+                similar_ids = np.array(db_ids)[res]
+                id.extend(similar_ids)
+
+            # Check any id is in the black list
+
+            if blackids is not None:
+                id = [i for i in id if i not in blackids]
+
+            if id != []:
+                # pick among fresh ids
+                id = [np.random.choice(id)]
+            elif id == [] and pack_null:
+                # Emergency case! Randomly walk until it finds no overlap
+                if paths_ids is not None:
+                    prjcoord = paths.model.prj._x(coord[..., nax])
+                    shape = prjcoord.shape
+                    new_coord = prjcoord.flatten()
+                    _D = np.prod(shape)
+                    while True:
+                        dist, prxi = pathstree.query(new_coord)
+                        if dist > similar_image_tol:
+                            break
+                        walk = np.random.normal(size=_D,
+                                                scale=2*similar_image_tol)
+                        new_coord += walk
+                    _coord = paths.model.prj._x_inv(new_coord.reshape(*shape))
+                    coord = _coord[..., 0]
+
+                # PAD empty slots
+                data = {}
+                data['image'] = self._create_image_data(paths, coord[..., nax],
+                                                     pack_null=True, **kwargs)
+                id = self.write(data)['image']
+            elif id == []:
+                # pick among fresh ids
+                id = []
+
             ids.extend(id)
-        conn.commit()
-        conn.close()
         return ids
 
     def _search_sbdesc(self, paths, sbdesc_list, pack_null=False,
@@ -905,7 +882,7 @@ class ImageData:
                         raise NotImplementedError('To update status, need ids')
                     self.update({'image': [id]}, {'image': [datum_tuple]})
 
-                results = paths.get_properties(coords=coord[..., np.newaxis],
+                results = paths.get_properties(coords=coord[..., nax],
                                                properties=props,
                                                real_model=True, caching=True)
                 datum['finish_time'] = time.time()

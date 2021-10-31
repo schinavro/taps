@@ -74,9 +74,9 @@ class Julia(Model):
             #     resultslist.append(value['model_kwargs']['results'][prop])
             self.results[prop] = np.concatenate(resultslist, axis=-1)
 
-    # def get_displacements(self, paths, **kwargs):
+    # def get_distances(self, paths, **kwargs):
     #     return self.get_properties(paths, properties='displacements',
-    #                                instruction=b'get_displacements', **kwargs)
+    #                                instruction=b'get_distances', **kwargs)
 
     # def get_momentum(self, paths, **kwargs):
     #     return self.get_properties(paths, properties='momentum',

@@ -1,7 +1,11 @@
 import json
+import warnings
+import inspect
 import numpy as np
 from collections import deque
 from importlib import import_module
+
+from ase.atoms import Atoms
 
 Int, Float, Real, Number, Bool = 1, 2, 3, 4, 5
 Int8, Int16, Int32, Int64 = 6, 7, 8, 9
@@ -55,7 +59,9 @@ def read_header(arrbytes):
 
 
 def dictify(obj, ignore_cache=True):
-    if isinstance(obj, dict):
+    if isinstance(obj, type) or inspect.ismethod(obj):
+        return None
+    elif isinstance(obj, dict):
         dct = {}
         for k, v in obj.items():
             if isinstance(k, int):
@@ -65,7 +71,7 @@ def dictify(obj, ignore_cache=True):
             elif (k[0] == '_' and ignore_cache):
                 continue
 
-            if v is None or isinstance(v, type):
+            if v is None or isinstance(v, type) or inspect.ismethod(v):
                 continue
             elif isinstance(v, (dict, list)):
                 dct[k] = dictify(v, ignore_cache=ignore_cache)
@@ -78,7 +84,7 @@ def dictify(obj, ignore_cache=True):
     elif isinstance(obj, list):
         lst = []
         for v in obj:
-            if v is None or isinstance(v, type):
+            if v is None or isinstance(v, type) or inspect.ismethod(v):
                 continue
             elif isinstance(v, (dict, list)):
                 lst.append(dictify(v, ignore_cache=ignore_cache))
@@ -87,6 +93,13 @@ def dictify(obj, ignore_cache=True):
             else:
                 lst.append(dictify(v, ignore_cache=ignore_cache))
         return lst
+    elif isinstance(obj, Atoms):
+        from ase.db.row import atoms2dict
+        kwargs = atoms2dict(obj)
+        kwargs['cell'] = kwargs['cell'].array
+        return {'__name__': 'Atoms2',
+                '__module__': obj.__class__.__module__,
+                'kwargs': kwargs}
     else:
         dct = {}
         for k, v in vars(obj).items():
@@ -94,10 +107,10 @@ def dictify(obj, ignore_cache=True):
                 pass
             elif isinstance(k, bytes):
                 k = '___' + k.hex()
-            elif (k[0] == '_' and ignore_cache):
+            elif (k[0] == '_') and ignore_cache:
                 continue
 
-            if v is None or isinstance(v, type):
+            if v is None or isinstance(v, type) or inspect.ismethod(v):
                 continue
             elif isinstance(v, (dict, list)):
                 dct[k] = dictify(v, ignore_cache=ignore_cache)
@@ -106,11 +119,29 @@ def dictify(obj, ignore_cache=True):
             else:
                 dct[k] = dictify(v, ignore_cache=ignore_cache)
         return {'__name__': obj.__class__.__name__,
-            '__module__': obj.__class__.__module__, 'kwargs':dct}
+                '__module__': obj.__class__.__module__, 'kwargs': dct}
+
 
 def classify(obj):
-    if isinstance(obj, dict) and obj.get('__module__') is not None:
+    if isinstance(obj, dict) and obj.get('__name__') == 'Atoms2':
+        from ase.db.row import AtomsRow
+        return AtomsRow(obj['kwargs']).toatoms(attach_calculator=True,
+                                      add_additional_information=True)
+    elif isinstance(obj, dict) and obj.get('__module__') is not None:
         module = import_module(obj['__module__'])
+        ##
+        sig = inspect.signature(getattr(module, obj['__name__']).__init__)
+        init_keys = sig.parameters.keys()
+        obj_keys = list(obj['kwargs'].keys())
+        init_values = sig.parameters.values()
+        has_kwargs = any([True for p in init_values if p.kind == p.VAR_KEYWORD])
+        if has_kwargs:
+            pass
+        else:
+            for k in obj_keys:
+                if k not in init_keys:
+                    warnings.warn('key  %s not in %s' % (k, obj['__name__']))
+                    del obj['kwargs'][k]
         return getattr(module, obj['__name__'])(**(classify(obj['kwargs'])))
     elif isinstance(obj, list):
         lst = []
@@ -182,6 +213,14 @@ def pointify(d, pointer=0, binarylist=[]):
         if isinstance(o, dict):
             for k, v in o.items():
                 queue.append((id(v), v))
+                if np.issubdtype(type(v), np.integer):
+                    o[k] = int(v)
+                elif np.issubdtype(type(v), np.floating):
+                    o[k] = float(v)
+                elif np.issubdtype(type(v), np.str_):
+                    o[k] = str(v)
+                elif np.issubdtype(type(v), np.complexfloating):
+                    o[k] = complex(v)
                 if isinstance(v, (np.ndarray, bytes)):
                     vv = v.copy()
                     if isinstance(vv, bytes):
@@ -192,6 +231,8 @@ def pointify(d, pointer=0, binarylist=[]):
                     binarylist.append(hsize + headerbytes + vv.tobytes())
                     o[k] = pstr
                     pointer += 1
+
+
 
         elif isinstance(o, (list, tuple)):
             for i in range(len(o)):
@@ -207,6 +248,8 @@ def pointify(d, pointer=0, binarylist=[]):
                     binarylist.append(hsize + headerbytes + vv.tobytes())
                     o[i] = pstr
                     pointer += 1
+                elif isinstance(v, np.int64):
+                    o[k] = int(v)
 
     return d, pointer, binarylist
 

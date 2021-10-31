@@ -6,6 +6,7 @@ from collections import OrderedDict
 from numpy import pi, dot
 from numpy import newaxis as nax
 from numpy.linalg import norm
+from numpy import concatenate as cat
 from scipy.optimize import check_grad
 from ase.atoms import Atoms
 from taps.utils.shortcut import isdct, isstr, issclr
@@ -245,7 +246,7 @@ class Model:
         if required.get('acceleration'):
             a = coords.get_acceleration(index=index)
         if required.get('displacements'):
-            d = coords.get_displacements(index=index)
+            d = coords.get_distances(index=index)
 
         results = {}
         if 'velocity' in properties:
@@ -325,7 +326,7 @@ class Model:
     def get_acceleration(self, paths, **kwargs):
         return self.get_kinetics(paths, properties='acceleration', **kwargs)
 
-    def get_displacements(self, paths, **kwargs):
+    def get_distances(self, paths, **kwargs):
         return self.get_kinetics(paths, properties='displacements', **kwargs)
 
     def get_momentum(self, paths, **kwargs):
@@ -437,7 +438,7 @@ class Model:
         prind('Total hessian error :', err)
 
     def get_data(self, paths, coords=None, data_ids=None,
-                 keys=['coords', 'potential', 'gradients']):
+                 keys=['coords', 'potential', 'gradients'], **kwargs):
         """
         data_ids : dictionary of lists
             {'image': [...], 'descriptor': [...]}
@@ -455,11 +456,16 @@ class Model:
         # shape = (3, 5)
         M = len(data_ids['image'])
         if self._cache.get('data_ids_image') is None:
+            shape_raw = paths.coords(index=[0]).shape[:-1]
             shape = self.prj.x(paths.coords(index=[0])).shape[:-1]
             self._cache['data_ids_image'] = []
-            self._cache['data'] = {'X': np.zeros((*shape, 0), dtype=float),
-                                   'V': np.zeros(0, dtype=float),
-                                   'F': np.zeros((*shape, 0), dtype=float)}
+            self._cache['data'] = {
+                'X': np.zeros((*shape, 0), dtype=float),
+                'V': np.zeros(0, dtype=float),
+                'F': np.zeros((*shape, 0), dtype=float),
+                'X_raw': np.zeros((*shape_raw, 0), dtype=float),
+                'F_raw': np.zeros((*shape_raw, 0), dtype=float),
+            }
         if self._cache.get('data_ids_image') == data_ids['image']:
             return self._cache['data']
         else:
@@ -475,12 +481,17 @@ class Model:
         data = self._cache['data']
         if 'coords' in keys:
             coords_raw = []
+            coords_prj = []
             for i in range(M):
                 coord_raw = new_data[i][n2i['coord']][..., nax]
-                coords_raw.append(self.prj._x(coord_raw))
+                coord_prj = self.prj._x(new_data[i][n2i['coord']][..., nax])
+                coords_raw.append(coord_raw)
+                coords_prj.append(coord_prj)
             if M != 0:
-                new_coords = np.concatenate(coords_raw, axis=-1)
-                data['X'] = np.concatenate([data['X'], new_coords], axis=-1)
+                new_coords_raw = cat(coords_raw, axis=-1)
+                new_coords_prj = cat(coords_prj, axis=-1)
+                data['X_raw'] = cat([data['X_raw'], new_coords_raw], axis=-1)
+                data['X'] = cat([data['X'], new_coords_prj], axis=-1)
         if 'potential' in keys:
             potential = []
             for i in range(M):
@@ -489,15 +500,19 @@ class Model:
                 new_potential = np.concatenate(potential, axis=-1)
                 data['V'] = np.concatenate([data['V'], new_potential], axis=-1)
         if 'gradients' in keys:
-            gradients = []
+            gradients_raws = []
+            gradients_prjs = []
             for i in range(M):
                 coords_raw = new_data[i][n2i['coord']][..., nax]
                 gradients_raw = new_data[i][n2i['gradients']]
                 gradients_prj, _ = self.prj.f(gradients_raw, coords_raw)
-                gradients.append(gradients_prj)
+                gradients_raws.append(gradients_raw)
+                gradients_prjs.append(gradients_prj)
             if M != 0:
-                new_gradients = np.concatenate(gradients, axis=-1)
-                data['F'] = np.concatenate([data['F'], -new_gradients], axis=-1)
+                new_grad_raw = cat(gradients_raws, axis=-1)
+                new_grad_prj = cat(gradients_prjs, axis=-1)
+                data['F_raw'] = cat([data['F_raw'], -new_grad_raw], axis=-1)
+                data['F'] = cat([data['F'], -new_grad_prj], axis=-1)
         self._cache['data_ids_image'].extend(new_data_ids_image)
         return data
 
