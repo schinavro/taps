@@ -27,7 +27,7 @@ Calculate Kinetic energy
 
 :class:`Cartesian` contains tools for calculating kinetic property of the pathway. For example,
 
-    >>> paths.get_kinetic_energy()
+    >>> paths.get_kinetic_energies()
 
 Since the way of calculating kinetic energy entirly depends on the coordinate representation, way of getting kinetic energy is differ with individual coords.
 Here, we set cartesian coordinate as a default representation.

@@ -2,12 +2,13 @@ import copy
 import numpy as np
 from numpy import concatenate
 from numpy import newaxis as nax
-from scipy.fftpack import dst, idst
 from taps.utils.arraywrapper import arraylike
+from taps.coords import Coordinate
 
 
 @arraylike
-class Cartesian:
+class Cartesian(Coordinate):
+
     """
     Discretized coordinate representaion of a system. In default, system is
     considered as Cartesian.
@@ -25,87 +26,17 @@ class Cartesian:
       length unit of a system. Currently it is only for a display purpose.
       (TODO: automatic unit matching with Model class)
     """
-    def __init__(self, coords=None, epoch=3, _Nk=None, Nk=None, unit=None,
-                 **kwargs):
-        coords = np.asarray(coords, dtype=float)
-        self.coords = coords
-        self.epoch = epoch
-        self._Nk = _Nk or Nk
-        self.unit = unit
+    def __init__(self, mass=None, **kwargs):
+        self.mass = mass
+        super().__init__(**kwargs)
 
-    def __call__(self, index=np.s_[:], coords=None):
-        if coords is not None:
-            kwargs = self.__dict__.copy()
-            del kwargs['coords']
-            return self.__class__(coords=coords, **kwargs)
-        if index.__class__.__name__ == 'slice' and index == np.s_[:]:
-            return self
-        kwargs = self.__dict__.copy()
-        del kwargs['coords']
-        idx = np.arange(self.N)[index].reshape(-1)
-        coords = self.coords[..., idx]
-        return self.__class__(coords=coords, **kwargs)
+    def similar(self):
+        return self.__class__(coords=None, epoch=self.epoch, unit=self.unit)
 
-    @classmethod
-    def ascoords(cls, coords):
-        """Return argument as a Cartesian object.
+    def masses(self, paths, **kwargs):
+        return self.mass
 
-        A new Cartesian object is created if necessary."""
-        if isinstance(coords, cls):
-            return coords
-        return cls.new(coords)
-
-    @classmethod
-    def new(cls, coords=None):
-        """Create new Cartesian"""
-
-        coords = np.array(coords, float)
-
-        coordsobj = cls(coords)
-        return coordsobj
-
-    def __array__(self, dtype=float):
-        return self.coords
-
-    def __bool__(self):
-        return bool(self.any())  # need to convert from np.bool_
-
-    def __repr__(self):
-        return 'Cartesian{}'.format(self.coords.shape)
-
-    @property
-    def N(self):
-        """ Number of steps; coords.shape[-1]"""
-        return self.coords.shape[-1]
-
-    @property
-    def Nk(self):
-        """ Number of sine components. Default is N - 2"""
-        return self._Nk or self.N - 2
-
-    @Nk.setter
-    def Nk(self, Nk=None):
-        self._Nk = Nk
-
-    @property
-    def D(self):
-        """ Total dimension of coords. """
-        shape = self.coords.shape
-        if len(shape) == 3:
-            return shape[0] * shape[1]
-        else:
-            return shape[0]
-
-    @property
-    def A(self):
-        """ Number of individual atoms or components """
-        shape = self.coords.shape
-        if len(shape) == 3:
-            return shape[1]
-        else:
-            return 1
-
-    def get_displacements(self, coords=None, epoch=None, index=np.s_[:]):
+    def displacements(self, paths, **kwargs):
         """
         Return vector
         """
@@ -113,26 +44,7 @@ class Cartesian:
         p = coords or self.coords
         return p - init
 
-    def get_distances(self, coords=None, epoch=None, index=np.s_[:]):
-        """Return distance of each steps.
-        Get coords(array) and return length N array. Useful for plotting E/dist
-
-        Parameters
-        ----------
-        coords : array
-            size of DxN or 3xAxN
-        epoch : float
-            total time spend during transition
-        index : slice obj; Default `np.s_[:]`
-            Choose the steps want it to be returned. Default is all steps.
-        """
-        p = coords or self.coords
-        normaxis = np.arange(len(p.shape))[:-1]
-        d = np.linalg.norm(np.diff(p), axis=tuple(normaxis))
-        d = concatenate([[0], d], axis=-1)
-        return np.add.accumulate(d)[index]
-
-    def get_velocity(self, coords=None, epoch=None, index=np.s_[:]):
+    def velocities(self, coords=None, epoch=None, index=np.s_[:]):
         """ Return velocity at each step
         Get coords and return DxN or 3xAxN array, two point moving average.
 
@@ -160,7 +72,7 @@ class Cartesian:
             p = concatenate([p, p[..., -1, nax]], axis=-1)
         return (p[..., i] - p[..., i - 1]) / dt
 
-    def get_acceleration(self, coords=None, epoch=None, index=np.s_[:]):
+    def accelerations(self, coords=None, index=np.s_[:]):
         """ Return acceleration at each step
         Get Dx N ndarray, Returns 3xNxP - 1 array, use three point to get
         acceleration
@@ -192,38 +104,6 @@ class Cartesian:
         if i[-1] == N - 1:
             p = concatenate([p, p[..., -1, nax]], axis=-1)
         return (2 * p[..., i] - p[..., i - 1] - p[..., i + 1]) / ddt
-
-    @property
-    def rcoords(self):
-        """ Recieprocal representation of a pathway
-            Returns rcoords array
-            DxNk array
-        """
-        # return dst(self.coords - self.init_image, type=4)[..., :self.Pk]
-        ## return dst(self.coords[..., 1:-1], type=4)[..., :self.Pk]
-        return dst(self.coords[..., 1:-1], type=1, norm='ortho')
-
-    @rcoords.setter
-    def rcoords(self, rcoords):
-        """ For numerical purpose, set rpath.
-            D x Nk array
-        """
-        # P = self.P
-        # coords = idst(rcoords, type=4, n=P) / (2 * P) + self.init_image
-        # self.coords[..., 1:-1] = coords[..., 1:-1]
-        ## P = self.P
-        ## coords = idst(rcoords, type=4, n=P - 2) / (2 * (P - 2))
-        ## self.coords[..., 1:-1] = coords
-        self.coords[..., 1:-1] = idst(rcoords, type=1, norm='ortho')
-
-    def flat(self):
-        """ Return flat version of paths"""
-        N = self.N
-        return self.coords.reshape((-1, N))
-
-    def copy(self):
-        """ Return deep copy of itself"""
-        return copy.deepcopy(self)
 
 
 class AlanineDipeptideCartesian(Cartesian):

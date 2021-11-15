@@ -420,7 +420,7 @@ class Plotter:
 
         dist = paths.get_distances(index=np.s_[1:-1])
         V = paths.get_potential_energy(index=np.s_[1:-1])
-        T = paths.get_kinetic_energy(index=np.s_[1:-1])
+        T = paths.get_kinetic_energies(index=np.s_[1:-1])
         lns = ax.plot(dist, V, self.mrkrV, label='$V$')
         if gaussian:
             cov_coords = paths.get_covariance(index=np.s_[1:-1])
@@ -561,7 +561,7 @@ class Plotter:
             quiver_scale = self.quiver_scale
 
         D, N = paths.coords.shape
-        data = paths.model.get_data(paths)
+        data = paths.model.get_image_data(paths)
         X_dat = self.display_coord(data['X'].reshape(D, -1))
         F_dat = data['F'].reshape(D, -1)
         tX, tY = X_dat[0, :], X_dat[1, :]

@@ -1,5 +1,5 @@
 import numpy as np
-from taps.model.model import Model
+from taps.models.models import Model
 
 
 class MullerBrown(Model):
@@ -40,14 +40,6 @@ class MullerBrown(Model):
     """
     implemented_properties = {'potential', 'gradients', 'hessian'}
 
-    model_parameters = {
-        'A': {'default': 'np.array([-200, -100, -170, 15])', 'assert': 'True'},
-        'a': {'default': 'np.array([-1, -1, -6.5, 0.7])', 'assert': 'True'},
-        'b': {'default': 'np.array([0, 0, 11, 0.6])', 'assert': 'True'},
-        'c': {'default': 'np.array([-10, -10, -6.5, 0.7])', 'assert': 'True'},
-        'x0': {'default': 'np.array([1, 0, -0.5, -1])', 'assert': 'True'},
-        'y0': {'default': 'np.array([0, 0.5, 1.5, 1])', 'assert': 'True'},
-     }
     A = np.array([-200, -100, -170, 15]) / 100
     a = np.array([-1, -1, -6.5, 0.7])
     b = np.array([0, 0, 11, 0.6])
@@ -55,11 +47,6 @@ class MullerBrown(Model):
     x0 = np.array([1, 0, -0.5, -1])
     y0 = np.array([0, 0.5, 1.5, 1])
     potential_unit = 'unitless'
-
-    def __init__(self, **kwargs):
-        super().model_parameters.update(self.model_parameters)
-        self.model_parameters.update(super().model_parameters)
-        super().__init__(**kwargs)
 
     def calculate(self, paths, coords, properties=['potential'],
                   **kwargs):

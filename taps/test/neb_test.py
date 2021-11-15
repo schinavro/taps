@@ -6,7 +6,7 @@ from ase.calculators.emt import EMT
 from ase.optimize import QuasiNewton
 
 from taps.paths import Paths
-from taps.model.atomicmodel import AtomicModel
+from taps.models.atomicmodel import AtomicModel
 from taps.projectors import Mask
 from taps.pathfinder import NEB
 

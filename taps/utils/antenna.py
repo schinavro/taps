@@ -195,7 +195,7 @@ def statify(arrlist, d):
                 queue.append((id(v), v))
                 if v in pointerlist:
                     j = pointerlist.index(v)
-                    arr = pointerlist.index[j]
+                    arr = arrlist[j][1]
                     if arr.dtype == np.uint8:
                         arr = arr.tobytes()
                     o[i] = arr
@@ -232,8 +232,6 @@ def pointify(d, pointer=0, binarylist=[]):
                     o[k] = pstr
                     pointer += 1
 
-
-
         elif isinstance(o, (list, tuple)):
             for i in range(len(o)):
                 v = o[i]
@@ -249,7 +247,7 @@ def pointify(d, pointer=0, binarylist=[]):
                     o[i] = pstr
                     pointer += 1
                 elif isinstance(v, np.int64):
-                    o[k] = int(v)
+                    o[i] = int(v)
 
     return d, pointer, binarylist
 
@@ -273,6 +271,8 @@ def packing(*args, **kwargs):
 
 
 def unpacking(bytesarr, includesize=False):
+    if bytesarr is None:
+        return [], {}
     if includesize:
         bytesarr = bytesarr[8:]
     nargs, nkwargs = np.frombuffer(bytesarr[:16], dtype=np.int64, count=2)

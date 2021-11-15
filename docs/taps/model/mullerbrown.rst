@@ -1,4 +1,4 @@
-.. module:: taps.model.mullerbrown
+.. module:: taps.models.mullerbrown
 
 =========================================
 MullerBrown

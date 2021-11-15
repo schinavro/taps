@@ -7,7 +7,7 @@ from threading import Thread, Event
 import numpy as np
 import subprocess
 
-from taps.model import Model
+from taps.models import Model
 
 
 def _std_stream(std, std_queue, kill_sig, poll_obj):
@@ -27,10 +27,6 @@ class Julia(Model):
 
 
     """
-    model_parameters = {
-        'io': {'default': 'None', 'assert': 'True'},
-        'mpi': {'default': 'None', 'assert': 'True'}
-    }
 
     implemented_properties = {'covariance', 'potential', 'gradients',
                               'hessian', 'momentum', 'kinetic_energy',
@@ -38,8 +34,6 @@ class Julia(Model):
                               'acceleration', 'mass', 'effective_mass'}
 
     def __init__(self, mpi=None, io="SocketIO", io_kwargs={}, **kwargs):
-        super().model_parameters.update(self.model_parameters)
-        self.model_parameters.update(super().model_parameters)
 
         if type(io) == str:
             from_ = 'taps.io.' + io.lower()
@@ -78,23 +72,23 @@ class Julia(Model):
     #     return self.get_properties(paths, properties='displacements',
     #                                instruction=b'get_distances', **kwargs)
 
-    # def get_momentum(self, paths, **kwargs):
+    # def get_momentums(self, paths, **kwargs):
     #     return self.get_properties(paths, properties='momentum',
     #                                instruction=b'get_momentum', **kwargs)
 
-    # def get_kinetic_energy(self, paths, **kwargs):
+    # def get_kinetic_energies(self, paths, **kwargs):
     #     return self.get_properties(paths, properties='kinetic_energy',
     #                                instruction=b'get_kinetic_energy', **kwargs)
 
-    # def get_kinetic_energy_gradient(self, paths, **kwargs):
+    # def get_kinetic_energy_gradients(self, paths, **kwargs):
     #     return self.get_properties(paths, properties='kinetic_energy_gradient',
     #                                instruction=b'get_kinetic_energy_gradient', **kwargs)
 
-    # def get_velocity(self, paths, **kwargs):
+    # def get_velocities(self, paths, **kwargs):
     #     return self.get_properties(paths, properties='velocity',
     #                                instruction=b'get_velocity', **kwargs)
 
-    # def get_acceleration(self, paths, **kwargs):
+    # def get_accelerations(self, paths, **kwargs):
     #     return self.get_properties(paths, properties='acceleration',
     #                                instruction=b'get_acceleration', **kwargs)
 
@@ -102,7 +96,7 @@ class Julia(Model):
     #     return self.get_properties(paths, properties='acceleration',
     #                                instruction=b'get_acceleration', **kwargs)
 
-    def get_mass(self, paths, **kwargs):
+    def get_masses(self, paths, **kwargs):
         return self.get_properties(paths, properties='mass',
                                    instruction=b'get_mass', **kwargs)
 

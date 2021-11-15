@@ -7,7 +7,7 @@ from threading import Thread, Event
 import numpy as np
 import subprocess
 
-from taps.model import Model
+from taps.models import Model
 
 
 def _std_stream(std, std_queue, kill_sig, poll_obj):
@@ -27,17 +27,10 @@ class Julia(Model):
 
 
     """
-    model_parameters = {
-        'io': {'default': 'None', 'assert': 'True'},
-        'mpi': {'default': 'None', 'assert': 'True'}
-    }
     implemented_properties = {'covariance', 'potential', 'gradients',
                               'hessian'}
 
     def __init__(self, mpi=None, io="SocketIO", io_kwargs={}, **kwargs):
-        super().model_parameters.update(self.model_parameters)
-        self.model_parameters.update(super().model_parameters)
-
         if type(io) == str:
             from_ = 'taps.io.' + io.lower()
             module = __import__(from_, {}, None, [io])
@@ -143,7 +136,7 @@ class Julia(Model):
         self._std_kill_sig.set()
         self._std_thread.join()
 
-    def get_mass(self, paths, coords=None, **kwargs):
+    def get_masses(self, paths, coords=None, **kwargs):
         return self.calculate(paths, coords, properties=['mass'], **kwargs)
 
     def get_effective_mass(self, paths, coords=None, **kwargs):

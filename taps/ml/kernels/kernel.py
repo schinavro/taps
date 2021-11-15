@@ -145,96 +145,19 @@ class Kernel:
             return Kext + noise * I((D + 1) * N)
         return Kext
 
-    def set_hyperparameters(self, hyperparameters_list=None):
+    def set_hyperparameters(self, hyperparameters=None):
         for key, idx in self.key2idx.items():
-            self.hyperparameters[key] = hyperparameters_list[idx]
+            self.hyperparameters[key] = hyperparameters[idx]
 
-    def get_hyperparameters(self, hyperparameters_list=None):
-        if hyperparameters_list is None:
-            return self.hyperparameters
-        hyperparameters = {}
+    def get_hyperparameters(self):
+        hyperparameters = [None] * len(self.hyperparameters)
         for key, idx in self.key2idx.items():
-            hyperparameters[key] = hyperparameters_list[idx]
+            hyperparameters[idx] = self.hyperparameters[key]
         return hyperparameters
-
-
-    def shape_data(self, data, hess=True):
-        shape = data['X'].shape
-        D, M = np.prod(shape[:-1]), shape[-1]
-        if M == 0:
-            return np.zeros(0)
-        if not hess:
-            return data['V']
-        return np.vstack([data['V'], -data['F'].reshape(D, M)]).flatten()
 
     def __repr__(self):
         return self.__class__.__name__
 
-
-class AtomicDistanceKernel(Kernel):
-    def __call__(self, Xm, Xn=None, hyperparameters=None):
-        """
-        https://link.springer.com/chapter/10.1007/978-3-319-70087-8_55"""
-        if Xm is not None:
-            pass
-
-
-class DescriptorKernel(Kernel):
-    from taps.ml.descriptor import SphericalHarmonicDescriptor
-    """
-    period : NxD array
-    """
-    hyperparameters = {'sigma_f': 1, 'l^2': 1, 'sigma_n^e': 1,
-                       'sigma_n^f': 1}
-
-    def __init__(self, weights=None, cutoff_radius=None, n_atom=None,
-                 n_max=None, libname='libsbdesc.so',
-                 libdir='/group/schinavro/libCalc/sbdesc/lib/'):
-        desc_kwargs = {'weights': weights, 'cutoff_radius': cutoff_radius,
-                       'n_atom': n_atom, 'n_max': n_max,
-                       'libname': 'libsbdesc.so',
-                       'libdir': '/group/schinavro/libCalc/sbdesc/lib/'}
-        self.descriptor = self.SphericalHarmonicDescriptor()
-
-        # self.hyperparameters.update(hyperparameters)
-
-    def __call__(self, Xn=None, Xm=None, orig=False, noise=False,
-                 hyperparameters=None, gradient_only=False, hessian_only=False,
-                 potential_only=False):
-        """Return the kernel k(X, Y) and optionally its gradient.
-        Parameters
-        ----------
-        Xn : D x M x N array must be Scaled_coordinate
-        X : D x N array, where DxN -> D; P -> N
-            Left argument of the returned kernel k(X, Y)
-        Xm : D x M x M array
-        Y : D x M array
-        Returns
-        -------
-        K : array, shape (n_samples_X, n_samples_Y)
-            Kernel k(X, Y)
-        http://home.zcu.cz/~jacobnzw/pdf/2016_mlsp_gradients.pdf
-        978-1-5090-0746-2/16/$31.00 c 2016 IEE
-        https://arxiv.org/pdf/1703.04389.pdf
-        Q : n_max * (n_max + 1) / 2
-        """
-        if hyperparameters is None:
-            hyperparameters = self.hyperparameters
-        if Xn is None:
-            Xn = Xm.copy()
-        Xm = atleast_3d(Xm).astype(float)  # 3 x A x M
-        Xn = atleast_3d(Xn).astype(float)  # 3 x A x N
-        Dm = self.descriptor(Xm)  # A x Q x M
-        Dn = self.descriptor(Xn)  # A x Q x N
-        N = Dn.shape[-1]
-        M = Dm.shape[-1]
-        A = Dn.shape[1]
-
-        K = np.zeros((A, M, N))
-        for i, X, Y in zip(np.arange(A), Dm, Dn):
-            K[i] = np.einsum('ijk, ijl -> ikl', X, Y)
-        if orig:
-            if noise:
-                noise_f = hyperparameters.get('sigma_n^e', 0)
-                return K + noise_f * I(N)
-            return K                               # N x M
+    def __str__(self):
+        # [(k, v) for k,v in self.hyperparameters.items()]
+        return ''

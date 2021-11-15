@@ -3,7 +3,7 @@ import time
 import numpy as np
 from random import randrange, random
 from taps.paths import Paths
-from taps.db.data import PathsData
+from taps.db import PathsDatabase
 from taps.build import read_csv
 from taps.utils.utils import ImageIndexing
 from taps.distances import FrechetDistance
@@ -25,22 +25,22 @@ class Population:
     """
     metadata = {'dcut': None, 'iteration': None, }
 
-    def __init__(self, pathsdata='pathsdata.db', number_of_candidates=10,
+    def __init__(self, PathsDatabase='PathsDatabase.db', number_of_candidates=10,
                  logfile=None):
-        self.initialize_pathsdata(pathsdata)
+        self.initialize_pathsdata(PathsDatabase)
         self.initialize_candidates()
         self.initialize_metadata()
         self.number_of_candidates = number_of_candidates
 
-    def initialize_pathsdata(self, pathsdata):
+    def initialize_pathsdata(self, PathsDatabase):
         key_mapper = OneDict(blb0='init', blb1='fin', int0='candidate',
                              int1='group')
         metadata = {'dcut': 'real', 'iteration': 'int',
                     'current_candidates_ids': 'blob', 'time': 'text'}
-        if type(pathsdata) == str:
-            pathsdata = PathsData(pathsdata, metadata=metadata,
+        if type(PathsDatabase) == str:
+            PathsDatabase = PathsDatabase(PathsDatabase, metadata=metadata,
                                   key_mapper=key_mapper)
-        self.pathsdata = pathsdata
+        self.PathsDatabase = PathsDatabase
 
     def initialize_metadata(self):
         self.metadata = self.read_metadata()
@@ -52,14 +52,14 @@ class Population:
         candidate.tag = candidate.__dict__.get('tag') or {}
         data = {'paths': candidate, 'init': candidate.coords[..., 0],
                 'fin': candidate.coords[..., -1], 'candidate': trustworthy}
-        id = self.pathsdata.write([data])
+        id = self.PathsDatabase.write([data])
         print(id, candidate.tag)
         candidate.tag['id'] = id[0]
         return id
 
     def write_metadata(self, noc=None, iteration=None, dcut=None):
         number_of_candidates = noc or self.count_candidates()
-        ids = self.pathsdata.read(query='candidate=1', columns=['rowid'])
+        ids = self.PathsDatabase.read(query='candidate=1', columns=['rowid'])
         if number_of_candidates < self.number_of_candidates:
             metadata = {'current_candidates_ids': ids, 'time': time.time()}
         else:
@@ -67,11 +67,11 @@ class Population:
                         'current_candidates_ids': ids, 'time': time.time()}
 
         metadata = []
-        self.pathsdata.write(data=metadata, table_name='metadata')
+        self.PathsDatabase.write(data=metadata, table_name='metadata')
 
     def read_candidates(self, query='candidate=1', columns=['paths', 'rowid']):
         candidates = []
-        for datum in self.pathsdata.read(query=query, columns=columns):
+        for datum in self.PathsDatabase.read(query=query, columns=columns):
             candidate = datum['paths']
             candidate.tag['id'] = datum['rowid']
             candidates.append(candidate)
@@ -84,7 +84,7 @@ class Population:
         query = "rowid DESC LIMIT 1;"
         where = " ORDER BY "
         columns = ['dcut', 'iteration', 'current_candidates_ids', 'time']
-        metadata = self.pathsdata.read(query=query, columns=columns,
+        metadata = self.PathsDatabase.read(query=query, columns=columns,
                                        table_name='metadata', where=where)
         if len(metadata) == 0:
             return None
@@ -96,7 +96,7 @@ class Population:
                 'fin': candidate.coords[..., -1], 'candidate': trustworthy}
 
         id = candidate.tag['id']
-        self.pathsdata.update([id], [data])
+        self.PathsDatabase.update([id], [data])
 
     def generate_candidate(self, sample=None, p=None):
         """
@@ -125,7 +125,7 @@ class Population:
     def register_candidate(self, candidate=None):
         self.attatch_birth_certificate(candidate)
         candidate.search()
-        self.pathsdata.lock()
+        self.PathsDatabase.lock()
         number_of_candidates = self.count_candidates()
         print(number_of_candidates)
         if number_of_candidates < self.number_of_candidates:
@@ -158,10 +158,10 @@ class Population:
                     self.update_candidate(candidate, trustworthy=1)
             self.write_metadata(noc=number_of_candidates, dcut=dcut * 0.98,
                                 iteration=iteration + 1)
-        self.pathsdata.release()
+        self.PathsDatabase.release()
 
     def count_candidates(self):
-        return self.pathsdata.count(query='candidate=1')
+        return self.PathsDatabase.count(query='candidate=1')
 
     @property
     def fitness(self):
@@ -213,7 +213,7 @@ class Population:
         return d
 
     def get_two_candidates(self):
-        data = self.pathsdata.read(query='candidate=1', columns=['rowid'])
+        data = self.PathsDatabase.read(query='candidate=1', columns=['rowid'])
         ids = []
         for dat_dict in data:
             ids.append(dat_dict['rowid'])

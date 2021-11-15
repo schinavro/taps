@@ -5,370 +5,228 @@ import numpy as np
 from scipy.optimize import minimize, check_grad
 
 
+class Classic:
+    required_static_property_S = ['potential']
+    required_static_property_dS = ['gradients']
+    required_kinetic_property_S = ['kinetic_energy']
+    required_kinetic_property_dS = ['kinetic_energy_gradient']
+
+    def __init__(self, dt=None):
+        self.dt = dt
+
+    def S(self, kinetic_energy=None, potential=None, **kwargs):
+        # K = paths.get_kinetic_energies(index=np.s_[:])
+        # V = paths.get_potential_energy(index=np.s_[:])
+        L = kinetic_energy - potential  # K-V
+        S = L.sum(axis=0) * self.dt
+        return S
+
+    def dS(self, kinetic_energy_graidient=None, gradients=None, **kwargs):
+        # Fp = paths.get_kinetic_energy_gradients(index=np.s_[:])
+        # F = -paths.get_gradients(index=np.s_[:])
+        dS = (kinetic_energy_graidient - gradients) * self.dt   # Fp + F
+        # action - reaction
+        # dS[..., 1] -= dS[..., 0]
+        # dS[..., -2] -= dS[..., -1]
+        return dS[..., 1:-1]
+
+
+class EnergyRestraint:
+    def __init__(self, muE=None, Et=None):
+        self.muE = muE
+        self.Et = None
+
+    def S(self, kinetic_energy=None, potential=None):
+        # H = paths.get_total_energy(index=np.s_[:])
+        H = kinetic_energy + potential
+        return muE * ((H - Et) ** 2).sum()
+
+    def dS(self, potential=None, gradients=None, momentum=None,
+           kinetic_energy=None):
+        F = -paths.get_gradients(index=np.s_[:])
+        p = paths.get_momentums(index=np.s_[:])                 # D x M x N
+        K = paths.get_kinetic_energies(index=np.s_[:])           # P
+        V = paths.get_potential_energy(index=np.s_[:])         # P
+        H = K + V                                        # P
+        # D x M x (P - 1)
+        dS = ((H[:-2] - Et) * p[..., :-2] / dt
+              - ((H[1:-1] - Et) * (p[..., 1:-1] / dt + F[..., 1:-1])))
+        # action - reaction
+        dS[..., 0] -= -(H[0] - Et) * (p[..., 0] / dt + F[..., 0])
+        return 2 * muE * dS
+
+
+class Hamiltonian:
+    required_static_property_S = ['gradients']
+    required_static_property_dS = ['gradients', 'hessian']
+    required_kinetic_property_S = ['velocity', 'mass']
+    required_kinetic_property_dS = ['acceleration', 'mass']
+
+    def S(self, potential=None, kinetic_energy=None):
+        return paths.get_total_energy(index=np.s_[:]).sum()
+
+    def dS(self, gradients=None, kinetic_energy_gradient=None):
+        Fp = paths.get_kinetic_energy_gradients(index=np.s_[1:-1])
+        F = -paths.get_gradients(index=np.s_[1:-1])
+        return Fp - F
+
+
+class OnsagerMachlup:
+    required_static_property_S = ['gradients']
+    required_static_property_dS = ['gradients', 'hessian']
+    required_kinetic_property_S = ['velocity', 'mass']
+    required_kinetic_property_dS = ['acceleration', 'mass']
+    def __init__(self, gam=None):
+        self.gam = gam
+
+    def S(self, F=None, velocity=None, mass=None):
+        """
+        2qj 2qj21 2qj11 2D2
+        """
+        # Vi, Vf = paths.get_potential_energy(index=[0, -1])
+        # F = -paths.get_gradients(index=np.s_[:]).reshape((D, N))
+        dV = -np.concatenate([F, F[..., -1, np.newaxis]], axis=-1)
+        # v = paths.get_velocities(index=np.s_[:]).reshape((D, N))
+        # m = paths.get_effective_mass(index=np.s_[:])
+        _gam = gam * m
+        # ldVl2 = (dV * dV).sum(axis=0)
+        ldVl2 = dV * dV
+        # DxMx(P-1) -> P
+        Som = (_gam * (v * v)
+               + (ldVl2[..., 1:] + ldVl2[..., :-1]) / 2 / _gam
+               - v * (dV[..., 1:] - dV[..., :-1])).sum() * dt / 4
+        # Som += (Vf - Vi) / 2
+        # Som = Som.sum()
+        # Som *= 0.25 * dt
+        return Som
+
+    def dS(self, gradients=None, hessian=None, acceleration=None, mass=None):
+        # F = -paths.get_gradients(index=np.s_[:]).reshape((D, N))
+        dV = -np.hstack([F[:, 0, np.newaxis], F, F[:, -1, np.newaxis]])
+        # dV = -np.hstack([np.zeros((D * M, 1)), F, np.zeros((D * M, 1))])
+        # H = paths.get_hessian(index=np.s_[:]).reshape((D, D, N))
+        # a = paths.get_accelerations(index=np.s_[:]).reshape((D, N))
+        # m = paths.get_effective_mass(index=np.s_[:])
+        _gam = gam * m
+
+        notation = 'ij...,i...->j...'
+        dS = (0.5 * _gam * a * dt) \
+            - 0.25 * (2 * dV[..., 1:-1] - dV[..., 2:] - dV[..., :-2]) \
+            + np.einsum(notation, H,
+                        0.5 * dt * dV[..., 1:-1] / _gam
+                        - 0.25 * dt * dt * a)
+        # action - reaction
+        # dS[..., 1] -= dS[..., 0]
+        # dS[..., -2] -= dS[..., -1]
+        return dS[..., 1:-1]
+
+
 class DAO(PathFinder):
     """
     Direct action optimizer (DAO)
 
     Parameters
     ----------
-    action_name: List of strings
-        Pick a name of action want to use among 'Classic', 'Onsager Machlup',
-        'Energy conservation' and 'Hamiltonian'.
-        ex) action_name=['Onsager Machlup', 'Energy conservation']...
-    muE: float, default 0.
-        Energy conservation constant. Higher muE more the pathway will tends to
-        keep total energy
-    muT: flaot, default 0.
-        Kinetic energy conservation constant. Not implemented
-    muP: flaot, default 0.
-        Momentum conservation constant. Not implemented
-    muL: flaot, default 0.
-        Anguar momentum conservation const. Not implemented
-    gam: float, default 1.
-        Onsager Machlup draging constant. 1/kbT
-    tol: flaot, default 0.1
-        max(dS) tolerance
-    method: float, default "BFGS"
-        Optimization keyword for scipy.minimize
-    eps: float, default 1e-4
-        Optimization keyword for scipy.minimize
-    disp: bool
-        Optimization keyword for scipy.minimize
-    prj_search: bool, default False
-        whether use projector or not
+
     use_grad: bool , default True
         Whether to use graidnet form of the action.
-    maxiter: int, default 500,
-        Optimization keyword for scipy.minimize
-    Et_opt_tol: float,
-        f
-    Et_type: str
-        Target energy type. "average", "max", "min" and "auto_et"
-    Et: float,
-        Target energy for energy conservation action term.
-    res: ??
+
     search_kwargs: Dict,
         Optimization keyword for scipy.minimize
 
-    TODO: Remove prj_search. make it default
+    action_kwargs: Dict of dict,
+        {'Onsager Machlup': {'gamma': 2},
+        'Total Energy restraint': ... }
     """
-    finder_parameters = {
-        'action_name': {'default': "'Onsager Machlup'", 'assert': 'True'},
-        'muE': {'default': '0.', 'assert': 'np.isscalar({name:s})'},
-        'muT': {'default': '0.', 'assert': 'np.isscalar({name:s})'},
-        'muP': {'default': '0.', 'assert': 'np.isscalar({name:s})'},
-        'muL': {'default': '0.', 'assert': 'np.isscalar({name:s})'},
-        'tol': {'default': '0.05', 'assert': '{name:s} > 0'},
-        'Et_opt_tol': {'default': '0.05', 'assert': isflt},
-        'gam': {'default': '1', 'assert': '{name:s} > 0'},
-        'method': {'default': "'BFGS'", 'assert': 'isinstance({name:s}, str)'},
-        'maxiter': {'default': '500', 'assert': '{name:s} > 0'},
-        'disp': {'default': 'False', 'assert': 'isinstance({name:s}, bool)'},
-        'eps': {'default': '1e-4', 'assert': '{name:s} > 0'},
-        'T': {'default': '300', 'assert': '{name:s} > 0.'},
-        'use_grad': {'default': 'True', 'assert': isbool},
-        'prj_search': {'default': 'False', 'assert': 'True'},
-        'Et_type': {'default': 'None', 'assert': isstr},
-        'Et': {'default': 'None', 'assert': issclr},
-        'dEt': {'default': 'None', 'assert': issclr},
-        'dH': {'default': 'None', 'assert': issclr},
-        'res': {'default': 'None', 'assert': 'True'},
-        'search_kwargs': {'default': 'None', 'assert': 'True'}
-    }
-    display_map_parameters = OrderedDict({
-        'results': {
-            'label': r'$S_{OM}$', 'force_LaTex': True,
-            'value': "{pf:s}.results.get('Onsager Machlup', 0.)",
-            'significant_digit': 3
-        },
-        'Et': {
-            'under_the_condition':
-                '{pf:s}.real_finder.__dict__.get("{key:s}") is not None',
-            'label': r'$E_{t}$',
-            'value': "{pf:s}.real_finder.Et",
-            'unit': "{p:s}.model.potential_unit"
-        },
-    })
-    display_graph_parameters = OrderedDict({
-        'Et': {
-            'isLabeld': True, 'plot': 'plot', 'lighten_color_amount': 0.6,
-            'under_the_condition': "True",
-            'args': "(np.linspace(*{x:s}[[0, -1]], 11), [{pf:s}.{key:s}] * 11)",
-            'kwargs': "{{'label': r'$E_{{t}}$', 'marker': 'D'"
-                      ", 'linestyle': '--', 'markersize': 3}}"},
-                      # (0, (0, 5, 1, 5))
-    })
-    display_graph_title_parameters = OrderedDict({
-        'Et': {
-            'label': r'$E_{t}$', 'isLaTex': True,
-            'under_the_condition': '{pf:s}.real_finder.__dict__.get("{key:s}")'
-                                   ' is not None',
-            'value': "{pf:s}.Et",
-            'unit': "{p:s}.model.potential_unit",
-            'kwargs': "{'fontsize': 13}"
-        }
-    })
-
-    Et_type = "manual"
-    Et = 0.
-    dEt = 0.
-    dH = 0.
-
-    def __init__(self, action_name=None, muE=None, muT=None, muP=None, muL=None,
-                 T=None, tol=None, method=None, eps=None, disp=None,
-                 gam=None, use_grad=None,
-                 maxiter=None, Et_opt_tol=None, search_kwargs=None, **kwargs):
-        super().finder_parameters.update(self.finder_parameters)
-        self.finder_parameters.update(super().finder_parameters)
-        self.action_name = action_name
-        self.muE = muE
-        self.muT = muT
-        self.muP = muP
-        self.muL = muL
-        self.tol = tol
-        self.eps = eps
-        self.disp = disp
-        self.gam = gam
-        self.use_grad = use_grad
-        self.method = method
-        self.maxiter = maxiter
-        self.Et_opt_tol = Et_opt_tol
+    
+    def __init__(self, action_kwargs=None, search_kwargs=None, use_grad=None,
+                 logfile=None, **kwargs):
+        self.action_kwargs = action_kwargs
         self.search_kwargs = search_kwargs
+        self.use_grad = use_grad
 
         super().__init__(**kwargs)
 
-    def action(self, paths, *args, action_name=None, Et=None, muE=None,
-               prj_search=None):
-        action_name = action_name or self.action_name
-        prj_search = prj_search or self.prj_search
+    def action(self, paths, action_kwargs=None, prj=None):
+        """
+        return a function calculating specified action
+        """
+        action_kwargs = action_kwargs or self.action_kwargs
+        prj = prj or self.prj
+        rcoords = prj.x(paths.coords).similar()
+        dt = paths.coords.dt
 
-        if type(action_name) == str:
-            action_name = [action_name]
-        if Et is None:
-            Et = self.get_target_energy(paths)
-        if muE is None:
-            muE = self.muE
-        muT, muP, muL = self.muT, self.muP, self.muL
+        S = []
+        static_properties = set()
+        kinetic_properties = set()
+        for name, kwargs in action_kwargs:
+            module = __import__('.actions', {}, None, [name])
+            act = getattr(module, name)(paths, **kwargs)
+            S.append(act)
+            for prop in act.required_static_property_S:
+                static_properties.add(prop)
+            for prop in act.required_kinetic_property_S:
+                kinetic_properties.add(prop)
+        static_properties = list(static_properties)
+        kinetic_properties = list(kinetic_properties)
 
-        shape = paths.coords(index=np.s_[1:-1]).shape
-        prj_shape = self.prj._x(paths.coords(index=np.s_[1:-1])).shape
-        D, Nk, N = paths.D, paths.Nk, paths.N
-        # D, N = np.prod(shape[:-1]), shape[-1] + 2
-        dt = paths.coords.epoch / N
-        gam = self.gam
+        def calculator(_rcoords):
+            rcoords.coords = _rcoords
+            paths.coords = prj.x_inv(rcoords)
 
-        def prj_handler(S):
-            def action(rcoords):
-                coords = self.prj._x_inv(rcoords.reshape(prj_shape))
-                paths.coords[..., 1:-1] = coords
-                return S()
-            return action
+            results = paths.get_properties(properties=static_properties)
+            results.update(paths.get_kinetics(properties=kinetic_properties))
 
-        def cartesian_handler(S):
-            def action(coords):
-                paths.coords[..., 1:-1] = coords.reshape((D, N - 2))
-                return S()
-            return action
+            res = 0.
+            for s in S:
+                res += s.S(**results)
+            return res
 
-        if prj_search:
-            handler = prj_handler
-        else:
-            handler = cartesian_handler
+        return calculator
 
-        @handler
-        def classic():
-            K = paths.get_kinetic_energy(index=np.s_[:])      # P
-            V = paths.get_potential_energy(index=np.s_[:])    # P
-            L = K - V                                         # P
-            S = L.sum(axis=0) * dt                            # 0
-            return S
-
-        @handler
-        def onsager_machlup():
-            """
-            2qj 2qj21 2qj11 2D2
-            """
-            # Vi, Vf = paths.get_potential_energy(index=[0, -1])
-            F = -paths.get_gradients(index=np.s_[:]).reshape((D, N))
-            dV = -np.concatenate([F, F[..., -1, np.newaxis]], axis=-1)
-            v = paths.get_velocity(index=np.s_[:]).reshape((D, N))
-            m = paths.get_effective_mass(index=np.s_[:])
-            _gam = gam * m
-            # ldVl2 = (dV * dV).sum(axis=0)
-            ldVl2 = dV * dV
-            # DxMx(P-1) -> P
-            Som = (_gam * (v * v)
-                   + (ldVl2[..., 1:] + ldVl2[..., :-1]) / 2 / _gam
-                   - v * (dV[..., 1:] - dV[..., :-1])).sum() * dt / 4
-            # Som += (Vf - Vi) / 2
-            # Som = Som.sum()
-            # Som *= 0.25 * dt
-            return Som
-
-        @handler
-        def onsager_machlup2():
-            """
-            2qj 2qj21 2qj11 2D2
-            """
-            # Vi, Vf = paths.get_potential_energy(index=[0, -1])
-            F = -paths.get_gradients(index=np.s_[:]).reshape((D, N))
-            dV = -np.concatenate([F, F[..., -1, np.newaxis]], axis=-1)
-            v = paths.get_velocity(index=np.s_[:]).reshape((D, N))
-            m = paths.get_effective_mass(index=np.s_[:])
-            _gam = gam * m
-            # ldVl2 = (dV * dV).sum(axis=0)
-            ldVl2 = dV * dV
-            # DxMx(P-1) -> P
-            Som = (_gam * (v * v)
-                   + (ldVl2[..., 1:] + ldVl2[..., :-1]) / 2 / _gam
-                   - v * (dV[..., 1:] - dV[..., :-1])).sum() * dt / 4
-            # Som += (Vf - Vi) / 2
-            # Som = Som.sum()
-            # Som *= 0.25 * dt
-            return Som
-
-        @handler
-        def energy_conservation():
-            H = paths.get_total_energy(index=np.s_[:])
-            return muE * ((H - Et) ** 2).sum()
-
-        @handler
-        def hamiltonian():
-            return paths.get_total_energy(index=np.s_[:]).sum()
-
-        local = locals()
-        S = [local[act.replace(' ', '_').lower()] for act in action_name]
-        return lambda x: sum([f(x) for f in S])
-
-    def grad_action(self, paths, *args, action_name=None, Et=None, muE=None,
-                    prj_search=None):
+    def grad_action(self, paths, *args, prj_search=None, action_kwargs=None):
         if not self.use_grad:
             return None
-        action_name = action_name or self.action_name
-        if type(action_name) == str:
-            action_name = [action_name]
-        if Et is None:
-            Et = self.get_target_energy(paths)
-        if muE is None:
-            muE = self.muE
-        prj_search = prj_search or self.__dict__.get("prj_search", True)
 
-        D, Nk, N = paths.D, paths.Nk, paths.N
+        # Prepare step
+        action_kwargs = action_kwargs or self.action_kwargs
+        prj = prj or self.prj
+        rcoords = prj.x(paths.coords).similar()
+        dt = paths.coords.dt
 
-        shape = paths.coords(index=np.s_[1:-1]).shape
-        # prj_shape -> flatten
-        prj_shape = self.prj._x(paths.coords(index=np.s_[1:-1])).shape
-        # D, N = np.prod(shape[:-1]), shape[-1] + 2
+        dS = []
+        static_properties = set()
+        kinetic_properties = set()
+        for name, kwargs in action_kwargs:
+            module = __import__('.actions', {}, None, [name])
+            act = getattr(module, name)(paths, **kwargs)
+            dS.append(act)
+            for prop in act.required_static_property_dS:
+                static_properties.add(prop)
+            for prop in act.required_kinetic_property_dS:
+                kinetic_properties.add(prop)
+        static_properties = list(static_properties)
+        kinetic_properties = list(kinetic_properties)
 
-        muT, muP, muL = self.muT, self.muP, self.muL
-        dt = paths.coords.epoch / N
-        # energy_conservation_grad = two_points_e_grad
-        gam = self.gam
+        # Build Calculator
+        def calculator(_rcoords):
+            rcoords.coords = _rcoords
+            paths.coords = prj.x_inv(rcoords)
 
-        def prj_handler(dS):
-            def grad_action(rcoords):
-                coords = self.prj._x_inv(rcoords.reshape(prj_shape))
-                paths.coords[..., 1:-1] = coords
-                ds, c = self.prj.f(dS().reshape(shape), coords)
-                return ds.flatten()
-            return grad_action
+            results = paths.get_properties(properties=static_properties)
+            results.update(paths.get_kinetics(properties=kinetic_properties))
 
-        def cartesian_handler(dS):
-            def grad_action(rcoords):
-                paths.coords[..., 1:-1] = rcoords.reshape((D, N - 2))
-                return dS().flatten()
-            return grad_action
+            res = []
+            for ds in dS:
+                res.append(ds.dS(**results))
+            return np.array(res).sum(axis=0)
 
-        if prj_search:
-            handler = prj_handler
-        else:
-            handler = cartesian_handler
-
-        @handler
-        def classic():
-            Fp = paths.get_kinetic_energy_gradient(index=np.s_[:])  # D x P
-            F = -paths.get_gradients(index=np.s_[:])                # D x P
-            dS = (Fp + F) * dt   # grad action
-            # action - reaction
-            dS[..., 1] -= dS[..., 0]
-            dS[..., -2] -= dS[..., -1]
-            return dS[..., 1:-1]
-
-        @handler
-        def onsager_machlup():
-            F = -paths.get_gradients(index=np.s_[:]).reshape((D, N))
-            dV = -np.hstack([F[:, 0, np.newaxis], F, F[:, -1, np.newaxis]])
-            # dV = -np.hstack([np.zeros((D * M, 1)), F, np.zeros((D * M, 1))])
-            H = paths.get_hessian(index=np.s_[:]).reshape((D, D, N))
-            a = paths.get_acceleration(index=np.s_[:]).reshape((D, N))
-            m = paths.get_effective_mass(index=np.s_[:])
-            _gam = gam * m
-
-            notation = 'ij...,i...->j...'
-            dS = (0.5 * _gam * a * dt) \
-                - 0.25 * (2 * dV[..., 1:-1] - dV[..., 2:] - dV[..., :-2]) \
-                + np.einsum(notation, H,
-                            0.5 * dt * dV[..., 1:-1] / _gam
-                            - 0.25 * dt * dt * a)
-            # action - reaction
-            dS[..., 1] -= dS[..., 0]
-            dS[..., -2] -= dS[..., -1]
-            return dS[..., 1:-1]
-
-        @handler
-        def onsager_machlup2():
-            F = -paths.get_gradients(index=np.s_[:]).reshape((D, N))
-            dV = -np.hstack([F[:, 0, np.newaxis], F, F[:, -1, np.newaxis]])
-            # dV = -np.hstack([np.zeros((D * M, 1)), F, np.zeros((D * M, 1))])
-            H = paths.get_hessian(index=np.s_[:]).reshape((3, D, N))
-            a = paths.get_acceleration(index=np.s_[:]).reshape((D, N))
-            m = paths.get_effective_mass(index=np.s_[:])
-            _gam = gam * m
-
-            dS = (0.5 * _gam * a * dt) \
-                - 0.25 * (2 * dV[..., 1:-1] - dV[..., 2:] - dV[..., :-2])
-            # D x N
-            lamb = 0.5 * dt * dV[..., 1:-1] / _gam - 0.25 * dt * dt * a
-            for a in range(D//3):
-                i, j = 3*a, 3*(a+1)
-                dS[i] = np.sum(H[0, i:j] * lamb[i:j], axis=0)
-                dS[i + 1] = np.sum(H[1, i:j] * lamb[i:j], axis=0)
-                dS[i + 2] = np.sum(H[2, i:j] * lamb[i:j], axis=0)
-            # action - reaction
-            dS[..., 1] -= dS[..., 0]
-            dS[..., -2] -= dS[..., -1]
-            return dS[..., 1:-1]
-
-        @handler
-        def energy_conservation():
-            F = -paths.get_gradients(index=np.s_[:])
-            p = paths.get_momentum(index=np.s_[:])                 # D x M x N
-            K = paths.get_kinetic_energy(index=np.s_[:])           # P
-            V = paths.get_potential_energy(index=np.s_[:])         # P
-            H = K + V                                        # P
-            # D x M x (P - 1)
-            dS = ((H[:-2] - Et) * p[..., :-2] / dt
-                  - ((H[1:-1] - Et) * (p[..., 1:-1] / dt + F[..., 1:-1])))
-            # action - reaction
-            dS[..., 0] -= -(H[0] - Et) * (p[..., 0] / dt + F[..., 0])
-            return 2 * muE * dS
-
-        @handler
-        def hamiltonian():
-            Fp = paths.get_kinetic_energy_gradient(index=np.s_[1:-1])
-            F = -paths.get_gradients(index=np.s_[1:-1])
-            return Fp - F
-
-        local = locals()
-        if type(action_name) == str:
-            action_name = [action_name]
-        dS = [local[act.replace(' ', '_').lower()] for act in action_name]
-        return lambda x: np.array([df(x) for df in dS]).sum(axis=0)
-
-    def optimize(self, paths=None, logfile=None, Et=None, Et_type=None,
-                 action_name=None, search_kwargs=None, **args):
-        close_log = False
+    def optimize(self, paths=None, logfile=None, action_kwargs=None,
+                 search_kwargs=None, **args):
+        action_kwargs = action_kwargs or self.action_kwargs
         search_kwargs = search_kwargs or self.search_kwargs
+
+        close_log = False
         if logfile is None:
             printt = lambda line: print(line)
         elif isinstance(logfile, str):
@@ -407,21 +265,6 @@ class DAO(PathFinder):
                   '{fun:8.4f} {jac_max:8.4f}'.format(**self.results))
             if res.nit < 4:
                 break
-
-        # Gradient - Error handling by directly use action
-        # cart = False
-        # while self.results['jac_max'] > self.tol:
-        #     if self.prj_search:
-        #         x0 = self.prj.x(paths.coords(index=np.s_[1:-1])).flatten()
-        #     else:
-        #         x0 = paths.coords[..., 1:-1].flatten()
-        #     printt("jac_max > tol(%.2f); Run without gradient" % self.tol)
-        #     res = minimize(act, x0, jac=jac, **search_kwargs)
-        #     self.set_results(res)
-        #     printt('{msg} : {nit:6d} {nfev:6d} {njev:6d} '
-        #            '{fun:8.4f} {jac_max:8.4f}'.format(**self.results))
-        #     if res.nit < 3:
-        #         break
         printt(paths.model.get_state_info())
 
         if self.prj_search:
@@ -436,14 +279,6 @@ class DAO(PathFinder):
         printt('OM      : %.2f' % self.results[om])
         if close_log:
             logfile.close()
-        if self.prj_search:
-            paths.coords[..., 1:-1] = self.prj._x_inv(res.x.reshape(origshape))
-            # return paths.copy()
-            return paths
-        else:
-            p = res.x.reshape((paths.D, paths.N - 2))
-            paths.coords[..., 1:-1] = p
-            return paths.copy()
 
     def set_results(self, res, mode=None):
         if mode is None:
@@ -565,22 +400,20 @@ class DAO(PathFinder):
         # search_kwargs.update(args)
         return search_kwargs
 
-    def check_grad(self, paths=None, **kwargs):
-        if len(paths.get_data()['V']) < 2:
-            print('Need to set up data first')
-            return
+    def check_grad(self, paths=None, search_kwargs=None, **kwargs):
         search_kwargs = search_kwargs or self.search_kwargs
         if self.prj_search:
-            x0 = self.prj_x(coords)
+            x0 = self.prj._x(paths.coords.coords[..., 1:-1])
         else:
-            x0 = paths.coords.flatten()
+            x0 = paths.coords.coords[..., 1:-1]
+            shape = x0.shape
         act = self.action(paths)
         jac = self.grad_action(paths)
-        print(check_grad(act, jac, x0, **kwargs))
+        print(check_grad(act, jac, x0.flatten(), **search_kwargs))
         if self.prj_search:
-            paths.coords.rcoords = x0.reshape((paths.D, paths.M, paths.Nk))
+            paths.coords.coords[..., 1:-1] = self.prj._x_inv(x0)
         else:
-            paths.coords = x0.reshape((paths.D, paths.M, paths.N))
+            paths.coords.coords[..., 1:-1] = x0.reshape(org_shape)
 
     def isConverged(self, paths):
         if self.results.get('jac_max') is None:

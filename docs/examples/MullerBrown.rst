@@ -2,7 +2,7 @@ Muller Brown potential
 ======================
 
 >>> from taps.paths import Paths
->>> from taps.model.mullerbrown import MullerBrown
+>>> from taps.models.mullerbrown import MullerBrown
 >>> paths = Paths()
 >>> paths.model = MullerBrown()
 

@@ -29,14 +29,14 @@ end
 @inline get_kinetics(model::Model, paths::Paths, properties::String, coords::Coords, args...; kwargs...) = paths.coords(paths, coords, [properties], args...; kwargs...)
 @inline get_kinetics(model::Model, paths::Paths, properties::Array{Any, 1}, coords::Coords, args...; kwargs...) = paths.coords(paths, coords, properties, args...; kwargs...)
 
-@inline get_displacements(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, "displacements", args...; kwargs...)
-@inline get_momentum(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, "momoentum", args...; kwargs...)
-@inline get_kinetic_energy(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, "kinetic_energy", args...; kwargs...)
-@inline get_kinetic_energy_gradient(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, "kinetic_energy_gradient", args...; kwargs...)
-@inline get_velocity(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, "velocity", args...; kwargs...)
-@inline get_acceleration(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, "acceleration", args...; kwargs...)
+@inline get_distances(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, "displacements", args...; kwargs...)
+@inline get_momentums(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, "momoentum", args...; kwargs...)
+@inline get_kinetic_energies(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, "kinetic_energy", args...; kwargs...)
+@inline get_kinetic_energy_gradients(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, "kinetic_energy_gradient", args...; kwargs...)
+@inline get_velocities(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, "velocity", args...; kwargs...)
+@inline get_accelerations(model::Model, paths::Paths, args...; kwargs...) = get_kinetics(model, paths, "acceleration", args...; kwargs...)
 
-function get_mass(model::Model, paths::Paths, args...; kwargs...)
+function get_masses(model::Model, paths::Paths, args...; kwargs...)
     get_properties(model, paths, "mass", args...; kwargs...)
 end
 function get_effective_mass(paths::Paths, args...; kwargs...)

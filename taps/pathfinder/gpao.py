@@ -3,7 +3,7 @@ import numpy as np
 from numpy import newaxis as nax
 from collections import OrderedDict
 
-from taps.db.data import PathsData
+from taps.db import PathsDatabase
 from taps.pathfinder import PathFinder
 from taps.utils.shortcut import isstr, isLst, isdct, isbool
 from taps.visualize import view
@@ -11,76 +11,13 @@ from taps.visualize import view
 
 class GPAO(PathFinder):
 
-    finder_parameters = {
-        'real_finder': {'default': '"DAO"', 'assert': 'True'},
-        'log': {'default': 'None', 'assert': isstr},
-        'phases': {'default': '["Maximum uncertainty", "Alternate energy"]',
-                   'assert': isLst},
-        'convergence_checker': {'default': 'None', 'assert': isLst},
-        'phase': {'default': 'None', 'assert': 'True'},
-        'gptol': {'default': '0.1', 'assert': 'True'},
-        'maxtrial': {'default': '50', 'assert': 'True'},
-        'cov_max_tol': {'default': '0.05', 'assert': 'True'},
-        'E_max_tol': {'default': '0.05', 'assert': 'True'},
-        'distance_tol': {'default': '0.05', 'assert': 'True'},
-        'plot': {'default': "view()", 'assert': 'True'},
-        'plot_kwargs': {'default': 'dict()', 'assert': isdct},
-        'restart': {'default': 'False', 'assert': isbool},
-        'last_checker': {'default': "'auto et2'", 'assert': 'True'}
-    }
-
-    display_map_parameters = OrderedDict({})
-    display_graph_parameters = OrderedDict({})
-    display_graph_title_parameters = OrderedDict({
-        '_cov_max': {
-            'label': r'$\Sigma^{{(max)}}_{{95\%}}$', 'isLaTex': True,
-            'under_the_condition':
-                # "True",
-                "{pf:s}.__dict__.get('_maximum_uncertainty_checked', False)",
-            'unit': "{p:s}.model.potential_unit",
-            'value': "{pf:s}.{key:s}",
-            'kwargs': "{'fontsize': 13}"
-        },
-        '_muErr': {
-            'label': r'$\mu_{{err}}^{{(max)}}$', 'isLaTex': True,
-            'under_the_condition':
-                "{pf:s}.__dict__.get('_maximum_energy_checked', False)",
-            'unit': "{p:s}.model.potential_unit",
-            'value': "{pf:s}.{key:s}",
-            'kwargs': "{'fontsize': 13}"
-        },
-        '_mu_Et': {
-            'label': r'$\mu^{{(max)}}-E_{{t}}$', 'isLaTex': True,
-            'under_the_condition':
-                "{pf:s}.__dict__.get('_target_energy_checked', False)",
-            'unit': "{p:s}.model.potential_unit",
-            'value': "{pf:s}.{key:s}",
-            'kwargs': "{'fontsize': 13}"
-        },
-        'deltaMu': {
-            'label': r'$\left|\Delta\mu^{{(max)}}\right|$', 'isLaTex': True,
-            'under_the_condition':
-                "'maximum mu' == {pf:s}.Phase.lower() and "
-                "len({pf:s}.__dict__.get('_Emaxlst', [])) > 1",
-            'unit': "{p:s}.model.potential_unit",
-            'value': "np.abs({pf:s}._Emaxlst[-1] - {pf:s}._Emaxlst[-2])",
-            'kwargs': "{'fontsize': 13}"
-        },
-    })
-
     def __init__(self, real_finder=None, log=None, gptol=None,
                  cov_max_tol=None, E_max_tol=None, maxtrial=None, phase=0,
                  phases=None, last_checker=None, distance_tol=None,
                  plot=view, plot_kwargs=None, restart=False,
                  _pbs_walltime="walltime=48:00:00", **kwargs):
         self.real_finder = real_finder
-        self.finder_parameters.update(self.real_finder.finder_parameters)
-        self.display_map_parameters.update(
-            self.real_finder.display_map_parameters)
-        self.display_graph_parameters.update(
-            self.real_finder.display_graph_parameters)
-        self.display_graph_title_parameters.update(
-            self.real_finder.display_graph_title_parameters)
+
         self.log = log
         self.gptol = gptol
         self.cov_max_tol = cov_max_tol
@@ -101,14 +38,6 @@ class GPAO(PathFinder):
         self._pbs_walltime = _pbs_walltime
         super().__init__(**kwargs)
 
-    def __getattr__(self, key):
-        if key in self.__dict__.get('real_finder', {}).finder_parameters.keys():
-            return getattr(self.__dict__['real_finder'], key)
-        elif key == 'convergence_checker':
-            return self.__dict__['phases']
-        else:
-            super().__getattribute__(key)
-
     @property
     def Phase(self):
         if self.phase >= len(self.convergence_checker):
@@ -127,7 +56,7 @@ class GPAO(PathFinder):
         return np.argmax(cov)
 
     def check_maximum_uncertainty_convergence(self, paths, idx=None, **kwargs):
-        blackids = paths.model.data_ids['image']
+        blackids = paths.imgdata.data_ids['image']
         if not self._maximum_uncertainty_checked:
             paths.add_data(index=idx, blackids=blackids)
             return 0
@@ -143,12 +72,12 @@ class GPAO(PathFinder):
         return np.argmax(E)
 
     def check_maximum_energy_convergence(self, paths, idx=None, **kwargs):
-        blackids = paths.model.data_ids['image']
+        blackids = paths.imgdata.data_ids['image']
         if not self._maximum_energy_checked:
             paths.add_data(index=idx, blackids=blackids)
             return 0
         data_ids = paths.add_data(index=idx, blackids=blackids)
-        imgdata = paths.get_data(data_ids=data_ids)
+        imgdata = paths.get_image_data(data_ids=data_ids)
         self._muErr = np.abs(self._E_max - imgdata['V'][-1])
         if self._muErr < self.E_max_tol:
             return 1
@@ -168,12 +97,12 @@ class GPAO(PathFinder):
 
     def check_uncertain_or_maximum_energy_convergence(self, paths, idx=None,
                                                       **kwargs):
-        blackids = paths.model.data_ids['image']
+        blackids = paths.imgdata.data_ids['image']
         if self._cov_max > self.cov_max_tol:
             data_ids = paths.add_data(index=idx, blackids=blackids)
             return 0
         data_ids = paths.add_data(index=idx, blackids=blackids)
-        imgdata = paths.get_data(data_ids=data_ids)
+        imgdata = paths.get_image_data(data_ids=data_ids)
         self._muErr = np.abs(self._E_max - imgdata['V'][-1])
         if self._muErr < self.E_max_tol:
             return 1
@@ -191,11 +120,11 @@ class GPAO(PathFinder):
         return self.uncertain_or_maximum_energy(paths, **kwargs)
 
     def check_auto_et_convergence(self, paths, idx=None, **kwargs):
-        blackids = paths.model.data_ids['image']
+        blackids = paths.imgdata.data_ids['image']
 
         V = paths.get_potential_energy(index=np.s_[1:-1])
         data_ids = paths.add_data(index=idx, blackids=blackids)
-        imgdata = paths.get_data(data_ids=data_ids)
+        imgdata = paths.get_image_data(data_ids=data_ids)
         if self._maximum_energy_checked:
             self._muErr = np.abs(self._E_max - imgdata['V'][-1])
         # @@@@@@@@@@@@@@@@@@@@
@@ -222,9 +151,9 @@ class GPAO(PathFinder):
 
     def check_auto_et2_convergence(self, paths, idx=None, **kwargs):
         V = paths.get_potential_energy(index=np.s_[1:-1])
-        blackids = paths.model.data_ids['image']
+        blackids = paths.imgdata.data_ids['image']
         data_ids = paths.add_data(index=idx, blackids=blackids)
-        imgdata = paths.get_data(data_ids=data_ids)
+        imgdata = paths.get_image_data(data_ids=data_ids)
         if self._maximum_energy_checked:
             self._muErr = np.abs(self._E_max - imgdata['V'][-1])
         cov = paths.get_covariance(index=np.s_[:])
@@ -243,7 +172,7 @@ class GPAO(PathFinder):
         return self.uncertain_or_maximum_energy(paths, **kwargs)
 
     def check_maximum_mu_convergence(self, paths, idx=None, **kwargs):
-        blackids = paths.model.data_ids['image']
+        blackids = paths.imgdata.data_ids['image']
         E = paths.get_potential_energy(index=np.s_[:])
         self._Emaxlst = self.__dict__.get('_Emaxlst', [])
         self._Emaxlst.append(np.max(E))
@@ -305,10 +234,10 @@ class GPAO(PathFinder):
     def check_alternate_saddle_convergence(self, paths, idx=None, **kwargs):
         if kwargs['iter'] % 2 == 0:
             return False
-        blackids = paths.model.data_ids['image']
+        blackids = paths.imgdata.data_ids['image']
         E = paths.get_potential_energy(index=np.s_[:])
         data_ids = paths.add_data(index=idx, blackids=blackids)
-        imgdata = paths.get_data(data_ids=data_ids)
+        imgdata = paths.get_image_data(data_ids=data_ids)
         if np.abs(E[idx] - imgdata['V'][-1]) < self.gptol:
             return 1
         return 0
@@ -325,7 +254,7 @@ class GPAO(PathFinder):
     def check_convergence(self, paths, phase=None, iter=None, logfile=None,
                           **kwargs):
         phase = phase or self.phase
-        imgdata = paths.get_data()
+        imgdata = paths.get_image_data()
         if len(imgdata['V']) < 3:
             logfile.write("Initial index : %d \n" % (paths.N // 3))
             paths.add_data(index=paths.N // 3)
@@ -400,8 +329,8 @@ class GPAO(PathFinder):
             logfile.flush()
             i = iter_number
             while not self.check_convergence(paths, iter=i, logfile=logfile):
-                data_ids = paths.model.data_ids['image']
-                imgdata = paths.get_data(ids=data_ids)
+                data_ids = paths.imgdata.data_ids['image']
+                imgdata = paths.get_image_data(ids=data_ids)
                 dat = [str(d) for d in data_ids]
                 logfile.write("Iteration    : %d\n" % i)
                 logfile.write("Phase        : %s\n" % self.Phase)
@@ -418,7 +347,7 @@ class GPAO(PathFinder):
                     logfile.write("Max iteration, %d, reached! \n" % self.maxtrial)
                     break
 
-            dat = [str(d) for d in paths.model.data_ids['image']]
+            dat = [str(d) for d in paths.imgdata.data_ids['image']]
             logfile.write("Iteration    : %d\n" % i)
             logfile.write("Phase        : %s\n" % self.Phase)
             logfile.write("Number of Dat: %d\n" % len(dat))
@@ -435,16 +364,16 @@ class GPAO(PathFinder):
         plot_kwargs = plot_kwargs or self.plot_kwargs
         self.plot(paths, filename=filename, **plot_kwargs)
         # paths.plot(filename=filename, savefig=True, gaussian=True)
-        pathsdata = PathsData(label + '_pathsdata.db')
+        PathsDatabase = PathsDatabase(label + '_pathsdata.db')
         data = [{'paths': paths}]
-        pathsdata.write(data=data)
+        PathsDatabase.write(data=data)
 
     def _load(self, paths, filename=None, plot_kwargs=None):
-        pathsdata = PathsData(filename)
+        PathsDatabase = PathsDatabase(filename)
         query = "rowid DESC LIMIT 1;"
         where = " ORDER BY "
         columns = ['rowid', 'paths']
-        data = pathsdata.read(query=query, where=where, columns=columns)[0]
+        data = PathsDatabase.read(query=query, where=where, columns=columns)[0]
         data['paths'] = self.patch_paths(data['paths'])
         #### IDK WHY but remove read-only
         data['paths'].coords = data['paths'].coords.copy()

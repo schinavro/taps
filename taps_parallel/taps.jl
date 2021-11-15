@@ -6,7 +6,7 @@ abstract type Database end
 # abstract type Finder end
 
 export *
-export Paths, get_properties, getproperty, setproperty!, get_displacements, get_momentum, get_kinetics
+export Paths, get_properties, getproperty, setproperty!, get_distances, get_momentum, get_kinetics
 export Coords, Cartesian, Atomic, Fouriered
 export Model, Gaussian
 export ImageData
@@ -81,14 +81,14 @@ function Base.setproperty!(obj::T, name::Symbol, x) where {T<:Union{Paths, Coord
     end
 end
 
-@inline get_displacements(paths::Paths, args...; kwargs...) = get_displacements(paths.model, paths, args...; kwargs...)
-@inline get_momentum(paths::Paths, args...; kwargs...) = get_momentum(paths.model, paths, args...; kwargs...)
-@inline get_kinetic_energy(paths::Paths, args...; kwargs...) = get_kinetic_energy(paths.model, paths, args...; kwargs...)
+@inline get_distances(paths::Paths, args...; kwargs...) = get_distances(paths.model, paths, args...; kwargs...)
+@inline get_momentums(paths::Paths, args...; kwargs...) = get_momentums(paths.model, paths, args...; kwargs...)
+@inline get_kinetic_energies(paths::Paths, args...; kwargs...) = get_kinetic_energies(paths.model, paths, args...; kwargs...)
 @inline get_kenetic_energy_graident(paths::Paths, args...; kwargs...) = get_kenetic_energy_graident(paths.model, paths, args...; kwargs...)
-@inline get_velocity(paths::Paths, args...; kwargs...) = get_velocity(paths.model, paths, args...; kwargs...)
-@inline get_acceleration(paths::Paths, args...; kwargs...) = get_acceleration(paths.model, paths, args...; kwargs...)
+@inline get_velocities(paths::Paths, args...; kwargs...) = get_velocities(paths.model, paths, args...; kwargs...)
+@inline get_accelerations(paths::Paths, args...; kwargs...) = get_accelerations(paths.model, paths, args...; kwargs...)
 const get_accelerations = get_acceleration
-@inline get_mass(paths::Paths, args...; kwargs...) = get_mass(paths.model, paths, args...; kwargs...)
+@inline get_masses(paths::Paths, args...; kwargs...) = get_masses(paths.model, paths, args...; kwargs...)
 @inline get_effective_mass(paths::Paths, args...; kwargs...) = get_effective_mass(paths.model, paths, args...; kwargs...)
 """ Directly calls the :meth:`get_properties` in ``paths.model``"""
 @inline get_properties(paths::Paths, args...; kwargs...) = get_properties(paths.model, paths, args...; kwargs...)
@@ -112,7 +112,7 @@ const get_gradient = get_gradients
 """ Calculate kinetic + potential energy"""
 function get_total_energy(paths::Paths, args...; kwargs...)
     V = get_potential_energy(paths.model, paths, args...; kwargs...)
-    T = get_kinetic_energy(paths.model, paths, args...; kwargs...)
+    T = get_kinetic_energies(paths.model, paths, args...; kwargs...)
     return V + T
 end
 
@@ -132,7 +132,7 @@ function get_lowest_confident_idx(paths::Paths)
 end
 
 """" list of int; Get rowid of data"""
-@inline get_data(paths::Paths, args...; kwargs...) = get_data(paths.model::Model, paths, args...; kwargs...)
+@inline get_image_data(paths::Paths, args...; kwargs...) = get_image_data(paths.model::Model, paths, args...; kwargs...)
 
 include("./utils/utils.jl")
 include("./coordinates/transformations.jl")

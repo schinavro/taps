@@ -1,4 +1,4 @@
-.. module:: taps.model.model
+.. module:: taps.models.models
 
 =====
 Model
@@ -12,7 +12,7 @@ Example
 
    import numpy as np
    from taps.paths import Paths
-   from taps.model import MullerBrown
+   from taps.models import MullerBrown
    paths = Paths()
    coords = [np.linspace(-0.558, 0.623, 15), np.linspace(1.44, 0.028, 15)]
    paths.coords = coords

@@ -93,7 +93,7 @@ epoch : float
 index : slice obj; Default `np.s_[:]`
     Choose the steps want it to be returned. Default is all steps.
 """
-function get_velocity(coords::Cartesian; epoch=nothing, index=1⁝0)
+function get_velocities(coords::Cartesian; epoch=nothing, index=1⁝0)
     axis = 1
     N = size(coords)[axis]
     epoch = epoch == nothing ? coords.epoch : epoch
@@ -126,7 +126,7 @@ epoch : float
 index : slice obj; Default `np.s_[:]`
     Choose the steps want it to be returned. Default is all steps.
 """
-function get_acceleration(coords::Cartesian; epoch=nothing, index=1⁝0)
+function get_accelerations(coords::Cartesian; epoch=nothing, index=1⁝0)
     axis = 1
     N = size(coords)[axis]
     epoch = epoch == nothing ? coords.epoch : epoch

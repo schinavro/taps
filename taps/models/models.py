@@ -2,14 +2,12 @@ import copy
 import hashlib
 import binascii
 import numpy as np
-from collections import OrderedDict
 from numpy import pi, dot
 from numpy import newaxis as nax
 from numpy.linalg import norm
 from numpy import concatenate as cat
 from scipy.optimize import check_grad
 from ase.atoms import Atoms
-from taps.utils.shortcut import isdct, isstr, issclr
 from taps.projectors import Projector
 
 
@@ -35,7 +33,7 @@ class Model:
        dictionary contains id of the data.
        In order to save the data, use
        >>> paths.add_data(index=[0, -1]) # create & save initial and final image
-       >>> paths.model.data_ids["image"]
+       >>> paths.imgdata.data_ids["image"]
        [1, 2, 15, ...]
     optimized: bool
        Bool check hyperparameters
@@ -43,57 +41,15 @@ class Model:
 
     """
     implemented_properties = {'potential'}
-    model_parameters = {
-        'real_model': {'default': "None", 'assert': 'True'},
-        'results': {'default': "dict()", 'assert': isdct},
-        'directory': {'default': 'None', 'assert': isstr},
-        'prefix': {'default': 'None', 'assert': isstr},
-        'potential_unit': {'default': '"eV"', 'assert': isstr},
-        'data_ids': {'default': 'None', 'assert': isdct},
-        'optimized': {'default': 'True', 'assert': 'True'},
-        'prj': {'default': 'Projector()', 'assert': 'True'},
-        'debug': {'default': 'False', 'assert': 'True'}
-    }
-    potential_unit = 'eV'
-    name = 'Model'
+    unit = 'eV'
 
-    def __init__(self, results={}, label=None, prj=None, **model_kwargs):
-        OrderedDict, Projector
-        # silence!
-        self.results = results
+    def __init__(self, results=None, label=None, prj=None, _cache=None,
+                 unit='eV'):
+        self.results = results or {}
         self.label = label
-        self.prj = prj
-        self._cache = {}
-
-        for key, value in model_kwargs.items():
-            setattr(self, key, value)
-
-    def __setattr__(self, key, value):
-        if key == 'real_model':
-            if type(value) == str:
-                from_ = 'taps.model.' + value.lower()
-                module = __import__(from_, {}, None, [value])
-                value = getattr(module, value)()
-            super().__setattr__(key, value)
-
-        elif key in self.model_parameters:
-            attribute = self.model_parameters[key]
-            default = attribute['default']
-            assertion = attribute['assert']
-            if value is None:
-                value = eval(default.format())
-            assert eval(assertion.format(name='value')), (key, value)
-            if attribute.get('class', False) and type(value) == str:
-                from_ = attribute['from']
-                module = __import__(from_, {}, None, [value])
-                value = getattr(module, value)()
-            super().__setattr__(key, value)
-        elif key[0] == '_':
-            super().__setattr__(key, value)
-        elif isinstance(getattr(type(self), key, None), property):
-            super().__setattr__(key, value)
-        else:
-            raise AttributeError('No key name %s allowed' % key)
+        self.prj = prj or Projector()
+        self.unit = unit
+        self._cache = _cache or {}
 
     def __getattr__(self, key):
         if key == 'real_model':
@@ -196,10 +152,10 @@ class Model:
 
             if new_property == 'gradients':
                 res = results[new_property]
-                results[new_property] = model.prj_f_inv(res, new_coords)[0]
-            if new_property == 'hessian':
+                results[new_property] = model.prj.f_inv(res, new_coords)[0]
+            elif new_property == 'hessian':
                 res = results[new_property]
-                results[new_property] = model.prj_h_inv(res, new_coords)[0]
+                results[new_property] = model.prj.h_inv(res, new_coords)[0]
 
         if caching:
             model._cache[coords.tobytes()] = copy.deepcopy(results)
@@ -208,90 +164,7 @@ class Model:
             return results[property]
         return results
 
-    def get_kinetics(self, paths, properties=['kinetic_energy'],
-                     index=np.s_[1:-1], coords=None, caching=False,
-                     real_model=False, **kwargs):
-        if type(properties) == str:
-            properties = [properties]
-        # For machine learning purpose we put real_model in model
-        if real_model:
-            model = self.real_model
-        else:
-            model = self
 
-        if coords is None:
-            # Kinetic calculation is fixed length calculation
-            ########
-            # Need to dynamically allocate index
-            coords = model.prj.x(paths.coords(index=np.s_[:]))
-            _coords = coords[..., index]
-            ########
-        required = {}
-        for property in properties:
-            if property in ['displacements']:
-                required[property] = True
-            elif property in ['velocity', 'kinetic_energy', 'momentum']:
-                required['velocity'] = True
-                if property in ['kinetic_energy', 'momentum']:
-                    required['mass'] = True
-            elif property in ['acceleration', 'kinetic_grad']:
-                required['acceleration'] = True
-                if property in ['kinetic_grad']:
-                    required['mass'] = True
-        if required.get('mass'):
-            _coords = model.prj.x(paths.coords(index=index))
-            m = model.get_mass(paths, coords=_coords, **kwargs)
-        if required.get('velocity'):
-            v = coords.get_velocity(index=index)
-        if required.get('acceleration'):
-            a = coords.get_acceleration(index=index)
-        if required.get('displacements'):
-            d = coords.get_distances(index=index)
-
-        results = {}
-        if 'velocity' in properties:
-            results['velocity'] = model.prj.v_inv(v, _coords)[0]
-        if 'acceleration' in properties:
-            results['acceleration'] = model.prj.a_inv(a, _coords)[0]
-        if 'displacements' in properties:
-            results['displacements'] = d
-        if 'kinetic_energy' in properties:
-            axis = tuple(np.arange(len(v.shape) - 1))         # 0     or (0, 1)
-            results['kinetic_energy'] = np.sum(0.5 * m * v * v, axis=axis)
-        if 'momentum' in properties:
-            results['momentum'] = model.prj.v_inv(m * v, _coords)[0]
-        if 'kinetic_grad' in properties:
-            results['kinetic_energy_gradient'] = model.prj.a_inv(m * a, _coords)[0]
-        if len(properties) == 1:
-            property = list(results.keys())[0]
-            return results[property]
-        return results
-
-    def get_mass(self, paths, coords=None, **kwargs):
-        """
-        Return one as a default mass
-
-        coords
-        ------
-              Array with shape DxN or 3xAxN
-        if DxN, return 1x1
-        else, return Ax1
-        """
-        coords = coords or paths.coords
-        return np.ones((coords.A, 1))
-
-    def get_effective_mass(self, paths, coords=None, **kwargs):
-        """
-        Return mass per dimension
-
-        coords
-        ------
-              Array with shape DxN or 3xAxN
-        if DxN, return 1x1
-        else, return Ax1
-        """
-        coords = coords or paths.coords
-        return np.ones((coords.D, 1))
 
     def get_potential(self, paths, **kwargs):
         return self.get_properties(paths, properties='potential', **kwargs)
@@ -320,23 +193,6 @@ class Model:
     def get_covariance(self, paths, **kwargs):
         return self.get_properties(paths, properties='covariance', **kwargs)
 
-    def get_velocity(self, paths, **kwargs):
-        return self.get_kinetics(paths, properties='velocity', **kwargs)
-
-    def get_acceleration(self, paths, **kwargs):
-        return self.get_kinetics(paths, properties='acceleration', **kwargs)
-
-    def get_distances(self, paths, **kwargs):
-        return self.get_kinetics(paths, properties='displacements', **kwargs)
-
-    def get_momentum(self, paths, **kwargs):
-        return self.get_kinetics(paths, properties='momentum', **kwargs)
-
-    def get_kinetic_energy(self, paths, **kwargs):
-        return self.get_kinetics(paths, properties='kinetic_energy', **kwargs)
-
-    def get_kinetic_energy_gradient(self, paths, **kwargs):
-        return self.get_kinetics(paths, properties='kinetic_grad', **kwargs)
 
     def generate_unique_hash(self, positions):
         """return string that explains current calculation
@@ -437,108 +293,8 @@ class Model:
             paths.coords[..., index] = paths0.copy()
         prind('Total hessian error :', err)
 
-    def get_data(self, paths, coords=None, data_ids=None,
-                 keys=['coords', 'potential', 'gradients'], **kwargs):
-        """
-        data_ids : dictionary of lists
-            {'image': [...], 'descriptor': [...]}
-        for each key, return
-         'coords' -> 'X'; D x M x P
-         'potential'    -> 'V'; P
-         'gradient'    -> 'F'; D x M x P
-        return : dictionary contain X, V, F
-            {'X' : np.array(D x M x P), 'V': np.array(P), }
-        """
-        data_ids = data_ids or getattr(self, 'data_ids', None)
-        if data_ids is None or len(data_ids.get('image', [])) == 0:
-            return None
-        # shape = coords.shape[:-1]
-        # shape = (3, 5)
-        M = len(data_ids['image'])
-        if self._cache.get('data_ids_image') is None:
-            shape_raw = paths.coords(index=[0]).shape[:-1]
-            shape = self.prj.x(paths.coords(index=[0])).shape[:-1]
-            self._cache['data_ids_image'] = []
-            self._cache['data'] = {
-                'X': np.zeros((*shape, 0), dtype=float),
-                'V': np.zeros(0, dtype=float),
-                'F': np.zeros((*shape, 0), dtype=float),
-                'X_raw': np.zeros((*shape_raw, 0), dtype=float),
-                'F_raw': np.zeros((*shape_raw, 0), dtype=float),
-            }
-        if self._cache.get('data_ids_image') == data_ids['image']:
-            return self._cache['data']
-        else:
-            new_data_ids_image = []
-            for id in data_ids['image']:
-                if id not in self._cache['data_ids_image']:
-                    new_data_ids_image.append(id)
-        atomdata = paths.imgdata
-        name2idx = atomdata.name2idx
-        n2i = name2idx['image']
-        new_data = atomdata.read({'image': new_data_ids_image})['image']
-        M = len(new_data_ids_image)
-        data = self._cache['data']
-        if 'coords' in keys:
-            coords_raw = []
-            coords_prj = []
-            for i in range(M):
-                coord_raw = new_data[i][n2i['coord']][..., nax]
-                coord_prj = self.prj._x(new_data[i][n2i['coord']][..., nax])
-                coords_raw.append(coord_raw)
-                coords_prj.append(coord_prj)
-            if M != 0:
-                new_coords_raw = cat(coords_raw, axis=-1)
-                new_coords_prj = cat(coords_prj, axis=-1)
-                data['X_raw'] = cat([data['X_raw'], new_coords_raw], axis=-1)
-                data['X'] = cat([data['X'], new_coords_prj], axis=-1)
-        if 'potential' in keys:
-            potential = []
-            for i in range(M):
-                potential.append(new_data[i][n2i['potential']])
-            if M != 0:
-                new_potential = np.concatenate(potential, axis=-1)
-                data['V'] = np.concatenate([data['V'], new_potential], axis=-1)
-        if 'gradients' in keys:
-            gradients_raws = []
-            gradients_prjs = []
-            for i in range(M):
-                coords_raw = new_data[i][n2i['coord']][..., nax]
-                gradients_raw = new_data[i][n2i['gradients']]
-                gradients_prj, _ = self.prj.f(gradients_raw, coords_raw)
-                gradients_raws.append(gradients_raw)
-                gradients_prjs.append(gradients_prj)
-            if M != 0:
-                new_grad_raw = cat(gradients_raws, axis=-1)
-                new_grad_prj = cat(gradients_prjs, axis=-1)
-                data['F_raw'] = cat([data['F_raw'], -new_grad_raw], axis=-1)
-                data['F'] = cat([data['F'], -new_grad_prj], axis=-1)
-        self._cache['data_ids_image'].extend(new_data_ids_image)
-        return data
-
     def get_state_info(self):
         return ""
-
-    def prj_f_inv(self, *args, **kwargs):
-        return self.prj.f_inv(*args, **kwargs)
-
-    def prj_h_inv(self, *args, **kwargs):
-        return self.prj.h_inv(*args, **kwargs)
-
-    def add_data_ids(self, ids, overlap_handler=True):
-        """
-        ids : dict of list
-        """
-        if getattr(self, 'data_ids', None) is None:
-            self.data_ids = dict()
-        for table_name, id in ids.items():
-            if self.data_ids.get(table_name) is None:
-                self.data_ids[table_name] = []
-            if overlap_handler:
-                for i in id:
-                    if i not in self.data_ids[table_name]:
-                        self.data_ids[table_name].append(int(i))
-        self.optimized = False
 
     def save(self, paths, *args, real_model=None, coords=None, index=np.s_[:],
              **kwargs):
@@ -551,9 +307,6 @@ class Model:
             coords = model.prj.x(paths.coords(index=index))
 
         model.write(paths, coords, **kwargs)
-
-
-
 
 class PeriodicModel(Model):
     name2tag = {
@@ -869,21 +622,10 @@ class Cosine(Model):
     $V(x) = V0 + A*\sum_i{cos(\omega * (x + phi))}$
     """
     implemented_properties = {'potential', 'gradients', 'forces', 'hessian'}
-    model_parameters = {
-        'A': {'default': "-1", 'assert': issclr},
-        'omega': {'default': "4", 'assert': issclr},
-        'phi': {'default': '0.', 'assert': issclr},
-        'V0': {'default': '0.', 'assert': issclr},
-    }
     A = -1.
     omega = 4.
     phi = 0.
     V0 = 0.
-
-    def __init__(self, **kwargs):
-        super().model_parameters.update(self.model_parameters)
-        self.model_parameters.update(super().model_parameters)
-        super().__init__(**kwargs)
 
     def calculate(self, paths, coords, properties=['potential'], **kwargs):
         if len(coords.shape) == 1:

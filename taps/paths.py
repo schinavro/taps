@@ -3,19 +3,6 @@ import pickle
 import numpy as np
 from taps.coords import Cartesian
 
-# Parameters that will be saved
-paths_parameters = {
-    'prefix': {'default': "'paths'", 'assert': 'len({name:s}) > 0'},
-    'directory': {'default': "'.'", 'assert': 'len({name:s}) > 0'},
-    'tag': {'default': "dict()", 'assert': 'True'}
-}
-
-class_objects = {
-    'model': {'from': 'taps.model.model'},
-    'finder': {'from': 'taps.pathfinder'},
-    'imgdata': {'from': 'taps.db.data'}
-}
-
 
 class Paths:
     """ Paths class infterfacing other modules
@@ -51,7 +38,7 @@ class Paths:
     >>> y = np.linspace(1.44172582, 0.02803776, 300)
     >>> paths = Paths(coords = np.array([x, y]))
 
-    >>> from taps.model.mullerbrown import MullerBrown
+    >>> from taps.models.mullerbrown import MullerBrown
     >>> paths.model = MullerBrown()
 
     >>> from taps.visualize import view
@@ -59,9 +46,8 @@ class Paths:
     [Map should be shown]
     """
 
-    def __init__(self, coords=None, label=None, model='Model',
-                 finder='PathFinder', imgdata='ImageData',
-                 plotter='Plotter', tag=None, **kwargs):
+    def __init__(self, coords=None, label=None, model=None,
+                 finder=None, imgdata=None, tag=None, **kwargs):
 
         self.coords = coords
         self.label = label
@@ -104,55 +90,52 @@ class Paths:
         self.directory = directory
         self.prefix = prefix
 
+    def get_kinetics(self, **kwargs):
+        return self.coords.get_kinetics(self, **kwargs)
+
+    def get_masses(self, **kwargs):
+        return self.coords.masses(self, **kwargs)
+
     def get_distances(self, **kwargs):
         """ Calculate the distances of the pathway (accumulative)
-
         It usually used for plotting, i.e. potential energy / distance
         Calls the :meth:`get_distances` at the ``paths.model``.
         Model calls the :meth:`get_distances` in the ``paths.coords``.
         """
-        return self.model.get_distances(self, **kwargs)
+        return self.coords.get_distances(self, **kwargs)
 
-    def get_momentum(self, **kwargs):
+    def get_speeds(self, **kwargs):
+        return self.coords.get_speeds(self, **kwargs)
+
+    def get_displacements(self, **kwargs):
+        return self.coords.get_displacements(self, **kwargs)
+
+    def get_velocities(self, **kwargs):
+        """ Calculate velocity
+        If :class:`Cartesian` is cartesian, velocity is calculated via
+        :math:`\mathbf{x}_{i+1} - \mathbf{x}_{i}`"""
+        return self.coords.get_velocities(self, **kwargs)
+
+    def get_accelerations(self, **kwargs):
+        """ Calculate acceleration
+        If :class:`Cartesian` is cartesian, velocity is calculated via
+        """
+        return self.coords.get_accelerations(self, **kwargs)
+
+    def get_momentums(self, **kwargs):
         """ Calculate momentum of the pathway"""
-        return self.model.get_momentum(self, **kwargs)
+        return self.coords.get_momentums(self, **kwargs)
 
-    def get_kinetic_energy(self, **kwargs):
+    def get_kinetic_energies(self, **kwargs):
         """ Calculate kinetic energy of the pathway"""
-        return self.model.get_kinetic_energy(self, **kwargs)
+        return self.coords.get_kinetic_energies(self, **kwargs)
 
-    def get_kinetic_energy_gradient(self, **kwargs):
+    def get_kinetic_energy_gradients(self, **kwargs):
         """ Calculate kinetic energy gradient.
         differentiate Kinetic energy w.r.t. each point, That is we calculate
         :math:`\partial_{\mathbf{x}}E_{\mathrm{kin}}`
         """
-        return self.model.get_kinetic_energy_gradient(self, **kwargs)
-
-    def get_velocity(self, **kwargs):
-        """ Calculate velocity
-        If :class:`Cartesian` is cartesian, velocity is calculated via
-        :math:`\mathbf{x}_{i+1} - \mathbf{x}_{i}`"""
-        return self.model.get_velocity(self, **kwargs)
-
-    def get_acceleration(self, **kwargs):
-        """ Calculate acceleration
-        If :class:`Cartesian` is cartesian, velocity is calculated via
-        """
-        return self.model.get_acceleration(self, **kwargs)
-
-    def get_accelerations(self, **kwargs):
-        """ Calculate acceleration(s)
-        If :class:`Cartesian` is cartesian, velocity is calculated via
-        """
-        return self.model.get_acceleration(self, **kwargs)
-
-    def get_mass(self, **kwargs):
-        """ Calculate mass """
-        return self.model.get_mass(self, **kwargs)
-
-    def get_effective_mass(self, **kwargs):
-        """ Calculate effective mass"""
-        return self.model.get_effective_mass(self, **kwargs)
+        return self.coords.get_kinetic_energy_gradients(self, **kwargs)
 
     def get_properties(self, **kwargs):
         """ Directly calls the :meth:`get_properties` in ``paths.model``"""
@@ -193,7 +176,7 @@ class Paths:
     def get_total_energy(self, **kwargs):
         """ Calculate kinetic + potential energy"""
         V = self.model.get_potential_energy(self, **kwargs)
-        T = self.model.get_kinetic_energy(self, **kwargs)
+        T = self.model.get_kinetic_energies(self, **kwargs)
         return V + T
 
     def get_covariance(self, **kwargs):
@@ -210,9 +193,9 @@ class Paths:
         cov = self.model.get_covariance(self)
         return np.argmax(np.diag(cov))
 
-    def get_data(self, **kwargs):
+    def get_image_data(self, **kwargs):
         """" list of int; Get rowid of data"""
-        return self.model.get_data(self, **kwargs)
+        return self.imgdata.get_image_data(self, **kwargs)
 
     def add_data(self, index=None, coords=None, cache_model=True,
                  regression=True, blackids=None, **kwargs):
@@ -235,9 +218,10 @@ class Paths:
         ids = self.imgdata.add_data(self, coords, search_similar_image=True,
                                     blackids=blackids)
         if cache_model:
-            self.model.add_data_ids(ids)
+            self.imgdata.add_data_ids(ids)
         if regression:
-            self.model.regression(self)
+            # self.model.regression(self)
+            None
         #### Need to change
         self.model.optimized = False
         #### Need to remove
@@ -269,25 +253,6 @@ class Paths:
     def search(self, **kwargs):
         """ Calculate optimized pathway"""
         self.finder.search(self, **kwargs)
-
-    @property
-    def N(self):
-        """ Return number of steps. Usually, coords.shape[-1]"""
-        return self.coords.N
-
-    @property
-    def D(self):
-        """ Return dimension of the system. Usually, coords.shape[0]"""
-        return self.coords.D
-
-    @property
-    def Nk(self):
-        return self.coords.Nk
-
-    @property
-    def A(self):
-        """ Return a number of atoms. It only applies coords is rank 3"""
-        return self.coords.A
 
     def reset_cache(self):
         """ Delete current cache on all modules"""
