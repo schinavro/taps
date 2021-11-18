@@ -48,31 +48,29 @@ class Gaussian(Model):
         P : int | length of image to consider / or number of image to calculate
         D : int | Dimension
         N : int | Number of Atom in one image
-        X :
+        Xm :
+           Data coords
+        Xn :
+           points want to calc
         Y :
         return : Dim x N x P - 2 array
         """
-        if properties == ['mass']:
-            return
-        shape_org = coords.shape
+        data = paths.get_image_data(prj=self.prj)
+
+        orig_shape = coords.shape[:-1]
+        D, M, N = np.prod(coords.D), len(data['potential']), coords.N
+
+        Xm = data['kernel']['X']
+        Xn = coords.coords.reshape(D, N)
+        Y = data['kernel']['Y']
 
         k, m = self.kernel, self.mean
-        X = coords.copy()
-        data = paths.get_image_data(prj=self.prj)
-        Xm = data['kernel']['X']
-        Xn = coords.flat()
-        Y = data['kernel']['Y']
-        # If no data given
-        if len(Y) == 0:
-            return np.zeros(X.shape[-1])
-        D, N = Xn.shape
-        D, M = Xm.shape
 
         # Re calculate the hyperparameters if data has changed
-        if not self.regression.optimized:
-            self.regression(paths, coords, mean=m, kernel=k, data=data)
+        if data['data_ids'] != self._cache.get('data_ids'):
+            self.regression(mean=m, kernel=k, data=data)
             self._cache['K_y_inv'] = inv(k(Xm, Xm, noise=True))
-            self.regression.optimized = True
+            self._cache['data_ids'] = data['data_ids'].copy()
         K_y_inv = self._cache['K_y_inv']
 
         if 'potential_and_gradient' in properties:
@@ -80,46 +78,20 @@ class Gaussian(Model):
             K_s = k(Xm, Xn)  # (D+1)N x (D+1)M x P
             mu = m(Xn) + K_s.T @ K_y_inv @ (Y - m(Xn))
             E = mu[: N]
-            F = -mu[N:].reshape(D, N)
+            F = -mu[N:].reshape(*orig_shape, N)
             self.results['potential_and_forces'] = E, F
 
         if 'potential' in properties:
             K_s = k(Xm, Xn, potential_only=True)  # (D+1)N x M
             potential = m.V(Xn) + K_s.T @ K_y_inv @ (Y - m(Xm))
-            # Y = data['V']  # @@@
-            # N = len(Y)  # @@@
-            # K_s = K_s[:N] # @@@
-            # K_y_inv = inv(k(Xn, Xn, orig=True))  # @@@
-            # return m(Xm, hess=False) + \
-            #      K_s.T @ K_y_inv @ (Y - m(Xn, hess=False)) # @@@
             self.results['potential'] = potential
         if 'gradients' in properties:
             dK_s = k(Xm, Xn, gradient_only=True)  # (D+1)N x (D+1)M x P
             mu_f = m.dV(Xn) + dK_s.T @ K_y_inv @ (Y - m(Xm))
-            # N = len(Y) # @@@
-            # dK_s = dK_s[:N] # @@@
-            # K_y_inv = inv(k(Xn, Xn, orig=True))  # @@@
-            # mu_f = m.dm(Xm) + dK_s.T @ K_y_inv @ (Y - m(Xn, hess=False))
-            # return -mu_f.reshape(Xm.shape)
-            # self.results['gradients'] = mu_f.reshape(Xn.shape)
-            self.results['gradients'] = mu_f.reshape(shape_org)
+            self.results['gradients'] = mu_f.reshape(*orig_shape, N)
         if 'hessian' in properties:
-            # before = time.time()
             K_s = k(Xm, Xn, hessian_only=True)            # (D+1)N x DDM
-            # after = time.time()
-            # print('Hessian kernel construction', after - before, 's')
-            # @@@@@@@@@@@ orig
-            # before = time.time()
             H = m.H(Xn) + K_s.T @ K_y_inv @ (Y - m(Xm))  # DDM
-            # after = time.time()
-            # print('Hessian matrix multiplication ', after - before, 's')
-            # @@@@@@@@@@@@ no forces
-            # Y = data['V']
-            # K_y_inv = inv(k(Xn, Xn, orig=True))  # @@@
-            # H = m.dm(Xm) + K_s.T @ K_y_inv @ (Y - m(Xn, hess=False))  # DDM
-            #####
-            # s = shape_org[:-1]
-            D = np.prod(shape_org[:-1])
             self.results['hessian'] = H.reshape(D, D, N)
 
         if 'covariance' in properties:

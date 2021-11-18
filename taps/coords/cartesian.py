@@ -2,11 +2,11 @@ import copy
 import numpy as np
 from numpy import concatenate
 from numpy import newaxis as nax
-from taps.utils.arraywrapper import arraylike
 from taps.coords import Coordinate
+from taps.utils.arraywrapper import arraylike
 
 
-@arraylike
+# @arraylike
 class Cartesian(Coordinate):
 
     """
@@ -26,14 +26,13 @@ class Cartesian(Coordinate):
       length unit of a system. Currently it is only for a display purpose.
       (TODO: automatic unit matching with Model class)
     """
-    def __init__(self, mass=None, **kwargs):
+    def __init__(self, mass=1., **kwargs):
         self.mass = mass
         super().__init__(**kwargs)
 
-    def similar(self):
-        return self.__class__(coords=None, epoch=self.epoch, unit=self.unit)
-
     def masses(self, paths, **kwargs):
+        if isinstance(self.mass, np.ndarray):
+            return self.mass[..., nax]
         return self.mass
 
     def displacements(self, paths, **kwargs):
@@ -44,7 +43,7 @@ class Cartesian(Coordinate):
         p = coords or self.coords
         return p - init
 
-    def velocities(self, coords=None, epoch=None, index=np.s_[:]):
+    def velocities(self, paths, coords=None, epoch=None, index=np.s_[:]):
         """ Return velocity at each step
         Get coords and return DxN or 3xAxN array, two point moving average.
 
@@ -60,8 +59,8 @@ class Cartesian(Coordinate):
             Choose the steps want it to be returned. Default is all steps.
         """
         p = coords or self.coords.copy()
-        epoch, N = epoch or self.epoch, self.N
-        dt = epoch / N
+        # epoch, N = epoch or self.epoch, self.N
+        dt = self.dt
         if index == np.s_[:]:
             p = np.concatenate([p, p[..., -1, nax]], axis=-1)
             return (p[..., 1:] - p[..., :-1]) / dt
@@ -72,7 +71,7 @@ class Cartesian(Coordinate):
             p = concatenate([p, p[..., -1, nax]], axis=-1)
         return (p[..., i] - p[..., i - 1]) / dt
 
-    def accelerations(self, coords=None, index=np.s_[:]):
+    def accelerations(self, paths, coords=None, index=np.s_[:]):
         """ Return acceleration at each step
         Get Dx N ndarray, Returns 3xNxP - 1 array, use three point to get
         acceleration
@@ -89,8 +88,7 @@ class Cartesian(Coordinate):
             Choose the steps want it to be returned. Default is all steps.
         """
         p = coords or self.coords.copy()
-        epoch, N = epoch or self.epoch, self.N
-        dt = epoch / N
+        dt = self.dt
         ddt = dt * dt
         if index == np.s_[:]:
             p = concatenate([p[..., 0, nax], p, p[..., -1, nax]], axis=-1)

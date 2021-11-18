@@ -43,9 +43,9 @@ class Projector:
             if self.pipeline is not None:
                 coords = getattr(self.pipeline, name)(coords)
             if self.codomain is not None:
-                codomain = self.codomain.copy()
+                codomain = self.codomain.similar()
             else:
-                codomain = coords.copy()
+                codomain = coords.similar()
             codomain.coords = prj(self, coords.coords)
             return codomain
 
@@ -59,13 +59,13 @@ class Projector:
 
         def x_inv(self, coords):
             if self.domain is not None:
-                domain = self.domain.copy()
+                domain = self.domain.similar()
             else:
-                domain = coords.copy()
+                domain = coords.similar()
             if self.pipeline is not None:
                 domain.coords = prj(self, coords.coords)
                 return getattr(self.pipeline, name)(domain)
-            domain.coords = prj(self, coords)
+            domain.coords = prj(self, coords.coords)
             return domain
 
         def _x_inv(self, coords):
@@ -80,13 +80,26 @@ class Projector:
         def f(self, forces, coords):
             if self.pipeline is not None:
                 forces, coords = getattr(self.pipeline, name)(forces, coords)
-            return prj(self, forces, coords)
+            if self.codomain is not None:
+                codomain = self.codomain.similar()
+            else:
+                codomain = coords.similar()
+            forces, coords = prj(self, forces, coords.coords)
+            codomain.coords = coords
+            return forces, codomain
 
         def f_inv(self, forces, coords):
+            if self.domain is not None:
+                domain = self.domain.similar()
+            else:
+                domain = coords.similar()
             if self.pipeline is not None:
-                forces, coords = prj(self, forces, coords)
-                return getattr(self.pipeline, name)(forces, coords)
-            return prj(self, forces, coords)
+                forces, coords = prj(self, forces, coords.coords)
+                domain.coords = coords
+                return getattr(self.pipeline, name)(forces, domain)
+            forces, coords = prj(self, forces, coords.coords)
+            domain.coords = coords
+            return forces, domain
 
         def v(self, velocity, *args):
             if self.pipeline is not None:
@@ -334,33 +347,39 @@ class Sine(Projector):
 
     @Projector.pipeline
     def x(self, coords):
-        line = self.line()
         # return dst((coords - line), type=1, norm='ortho').flatten()
-        return dst((coords - line), type=1, norm='ortho')[..., :self.Nk]
+        return dst((coords[..., 1:-1] - self.line()),
+                    type=1, norm='ortho')[..., :self.Nk]
 
     @Projector.pipeline
     def x_inv(self, rcoords):
-        line = self.line()
+        # line = self.line()
         # rcoords = rcoords.reshape(*self.shape, self.Nk)
         # return idst(rcoords, type=1, norm='ortho') + line
         _ = np.zeros((*self.shape, self.N-2))
         _[..., :self.Nk] = rcoords.reshape(*self.shape, self.Nk)
-        return idst(_, type=1, norm='ortho') + line
+        _coords = idst(_, type=1, norm='ortho') + self.line()
+        coords = np.concatenate([self.init[..., nax], _coords,
+                                 self.fin[..., nax]], axis=-1)
+        return coords
 
     @Projector.pipeline
     def _x(self, coords):
-        line = self.line()
         # return dst((coords - line), type=1, norm='ortho').flatten()
-        return dst((coords - line), type=1, norm='ortho')[..., :self.Nk]
+        return dst((coords[..., 1:-1] - self.line()),
+                    type=1, norm='ortho')[..., :self.Nk]
 
     @Projector.pipeline
     def _x_inv(self, rcoords):
         line = self.line()
         # rcoords = rcoords.reshape(*self.shape, self.Nk)
         # return idst(rcoords, type=1, norm='ortho') + line
-        _ = np.zeros((*self.shape, self.N-2))
+        _ = np.zeros((*self.shape, self.N))
         _[..., :self.Nk] = rcoords.reshape(*self.shape, self.Nk)
-        return idst(_, type=1, norm='ortho') + line
+        _coords = idst(_, type=1, norm='ortho') + line
+        coords = np.concatenate([self.init[..., nax],
+                                 _coords, self.fin[..., nax]], axis=-1)
+        return coords
 
     @Projector.pipeline
     def f(self, forces, coords):
@@ -373,21 +392,26 @@ class Sine(Projector):
         ------
            shape DxNk -> DxN-2
         """
-        line = self.line()
-        coords = dst((coords - line), type=1, norm='ortho')[..., :self.Nk]
-        return dst(forces, type=1, norm='ortho')[..., :self.Nk], coords
+        coords = dst((coords[..., 1:-1] - self.line()),
+                      type=1, norm='ortho')[..., :self.Nk]
+        return dst(forces[..., 1:-1], type=1, norm='ortho')[..., :self.Nk], coords
 
     @Projector.pipeline
     def f_inv(self, rforces, rcoords):
         line = self.line()
         # rcoords = rcoords.reshape(*self.shape, self.Nk)
         # rforces = rforces.reshape(*self.shape, self.Nk)
-        _ = np.zeros((*self.shape, self.N-2))
-        __ = np.zeros((*self.shape, self.N-2))
+        _ = np.zeros((*self.shape, self.N - 2))
+        __ = np.zeros((*self.shape, self.N - 2))
         _[..., :self.Nk] = rcoords.reshape(*self.shape, self.Nk)
         __[..., :self.Nk] = rforces.reshape(*self.shape, self.Nk)
-        coords = idst(_, type=1, norm='ortho') + line
-        return idst(__, type=1, norm='ortho'), coords
+        _coords = idst(_, type=1, norm='ortho') + line
+        _forces = idst(__, type=1, norm='ortho')
+        coords = np.concatenate([self.init[..., nax],
+                                _coords, self.fin[..., nax]], axis=-1)
+        pad = np.zeros((*self.init.shape, 1))
+        forces = np.concatenate([pad, _forces, pad], axis=-1)
+        return forces, coords
 
     @Projector.pipeline
     def v(self, velocity, *args):

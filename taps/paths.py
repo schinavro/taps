@@ -60,36 +60,6 @@ class Paths:
         for key, value in kwargs.items():
             setattr(self, key, value)
 
-    @property
-    def label(self):
-        """ string used for default name of calculation """
-        if self.directory == '.':
-            return self.prefix
-
-        if self.prefix is None:
-            return self.directory + '/'
-
-        return '{}/{}'.format(self.directory, self.prefix)
-
-    @label.setter
-    def label(self, label):
-        if label is None:
-            self.directory = '.'
-            self.prefix = None
-            return
-
-        tokens = label.rsplit('/', 1)
-        if len(tokens) == 2:
-            directory, prefix = tokens
-        else:
-            assert len(tokens) == 1
-            directory = '.'
-            prefix = tokens[0]
-        if prefix == '':
-            prefix = None
-        self.directory = directory
-        self.prefix = prefix
-
     def get_kinetics(self, **kwargs):
         return self.coords.get_kinetics(self, **kwargs)
 
@@ -220,35 +190,14 @@ class Paths:
         if cache_model:
             self.imgdata.add_data_ids(ids)
         if regression:
-            # self.model.regression(self)
-            None
-        #### Need to change
-        self.model.optimized = False
-        #### Need to remove
+            self.model.regression(kernel=self.model.kernel,
+                                  mean=self.model.mean,
+                                  data=self.get_image_data())
+            # self.model.regression.optimized = False
         return ids
 
-    def simple_coords(self):
-        """Simple line connecting between init and fin"""
-        coords = np.zeros(self.coords.shape)
-        init = self.coords[..., [0]]
-        fin = self.coords[..., [-1]]
-        dist = fin - init            # Dx1 or 3xAx1
-        simple_line = np.linspace(0, 1, self.coords.N) * dist
-        coords = (simple_line + init)  # N x A x 3 -> 3 x A x N
-        return coords
-
-    def fluctuate(self, initialize=False, cutoff_f=10, fluctuation=0.03,
-                  fourier={'type': 1}):
-        """Give random fluctuation"""
-        from scipy.fftpack import idst
-        rand = np.random.rand
-        NN = np.sqrt(2 * (cutoff_f + 1))
-        if initialize:
-            self.coords = self.simple_coords()
-        size = self.coords[..., 1:-1].shape
-        fluc = np.zeros(size)
-        fluc[..., :cutoff_f] = fluctuation * (0.5 - rand(*size[:-1], cutoff_f))
-        self.coords[..., 1:-1] += idst(fluc, **fourier) / NN
+    def fluctuate(self, *args, **kwargs):
+        self.coords.fluctuate(*args, **kwargs)
 
     def search(self, **kwargs):
         """ Calculate optimized pathway"""

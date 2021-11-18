@@ -188,7 +188,8 @@ class Plotter:
             dir = '.'
         if not os.path.exists(dir):
             os.makedirs(dir)
-        p = self.prj(paths.coords)
+
+        p = self.prj(paths.coords).coords
 
         dim, A = self.get_shape(self.prj(paths.coords))
         if dim == 1:
@@ -238,7 +239,7 @@ class Plotter:
         if savefig:
             # plt.tight_layout()
             paths.save(real_model=True, filename=filename)
-            coords = paths.coords[:]
+            coords = paths.coords.coords[:]
             with open(filename + '_3D.npz', 'wb') as fd:
                 np.savez(fd, coords=coords)
             with open(filename + '_fig3D.pkl', 'wb') as fd:
@@ -282,7 +283,7 @@ class Plotter:
         fig.colorbar(CS)
 
         self.plot_trajectory(paths, plt, ax)
-        self.plot_information(paths, plt, ax, information='finder')
+        # self.plot_information(paths, plt, ax, information='finder')
 
         if savefig:
             plt.tight_layout()
@@ -335,8 +336,8 @@ class Plotter:
         self.plot_trajectory(paths, plt, ax,
                              xlim=self.xlimGMu, ylim=self.ylimGMu)
         self.plot_data(paths, plt, ax)
-        self.plot_information(paths, plt, ax, information='finder')
-        self.plot_info_map(paths, plt, ax, information='maximum_energy')
+        # self.plot_information(paths, plt, ax, information='finder')
+        # self.plot_info_map(paths, plt, ax, information='maximum_energy')
 
         if savefig:
             # plt.tight_layout()
@@ -370,14 +371,14 @@ class Plotter:
         self.plot_trajectory(paths, plt, ax,
                              xlim=self.xlimGCov, ylim=self.ylimGCov)
         self.plot_data(paths, plt, ax, mark_update=True)
-        self.plot_information(paths, plt, ax, information='gaussian')
-        self.plot_info_map(paths, plt, ax, information='maximum_uncertainty')
+        # self.plot_information(paths, plt, ax, information='gaussian')
+        # self.plot_info_map(paths, plt, ax, information='maximum_uncertainty')
         if savefig:
             np.savez(filename+"_GPmap.npz", X=X, Y=Y, ave=ave_map, cov=cov_map,
                      coords=paths.coords.coords, epoch=paths.coords.epoch,
                      unit=paths.coords.unit,
                      coordstype=paths.coords.__class__.__name__,
-                     **paths.model.hyperparameters)
+                     **paths.model.kernel.hyperparameters)
             # plt.tight_layout()
             # with open(filename + '_figcov.pkl', 'wb') as f:
             #     pickle.dump(fig, f)
@@ -388,8 +389,8 @@ class Plotter:
 
     def plot_energy_paths(self, paths, savefig, filename, gaussian):
         Vunit, Kunit = '', ''
-        if paths.model.real_model.potential_unit != 'unitless':
-            Vunit = '$(%s)$' % paths.model.potential_unit
+        if paths.model.real_model.unit != 'unitless':
+            Vunit = '$(%s)$' % paths.model.unit
         Kunit = '$(%s)$' % (paths.coords.unit or 'unitless')
 
         fig, ax = plt.subplots(figsize=self.fgszE)
@@ -398,21 +399,21 @@ class Plotter:
             ax.set_ylim(self.ylimHE)
         ttlE = ''
         formatkwargs = {'x': 'dist', 'pf': 'paths.finder'}
-        for key, value in paths.finder.display_graph_title_parameters.items():
-            formatkwargs['key'] = key
-            if not eval(value['under_the_condition'].format(**formatkwargs)):
-                continue
-            label = value['label']
-            unit = eval(value.get('unit', '""').format(p='paths'))
-            if unit == 'unitless' or unit is None:
-                unit = ''
-            f = eval(value['value'].format(**formatkwargs))
-            number = self.display_float(f, unit=unit)
-            ttlE += label + r': ${n:s}$'.format(n=number) + ';   '
-        if ttlE == '':
-            ttlE = self.ttlE
-        else:
-            ttlE = ttlE[:-3]
+        # for key, value in paths.finder.display_graph_title_parameters.items():
+        #     formatkwargs['key'] = key
+        #     if not eval(value['under_the_condition'].format(**formatkwargs)):
+        #         continue
+        #     label = value['label']
+        #     unit = eval(value.get('unit', '""').format(p='paths'))
+        #     if unit == 'unitless' or unit is None:
+        #         unit = ''
+        #     f = eval(value['value'].format(**formatkwargs))
+        #     number = self.display_float(f, unit=unit)
+        #     ttlE += label + r': ${n:s}$'.format(n=number) + ';   '
+        # if ttlE == '':
+        #     ttlE = self.ttlE
+        # else:
+        #     ttlE = ttlE[:-3]
         # ax.set_title(ttlE)
         # ax.set_xlabel(self.xlblE, fontsize=self.ftszEXlbl)
         # ax.set_ylabel(self.ylblV + Vunit, fontsize=self.ftszVYlbl)
@@ -465,21 +466,21 @@ class Plotter:
         #             xytext=(0, -16), textcoords='offset points',
         #             ha='center', va='center',
         #             fontsize=13, arrowprops=dict(arrowstyle='->'))
-        for key, value in paths.finder.display_graph_parameters.items():
-            formatkwargs['key'] = key
-            plot = getattr(ax, value.get('plot', 'plot'))
-            if not eval(value['under_the_condition'].format(**formatkwargs)):
-                continue
-            args = eval(value['args'].format(**formatkwargs))
-            kwargs = eval(value['kwargs'].format(**formatkwargs))
-            pltobj = plot(*args, **kwargs)
-            if isinstance(pltobj, list):
-                pltobj = pltobj[0]
-            amnt = value.get('lighten_color_amount')
-            if amnt is not None:
-                pltobj.set_color(lighten_color(pltobj.get_color(), amount=amnt))
-            if value.get('isLabeld', True):
-                lns.append(pltobj)
+        # for key, value in paths.finder.display_graph_parameters.items():
+        #     formatkwargs['key'] = key
+        #     plot = getattr(ax, value.get('plot', 'plot'))
+        #     if not eval(value['under_the_condition'].format(**formatkwargs)):
+        #         continue
+        #     args = eval(value['args'].format(**formatkwargs))
+        #     kwargs = eval(value['kwargs'].format(**formatkwargs))
+        #     pltobj = plot(*args, **kwargs)
+        #     if isinstance(pltobj, list):
+        #         pltobj = pltobj[0]
+        #     amnt = value.get('lighten_color_amount')
+        #     if amnt is not None:
+        #         pltobj.set_color(lighten_color(pltobj.get_color(), amount=amnt))
+        #     if value.get('isLabeld', True):
+        #         lns.append(pltobj)
         # sp1 = ax.transData.transform_point((x0, y0))
         # sp2 = ax.transData.transform_point((x1, y1))
         # rise = (sp2[1] - sp1[1])
@@ -504,7 +505,7 @@ class Plotter:
                     pickle.dump(H, f)
                     pickle.dump(T, f)
                     pickle.dump(cov_coords, f)
-                    pickle.dump(paths.finder.real_finder.Et, f)
+                    # pickle.dump(paths.finder.real_finder.Et, f)
             else:
                 np.savez(filename + '_Egraph.npz', V=V, H=H, T=T)
                 with open(filename + '_figE.pkl', 'wb') as f:
@@ -527,7 +528,7 @@ class Plotter:
 
     def plot_trajectory(self, paths, plt, ax, xlim=None, ylim=None, zlim=None,
                         forces=None):
-        plotter_coords = self.prj(paths.coords)
+        plotter_coords = self.prj(paths.coords).coords
         dim, A = self.get_shape(plotter_coords)
         if dim == 2:
             D = dim * A
@@ -551,7 +552,7 @@ class Plotter:
             ax.scatter(*d_coord, color=scatter_color[i], alpha=0.5)
             if forces is not None:
                 force = forces[:, i, :]
-                # *(forces.reshape(-1, paths.N))
+                # *(forces.reshape(-1, paths.coords.N))
                 ax.quiver(*d_coord, *force, color='w')
 
     def plot_data(self, paths, plt, ax, mark_update=False, quiver_scale=None):
@@ -561,15 +562,16 @@ class Plotter:
             quiver_scale = self.quiver_scale
 
         D, N = paths.coords.shape
-        data = paths.model.get_image_data(paths)
-        X_dat = self.display_coord(data['X'].reshape(D, -1))
-        F_dat = data['F'].reshape(D, -1)
+        data = paths.get_image_data()
+        X_dat = self.display_coord(data['coords'].reshape(D, -1))
+        F_dat = -data['gradients'].reshape(D, -1)
         tX, tY = X_dat[0, :], X_dat[1, :]
         ax.scatter(tX, tY, color='black', marker='x', s=paths.coords.N)
         ax.quiver(tX, tY, *F_dat, color='w', angles='xy', scale_units='xy',
                   scale=quiver_scale)
         if mark_update:
-            ax.scatter(tX[-1], tY[-1], color='red', marker='X', s=paths.N)
+            ax.scatter(tX[-1], tY[-1], color='red', marker='X',
+                       s=paths.coords.N)
 
     def plot_information(self, paths, plt, ax, information='finder', xlim=None,
                          ylim=None):
@@ -619,11 +621,11 @@ class Plotter:
     def plot_info_map(self, paths, plt, ax, information='maximum_energy'):
         if information == 'maximum_energy':
             E = paths.get_potential_energy(index=np.s_[1:-1])
-            unit = paths.model.potential_unit
+            unit = paths.model.unit
             string = r'$\mu^{(max)} : %s$' % self.display_float(E.max(),
                                                                 unit=unit)
 
-            xy = paths.coords[..., 1 + E.argmax()].flatten() * self.conformation
+            xy = paths.coords.coords[..., 1 + E.argmax()].flatten()
             fontsize = self.ftszGMuMx
         elif information == 'maximum_uncertainty':
             cov = paths.get_covariance()
@@ -631,9 +633,9 @@ class Plotter:
             string = r'$\Sigma^{(max)} : %s$' % self.display_float(
                                                 cov.max(), force_latex=True,
                                                 significant_digit=2)
-            xy = paths.coords[..., cov.argmax()].flatten() * self.conformation
+            xy = paths.coords.coords[..., cov.argmax()].flatten()
             fontsize = self.ftszGCovMx
-
+        xy *= self.conformation
         offset = 64
         ec = (0.5, 0.5, 0.5)
         fc = (1., 1., 1.)

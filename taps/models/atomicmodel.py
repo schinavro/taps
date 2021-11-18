@@ -40,8 +40,11 @@ class AtomicModel(Model):
 
     def calculate(self, paths, coords, properties=['potential'], **kwargs):
         results_raw = {}
+        if not isinstance(coords, np.ndarray):
+            coords = coords.coords
         if len(coords.shape) == 2:
             coords = coords[..., np.newaxis]
+
         for positions in coords.T:
             image = self.positions2image(positions)
             for property in self.calculation_properties.keys():
@@ -153,6 +156,8 @@ class AtomicModel(Model):
         from ase.io.trajectory import TrajectoryWriter
         if ".traj" not in filename or ".trj" not in filename:
             filename = filename + ".traj"
+        if not isinstance(coords, np.ndarray):
+            coords = coords.coords
         trj = TrajectoryWriter(filename, mode="a")
         N = coords.shape[-1]
         image = self.image.copy()

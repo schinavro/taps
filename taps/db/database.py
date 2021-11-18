@@ -10,14 +10,14 @@ from scipy.spatial import KDTree
 
 from taps.paths import Paths
 
-from taps.utils.antenna import packing, unpacking, dictify
+from taps.utils.antenna import packing, unpacking, dictify, classify
 # from taps.descriptor import SphericalHarmonicDescriptor
 
 class Database:
 
     metadata=OrderedDict(
         ctimeout='real'
-    ),
+    )
 
     def __init__(self, filename=None, entries=None, metadata=None,
                  _cache=None, **kwargs):
@@ -76,7 +76,11 @@ class Database:
                 if cache[i] is None:
                     datum[keys[i]] = None
                 elif entries[keys[i]] == 'blob':
-                    datum[keys[i]] = unpacking(cache[i], includesize=True)[0][0]
+                    a, b = unpacking(cache[i], includesize=True)
+                    if a == []:
+                        datum[keys[i]] = classify(b)
+                    else:
+                        datum[keys[i]] = a[0]
                 else:
                     datum[keys[i]] = cache[i]
             data.append(datum)
@@ -112,7 +116,11 @@ class Database:
                 if cache[i] is None:
                     datum[keys[i]] = None
                 elif entries[keys[i]] == 'blob':
-                    datum[keys[i]] = unpacking(cache[i], includesize=True)[0][0]
+                    a, b = unpacking(cache[i], includesize=True)
+                    if a == []:
+                        datum[keys[i]] = classify(b)
+                    else:
+                        datum[keys[i]] = a[0]
                 else:
                     datum[keys[i]] = cache[i]
             data.append(datum)

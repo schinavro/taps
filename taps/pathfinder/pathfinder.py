@@ -6,19 +6,18 @@ import numpy as np
 from numpy import newaxis as nax
 from numpy.linalg import norm
 
+from taps.projectors import Projector
+
 
 class PathFinder:
 
-    def __init__(self, results={}, relaxed=None, label=None, prj=None,
-                 **kwargs):
-        self.results = results
+    def __init__(self, results=None, relaxed=None, label=None, prj=None,
+                 _cache=None):
+        self.results = results or dict()
         self.relaxed = relaxed
         self.label = label
-        self.prj = prj
-        self._cache = {}
-
-        for key, value in kwargs.items():
-            setattr(self, key, value)
+        self.prj = prj or Projector()
+        self._cache = _cache or dict()
 
     def __getattr__(self, key):
         if key == 'real_finder':
@@ -26,39 +25,7 @@ class PathFinder:
         else:
             super().__getattribute__(key)
 
-    @property
-    def label(self):
-        if self.directory == '.':
-            return self.prefix
-
-        if self.prefix is None:
-            return self.directory + '/'
-
-        return '{}/{}'.format(self.directory, self.prefix)
-
-    @label.setter
-    def label(self, label):
-        if label is None:
-            self.directory = '.'
-            self.prefix = None
-            return
-
-        tokens = label.rsplit('/', 1)
-        if len(tokens) == 2:
-            directory, prefix = tokens
-        else:
-            assert len(tokens) == 1
-            directory = '.'
-            prefix = tokens[0]
-        if prefix == '':
-            prefix = None
-        self.directory = directory
-        self.prefix = prefix
-
-    def search(self, paths=None, real_finder=False, pbs=None, **kwargs):
-        """
-        pbs : dictionary
-        """
+    def search(self, paths=None, real_finder=False, **kwargs):
         if real_finder:
             finder = self.real_finder
         else:

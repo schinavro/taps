@@ -57,38 +57,10 @@ class Model:
         else:
             super().__getattribute__(key)
 
-    @property
-    def label(self):
-        if self.directory == '.':
-            return self.prefix
-
-        if self.prefix is None:
-            return self.directory + '/'
-
-        return '{}/{}'.format(self.directory, self.prefix)
-
-    @label.setter
-    def label(self, label):
-        if label is None:
-            self.directory = '.'
-            self.prefix = None
-            return
-
-        tokens = label.rsplit('/', 1)
-        if len(tokens) == 2:
-            directory, prefix = tokens
-        else:
-            assert len(tokens) == 1
-            directory = '.'
-            prefix = tokens[0]
-        if prefix == '':
-            prefix = None
-        self.directory = directory
-        self.prefix = prefix
-
     def get_properties(self, paths, properties=['potential'],
-                       index=np.s_[1:-1], coords=None, caching=False,
-                       real_model=False, use_raw_coords=False, **kwargs):
+                       index=np.s_[:], coords=None, caching=False,
+                       real_model=False, use_raw_coords=False,
+                       return_dict=False, **kwargs):
         """ pre-calculation rutine.
 
         Calculate static related properties.
@@ -159,7 +131,7 @@ class Model:
 
         if caching:
             model._cache[coords.tobytes()] = copy.deepcopy(results)
-        if len(properties) == 1:
+        if len(properties) == 1 and not return_dict:
             property = list(results.keys())[0]
             return results[property]
         return results
@@ -201,24 +173,13 @@ class Model:
                                  positions.tobytes(), 1234)
         return str(binascii.hexlify(dk))[2:-1]
 
-    def get_labels(self, coords=None):
-        labels = []
-        directory = self.directory or '.'
-        prefix = self.prefix or self.__class__.__name__
-
-        for positions in coords.T:
-            unique_hash = self.generate_unique_hash(positions)
-            labels.append(directory + '/' + unique_hash + '/' + prefix)
-        return labels
-
     def get_label(self, coord=None):
-        directory = self.directory or '.'
-        prefix = self.prefix or self.__class__.__name__
+        directory, prefix = Path(self.label).parts
         unique_hash = self.generate_unique_hash(coord)
         return directory + '/' + unique_hash + '/' + prefix
 
     def get_directory(self, coord=None):
-        directory = self.directory or '.'
+        directory, prefix = Path(self.label).parts
         unique_hash = self.generate_unique_hash(coord)
         return directory + '/' + unique_hash + '/'
 

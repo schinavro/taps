@@ -16,7 +16,7 @@ class ImageDatabase(Database):
     """
     Database for image
 
-    TODO: Bug fix on similar data gathering.
+    TODO: Make it handle Coordinate class
     """
 
     entries=OrderedDict(
@@ -82,12 +82,6 @@ class ImageDatabase(Database):
 
         super().delete(ids, table_name=table_name, entries=entries, **kwargs)
 
-    def project(self, data, prj=None):
-        prj = prj or self.prj
-        new_data = None
-        for dat in data:
-            dat['coords'] = dat['coords']
-
     def get_image_data(self, paths, prj=None, data_ids=None, data_bounds=None):
         """
         data_ids : dictionary of lists
@@ -103,7 +97,8 @@ class ImageDatabase(Database):
         data_ids = data_ids or self.data_ids
         data_bounds = data_bounds or getattr(self, 'data_bounds', {})
 
-        shape = prj.x(paths.coords(index=[0])).shape[:-1]
+        pcoords = prj.x(paths.coords(index=[0]))
+        shape = pcoords.shape[:-1]
         # Initial state
         if self._cache.get('old_data_ids') is None:
             shape_raw = paths.coords(index=[0]).shape[:-1]
@@ -114,6 +109,7 @@ class ImageDatabase(Database):
                 'gradients': np.zeros((*shape, 0), dtype=float),
                 'coords_raw': np.zeros((*shape_raw, 0), dtype=float),
                 'gradients_raw': np.zeros((*shape_raw, 0), dtype=float),
+                'data_ids': [],
                 'changed': True,
             }
 
@@ -126,6 +122,7 @@ class ImageDatabase(Database):
             for id in data_ids:
                 if id not in self._cache['old_data_ids']:
                     new_data_ids.append(id)
+                    self._cache['data']['data_ids'].append(id)
         new_data = self.read(new_data_ids)
         M = len(new_data_ids)
         data = self._cache['data']
@@ -171,7 +168,8 @@ class ImageDatabase(Database):
             for i in range(M):
                 coords_raw = new_data[i]['coord'][..., nax]
                 gradients_raw = new_data[i]['gradients'].copy()
-                gradients_prj, _ = prj.f(gradients_raw, coords_raw)
+                gradients_prj, _ = prj.f(gradients_raw,
+                                         pcoords.similar(coords_raw))
 
                 if data_bounds.get('gradients') is not None:
                     ub = data_bounds['gradients'].get('upperbound')
@@ -204,7 +202,8 @@ class ImageDatabase(Database):
         shape = data['coords'].shape
         D, M = np.prod(shape[:-1]), shape[-1]
         X = data['coords'].reshape(D, M)
-        Y = cat([data['potential'], data['gradients'].flatten()], axis=0)
+        Y = np.vstack([data['potential'],
+                       data['gradients'].reshape(D, M)]).flatten()
         return {'X': X, 'Y': Y}
 
     def mean_data(self, data):
@@ -225,22 +224,11 @@ class ImageDatabase(Database):
 
     def add_data(self, paths, coords=None, return_data=False, **kwargs):
         """
-        check_overlap -> create datum -> add_data
-        coords : atomic configuration
-        datum : atomic configuration with potential and forces
-           shape,  A number of tuples
-             [('H', desc, displacement, potential, forces, directory),
-              ('C', desc, ...),
-              ('N', desc, ...), ...]
-        found : list of Boolean or None, search results
-        id : list of int or None, where it is
-        M : Number of data
-        arr_dict : dict contains pathways to be calculated
-              arr_dict['image'] = [np.array([...]), ..., np.array([...])]
-              arr_dict['descriptor']
-                  = { 'H': [np.array([...]), ..., np.array([...])],
-                      'C': [...],
-                      ...}
+        paths : Paths class
+        coords : Coordnates class
+             atomic configuration or model image
+        return_data: bool
+             Whether return only ids or data
         """
 
         ids = self.search_image(paths, coords, pack_null=True, **kwargs)
@@ -248,11 +236,12 @@ class ImageDatabase(Database):
             # Not existing data + Failed data
             ids_ntbc = self.get_ids_need_to_be_calculated(ids)
             arr_ntbc = self.get_arr_dict_need_to_be_calculated(ids_ntbc)
+            coords_ntbc = coords.similar(coords=arr_ntbc)
             # you_need_calculation = self.check_calculation_is_necessary(ids)
 
             try:
                 self.queue(ids_ntbc, arr_ntbc, **kwargs)
-                data = self.create_image_data(paths, arr_ntbc, **kwargs)
+                data = self.create_image_data(paths, coords_ntbc, **kwargs)
                 self.update(ids_ntbc, data)
 
             except Exception as e:
@@ -273,7 +262,8 @@ class ImageDatabase(Database):
                      blackids=None, **kwargs):
         """
         Only search image table positions_arr exists.
-        coords: 3 x A x M  or  D x M  array
+        coords: Coordinates class
+              3 x A x M  or  D x M  array
                 where M is the number of data and A is the number of image
         If pack null given, fill up the void into slot where no data found.
         Search perfect match exist,
@@ -301,8 +291,8 @@ class ImageDatabase(Database):
             if len(paths_ids) != 0:
                 paths_data = self.get_image_data(paths)
                 paths_coord_flat_list = []
-                paths_coord_list = paths_data['X'].T
-                for m in range(paths_data["X"].shape[-1]):
+                paths_coord_list = paths_data['coords'].T
+                for m in range(paths_data["coords"].shape[-1]):
                     paths_coord_flat_list.append(paths_coord_list[m].flatten())
                 pathstree = KDTree(paths_coord_flat_list)
 
@@ -311,11 +301,11 @@ class ImageDatabase(Database):
         for m in range(M):
             conn = sqlite3.connect(self.filename)
             c = conn.cursor()
-            coord = coords[..., m]
+            coord = coords(index=[m])
             # Check Perfect match
             select_statement = "SELECT rowid FROM image WHERE "
             select_statement += "coord=?"
-            c.execute(select_statement, [packing(coord)])
+            c.execute(select_statement, [packing(coord.coords[..., 0])])
             id = c.fetchone()
             conn.commit()
             conn.close()
@@ -327,7 +317,7 @@ class ImageDatabase(Database):
             # Check Similar match
             if search_similar_image and db_data != []:
                 # Query similar point exists in db
-                res = dbtree.query_ball_point(coord.flatten(),
+                res = dbtree.query_ball_point(coord.coords[..., 0].flatten(),
                                               similar_image_tol)
                 similar_ids = np.array(db_ids)[res]
                 id.extend(similar_ids)
@@ -343,9 +333,9 @@ class ImageDatabase(Database):
             elif id == [] and pack_null:
                 # Emergency case! Randomly walk until it finds no overlap
                 if len(paths_ids) != 0:
-                    prjcoord = paths.model.prj._x(coord[..., nax])
+                    prjcoord = self.prj.x(coord)
                     shape = prjcoord.shape
-                    new_coord = prjcoord.flatten()
+                    new_coord = prjcoord.coords.flatten()
                     _D = np.prod(shape)
                     while True:
                         dist, prxi = pathstree.query(new_coord)
@@ -354,11 +344,11 @@ class ImageDatabase(Database):
                         walk = np.random.normal(size=_D,
                                                 scale=2*similar_image_tol)
                         new_coord += walk
-                    _coord = paths.model.prj._x_inv(new_coord.reshape(*shape))
-                    coord = _coord[..., 0]
+                    prjcoord.coords = new_coord.reshape(*shape)
+                    coord = self.prj.x_inv(prjcoord)
 
                 # PAD empty slots
-                data = self.create_vacant_data(coord[..., nax], **kwargs)
+                data = self.create_vacant_data(coord, **kwargs)
                 id = self.write(data)
             elif id == []:
                 # pick among fresh ids
@@ -379,8 +369,7 @@ class ImageDatabase(Database):
         image_data = []
         for m in range(M):
             datum = OrderedDict(zip(properties, [None] * len(properties)))
-            coord = coords[..., m]
-            datum['coord'] = coord
+            datum['coord'] = coords.coords[..., m]
             image_data.append(datum)
 
         return image_data
@@ -388,7 +377,7 @@ class ImageDatabase(Database):
     def create_image_data(self, paths, coords, prj=None, entries=None,
                           table_name=None, **kwargs):
         """
-        coords : DxM array
+        coords : Coordinates object
         update_status : list of ids
         return : list of tuples containing
               (coord, label, status, start_time, potential, potentials,
@@ -406,12 +395,12 @@ class ImageDatabase(Database):
         image_data = []
         for m in range(M):
             datum = OrderedDict(zip(properties, [None] * len(properties)))
-            coord = coords[..., m]
-            datum['coord'] = coord
+            coord = coords(index=[m])
+            datum['coord'] = coord.coords[..., 0]
             datum['start_time'] = None
             datum['status'] = None
 
-            results = paths.get_properties(coords=coord[..., nax],
+            results = paths.get_properties(coords=coord,
                                            properties=props,
                                            real_model=True, caching=True)
             datum['finish_time'] = time.time()

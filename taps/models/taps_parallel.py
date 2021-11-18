@@ -29,7 +29,7 @@ class Julia(Model):
     """
 
     implemented_properties = {'covariance', 'potential', 'gradients',
-                              'hessian', 'momentum', 'kinetic_energy',
+                              'hessian', 'momentum', 'kinetic_energies',
                               'kinetic_energy_gradient', 'velocity',
                               'acceleration', 'mass', 'effective_mass'}
 
@@ -77,7 +77,7 @@ class Julia(Model):
     #                                instruction=b'get_momentum', **kwargs)
 
     # def get_kinetic_energies(self, paths, **kwargs):
-    #     return self.get_properties(paths, properties='kinetic_energy',
+    #     return self.get_properties(paths, properties='kinetic_energies',
     #                                instruction=b'get_kinetic_energy', **kwargs)
 
     # def get_kinetic_energy_gradients(self, paths, **kwargs):
@@ -98,7 +98,7 @@ class Julia(Model):
 
     def get_masses(self, paths, **kwargs):
         return self.get_properties(paths, properties='mass',
-                                   instruction=b'get_mass', **kwargs)
+                                   instruction=b'get_masses', **kwargs)
 
     def get_effective_mass(self, paths, **kwargs):
         return self.get_properties(paths, properties='effective_mass',

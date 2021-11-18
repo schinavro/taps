@@ -13,9 +13,10 @@ class Regression:
     def __init__(self, kernel_regression_kwargs=None,
                  mean_regression_kwargs=None, optimized=False):
         # self.kernel_regression=None or KernelRegression()
-        self.kernel_regression_kwargs = kernel_regression_kwargs
+        self.kernel_regression_kwargs = kernel_regression_kwargs or \
+                  {"method": "BFGS"}
         # self.mean_regression=None or MeanRegression()
-        self.mean_regression_kwargs = mean_regression_kwargs
+        self.mean_regression_kwargs = mean_regression_kwargs or {}
 
         self.optimized = optimized
 
@@ -57,7 +58,7 @@ class Regression:
             except LinAlgError:
                 # Postive definite matrix
                 detK = np.linalg.det(K)
-                print(detK)
+                # print(detK)
                 if detK <= 1e-5:
                     log_detK = -5
                 else:

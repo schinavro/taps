@@ -18,7 +18,12 @@ class Kernel:
 
     """
     key2idx = {'sigma_f': 0, 'l^2': 1, 'sigma_n^e': 2, 'sigma_n^f': 3}
-    hyperparameters = {'sigma_f': 1, 'l^2': 1, 'sigma_n^e': 0, 'sigma_n^f': 0}
+    hyperparameters = {'sigma_f': 0.5, 'l^2': 0.1, 'sigma_n^e': 1e-2,
+                       'sigma_n^f': 1e-3}
+
+    def __init__(self, hyperparameters=None, key2idx=None):
+        self.hyperparameters = hyperparameters or self.hyperparameters
+        self.key2idx = key2idx or self.key2idx
 
     def __call__(self, Xn=None, Xm=None, orig=False, noise=False,
                  hyperparameters=None, gradient_only=False, hessian_only=False,

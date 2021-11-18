@@ -55,7 +55,8 @@ class MullerBrown(Model):
         y : N shape array
         return D x N
         """
-        self.results = getattr(self, 'results', {})
+        if not isinstance(coords, np.ndarray):
+            coords = coords.coords
         if len(coords.shape) == 1:
             coords = coords[:, np.newaxis]
         x, y = coords

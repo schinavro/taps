@@ -10,11 +10,12 @@ class Mean:
     def __call__(self, X):
         D, M = X.shape
         Vave = np.zeros(M) + self.hyperparameters
-        Fave = np.zeros(D*M)
-        return np.concatenate([Vave, Fave], axis=0)
+        Fave = np.zeros((D, M))
+        return np.vstack([Vave, Fave]).flatten()
 
     def V(self, X):
-        return self.hyperparameters
+        D, M = X.shape
+        return np.zeros(M) + self.hyperparameters
 
     def dV(self, X):
         return 0.

@@ -10,39 +10,46 @@ class PathsDatabase(Database):
     """
     entries=OrderedDict(
         paths='blob',
-    ),
-    def __init__(self, entries=None, table_name=None, **kwargs):
-        self.entries = entries or self.entries
-        self.table_name = table_name or self.table_name
+    )
+    def __init__(self, paths_ids=None, table_name='paths', **kwargs):
+        self.paths_ids = paths_ids or list()
+        self.table_name = table_name
 
         super().__init__(**kwargs)
 
-    def read(self, table_name=None, entries=None, **kwargs):
+    def read(self, ids, prj=None, table_name=None, entries=None, **kwargs):
         entries = entries or self.entries
         table_name = table_name or self.table_name
-        data = super().read(table_name=table_name, entries=entries, **kwargs)
+        data = super().read(ids,
+                            table_name=table_name, entries=entries, **kwargs)
         return data
 
-    def read_all(self, table_name=None, entries=None, **kwargs):
+
+    def read_all(self, prj=None, table_name=None, entries=None, **kwargs):
         entries = entries or self.entries
         table_name = table_name or self.table_name
         data = super().read_all(table_name=table_name, entries=entries,
                                 **kwargs)
         return data
 
-    def write(self, table_name=None, entries=None, **kwargs):
+    def write(self, data, prj=None, table_name=None, entries=None, **kwargs):
         entries = entries or self.entries
         table_name = table_name or self.table_name
+        return super().write(data, table_name=table_name,
+                             entries=entries, **kwargs)
 
-        super().write(table_name=table_name, entries=entries, **kwargs)
-
-    def update(self, table_name=None, entries=None, **kwargs):
+    def update(self, ids, data, prj=None, table_name=None, entries=None,
+               **kwargs):
         entries = entries or self.entries
         table_name = table_name or self.table_name
-        super().update(table_name=table_name, entries=entries, **kwargs)
+        super().update(ids, data, table_name=table_name, entries=entries,
+                       **kwargs)
 
-    def delete(self):
-        prj = prj or self.prj
+    def delete(self, ids, prj=None, table_name=None, entries=None, **kwargs):
+
         entries = entries or self.entries
         table_name = table_name or self.table_name
-        super().write(table_name=table_name, entries=entries, **kwargs)
+        super().delete(ids, table_name=table_name, entries=entries, **kwargs)
+
+    def get_paths_data(self):
+        None

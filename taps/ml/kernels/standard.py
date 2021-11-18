@@ -64,14 +64,14 @@ class SquaredExponential(Kernel):
         sig_f = hyperparameters.get('sigma_f')
         if Xn is None:
             Xn = Xm.copy()
-        # Xm = atleast_3d(Xm)
-        # Xn = atleast_3d(Xn)
+            # Xn = atleast_3d(Xn)
         N = Xn.shape[-1]
         M = Xm.shape[-1]
         D = np.prod(Xm.shape[:-1])
 
         X = Xn.reshape(D, N)
         Y = Xm.reshape(D, M)
+
 
         Xnm = X[:, :, nax] - Y[:, nax, :]            # D x N x M
         dists = (Xnm ** 2).sum(axis=0)               # N x M

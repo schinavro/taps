@@ -9,364 +9,204 @@ from taps.utils.shortcut import isstr, isLst, isdct, isbool
 from taps.visualize import view
 
 
-class GPAO(PathFinder):
+class GPAOPhase:
+    def __init__(self, cov_tol=None, data_ids=None):
+        self.cov_tol = cov_tol
 
-    def __init__(self, real_finder=None, log=None, gptol=None,
-                 cov_max_tol=None, E_max_tol=None, maxtrial=None, phase=0,
-                 phases=None, last_checker=None, distance_tol=None,
-                 plot=view, plot_kwargs=None, restart=False,
-                 _pbs_walltime="walltime=48:00:00", **kwargs):
-        self.real_finder = real_finder
+    def check_convergence(self, paths, printt):
+        cov_max = paths.get_covariance().max()
+        printt(" Covmax: %.3f" % cov_max)
+        if cov_max < self.cov_tol:
+            return 1
+        printt(" Number of Dat: %d" % len(paths.imgdata.data_ids))
+        return 0
 
-        self.log = log
-        self.gptol = gptol
-        self.cov_max_tol = cov_max_tol
-        self.E_max_tol = E_max_tol
-        self.distance_tol = distance_tol
-        self.plot = plot
-        self.plot_kwargs = plot_kwargs
-        self.restart = restart
-        self.maxtrial = maxtrial
-        self.phase = phase
-        self.phases = phases
-        self.last_checker = last_checker
-        self._E = []
-        self._cov = []
-        self._pbs = False
-        self._write_pbs = True
-        self._write_pbs_only = False
-        self._pbs_walltime = _pbs_walltime
-        super().__init__(**kwargs)
+    def acquisition(self, paths, printt):
+        idx = np.argmax(paths.get_covariance())
+        printt(idx)
+        ids = paths.add_data(index=[idx], blackids=paths.imgdata.data_ids)
+        return ids
 
-    @property
-    def Phase(self):
-        if self.phase >= len(self.convergence_checker):
-            return self.last_checker
-        return self.convergence_checker[self.phase]
 
-    @property
-    def Phases(self):
-        return self.convergence_checker
+class UncertainOrMaximumEnergy(GPAOPhase):
+    def __init__(self, cov_tol=None, Etol=None):
+        self.cov_tol = cov_tol
+        self.Etol = Etol
 
-    def maximum_uncertainty(self, paths, gptol=None, iter=None):
+    def check_convergence(self, paths, printt):
         cov = paths.get_covariance()
-        self._maximum_uncertainty_checked = True
-        # self._cov_max = cov.max() / paths.model.hyperparameters['sigma_f']
-        self._cov_max = cov.max()
-        return np.argmax(cov)
-
-    def check_maximum_uncertainty_convergence(self, paths, idx=None, **kwargs):
-        blackids = paths.imgdata.data_ids['image']
-        if not self._maximum_uncertainty_checked:
-            paths.add_data(index=idx, blackids=blackids)
+        cov_max = cov.max()
+        if cov_max >= self.cov_tol:
+            printt('Uncertain covmax: %.3f' % cov_max)
+            return 0.
+        E = paths.get_potential()
+        Emax = E.max()
+        Ereal = paths.get_potential(index=[np.argmax(E)], real_model=True)[0]
+        if np.abs(Emax - Ereal) >= self.Etol:
+            printt('Emax err Emax, Ereal: %.3f, %.3f' % (Emax, Ereal))
             return 0
-        paths.add_data(index=idx, blackids=blackids)
-        if self._cov_max < self.cov_max_tol:
-            return 1
-        return 0
+        printt("Converged! ")
+        return 1
 
-    def maximum_energy(self, paths, gptol=None, iter=None):
-        E = paths.get_potential_energy(index=np.s_[:])
-        self._maximum_energy_checked = True
-        self._E_max = E.max()
-        return np.argmax(E)
+    def acquisition(self, paths, printt):
+        cov = paths.get_covariance()
+        cov_max = cov.max()
+        if cov_max < self.cov_tol:
+            idx = np.argmax(cov)
+            return paths.add_data(index=[idx], blackids=paths.imgdata.data_ids)
+        E = paths.get_potential()
+        return paths.add_data(index=[np.argmax(E)],
+                              blackids=paths.imgdata.data_ids)
 
-    def check_maximum_energy_convergence(self, paths, idx=None, **kwargs):
-        blackids = paths.imgdata.data_ids['image']
-        if not self._maximum_energy_checked:
-            paths.add_data(index=idx, blackids=blackids)
+
+class AutoEt(GPAOPhase):
+    def __init__(self, Et_tol=None, cov_tol=None, Etol=None, data_ids=None):
+        self.Et_tol = Et_tol
+        self.cov_tol = cov_tol
+        self.Etol = Etol
+
+    def check_convergence(self, paths, printt):
+        Et = paths.finder.real_finder.action_kwargs['Energy Restraint']['Et']
+        Emax = paths.get_potential().max()
+        if Emax < Et:
+            printt("Target energy adjusting: Emax %.3f > Et %.3f" % (Emax, Et))
             return 0
-        data_ids = paths.add_data(index=idx, blackids=blackids)
-        imgdata = paths.get_image_data(data_ids=data_ids)
-        self._muErr = np.abs(self._E_max - imgdata['V'][-1])
-        if self._muErr < self.E_max_tol:
-            return 1
-        return 0
-
-    def uncertain_or_maximum_energy(self, paths, iter=None, **kwargs):
-        cov = paths.get_covariance(index=np.s_[:])
-        self._maximum_uncertainty_checked = True
-        # self._cov_max = cov.max() / paths.model.hyperparameters['sigma_f']
-        self._cov_max = cov.max()
-        if self._cov_max > self.cov_max_tol:
-            return np.argmax(cov)
-        E = paths.get_potential_energy(index=np.s_[:])
-        self._maximum_energy_checked = True
-        self._E_max = E.max()
-        return np.argmax(E)
-
-    def check_uncertain_or_maximum_energy_convergence(self, paths, idx=None,
-                                                      **kwargs):
-        blackids = paths.imgdata.data_ids['image']
-        if self._cov_max > self.cov_max_tol:
-            data_ids = paths.add_data(index=idx, blackids=blackids)
+        elif (Emax - Et) > 4 * self.Et_tol:
+            printt('Target energy not converged %.3f' % (Emax - Et))
             return 0
-        data_ids = paths.add_data(index=idx, blackids=blackids)
-        imgdata = paths.get_image_data(data_ids=data_ids)
-        self._muErr = np.abs(self._E_max - imgdata['V'][-1])
-        if self._muErr < self.E_max_tol:
-            return 1
-        return 0
+        return super().check_convergence(paths, printt)
 
-    def manual_et(self, paths, **kwargs):
-        return self.uncertain_or_maximum_energy(paths, **kwargs)
-
-    def check_manual_et_convergence(self, paths, idx=None, **kwargs):
-        return self.check_maximum_energy_convergence(paths, idx=idx, **kwargs)
-
-    def auto_et(self, paths, **kwargs):
-        paths.finder.real_finder.Et = self.get_next_et(paths)
-        paths.finder.real_finder.Et_type = 'manual'
-        return self.uncertain_or_maximum_energy(paths, **kwargs)
-
-    def check_auto_et_convergence(self, paths, idx=None, **kwargs):
-        blackids = paths.imgdata.data_ids['image']
-
-        V = paths.get_potential_energy(index=np.s_[1:-1])
-        data_ids = paths.add_data(index=idx, blackids=blackids)
-        imgdata = paths.get_image_data(data_ids=data_ids)
-        if self._maximum_energy_checked:
-            self._muErr = np.abs(self._E_max - imgdata['V'][-1])
-        # @@@@@@@@@@@@@@@@@@@@
-        cov = paths.get_covariance(index=np.s_[:])
-        # self._cov_max = cov.max() / paths.model.hyperparameters['sigma_f']
-        self._cov_max = cov.max()
-        if np.abs(V.max() - paths.finder.real_finder.Et) < self.Et_opt_tol and \
-                self._cov_max < self.cov_max_tol:
-            return 1
-        # @@@@@@@@@@@@@@@
-        # if np.abs(V.max() - paths.finder.real_finder.Et) < self.Et_opt_tol and \
-        #         self._cov_max > self.cov_max_tol:
-        #     return 1
-        return 0
-
-    def auto_et2(self, paths, **kwargs):
-        paths.finder.real_finder.Et = self.get_next_et(paths)
-        paths.finder.real_finder.Et_type = 'manual'
-        paths.model.mean.Em = self.get_next_mean(paths)
-        paths.model.mean.type = 'manual'
-
-        idx = self.uncertain_or_maximum_energy(paths, **kwargs)
-        return idx
-
-    def check_auto_et2_convergence(self, paths, idx=None, **kwargs):
-        V = paths.get_potential_energy(index=np.s_[1:-1])
-        blackids = paths.imgdata.data_ids['image']
-        data_ids = paths.add_data(index=idx, blackids=blackids)
-        imgdata = paths.get_image_data(data_ids=data_ids)
-        if self._maximum_energy_checked:
-            self._muErr = np.abs(self._E_max - imgdata['V'][-1])
-        cov = paths.get_covariance(index=np.s_[:])
-        self._cov_max = cov.max()
-        cur_Et = paths.finder.real_finder.Et
-        Vmax = V.max()
-        if Vmax < cur_Et:
-            return 0
-        elif self._cov_max > self.cov_max_tol:
-            return 0
-        elif (Vmax - cur_Et) < 4 * self.Et_opt_tol:
-            return 1
-        return 0
-
-    def maximum_mu(self, paths, **kwargs):
-        return self.uncertain_or_maximum_energy(paths, **kwargs)
-
-    def check_maximum_mu_convergence(self, paths, idx=None, **kwargs):
-        blackids = paths.imgdata.data_ids['image']
-        E = paths.get_potential_energy(index=np.s_[:])
-        self._Emaxlst = self.__dict__.get('_Emaxlst', [])
-        self._Emaxlst.append(np.max(E))
-        if len(self._Emaxlst) < 3:
-            paths.add_data(index=idx, blackids=blackids)
-            return 0
-        paths.add_data(index=idx, blackids=blackids)
-        V0, V1 = self._Emaxlst[-2:]
-        if np.abs(V0 - V1) < self.Et_opt_tol:
-            return 1
-        return 0
+    def acquisition(self, paths, printt, *args, **kwargs):
+        Et = self.get_next_et(paths)
+        paths.finder.real_finder.action_kwargs['Energy Restraint']['Et'] = Et
+        paths.model.mean.hyperparameters = self.get_next_mean(paths)
+        return super().acquisition(paths, printt, *args, **kwargs)
 
     def get_next_et(self, paths, **kwargs):
-        V = paths.get_potential_energy(index=np.s_[1:-1])
-        self._target_energy_checked = True
-        self._mu_Et = V.max() - paths.finder.real_finder.Et
+        Et = paths.finder.real_finder.action_kwargs['Energy Restraint']['Et']
+        E = paths.get_potential_energy()
 
-        maxV = np.max(V)
-        minV = np.min(V)
-        if paths.finder.real_finder.Et > maxV:
-            Et = minV
-        elif (maxV - paths.finder.real_finder.Et) <= 2 * self.Et_opt_tol:
-            Et = (maxV + minV) / 2
+        Emax = np.max(E)
+        Emin = np.min(E)
+        if Et > Emax:
+            Et = Emin
+        elif (Emax - Et) <= 2 * self.Et_tol:
+            Et = (Emax + Emin) / 2
         else:
-            Et = (maxV + paths.finder.real_finder.Et - 2*self.Et_opt_tol) / 2
+            Et = (Emax + Et - 2*self.Et_tol) / 2
         return Et
 
     def get_next_mean(self, paths, **kwargs):
-        V = paths.get_potential_energy(index=np.s_[1:-1])
-        return V.max()#  + (V.max() - V.min())*0.1
+        E = paths.get_potential_energy()
+        return E.max() #  + (V.max() - V.min())*0.1
 
+class GPAO(PathFinder):
 
-    def alternate_energy(self, paths, gptol=None, iter=None):
-        if iter % 2 == 0:
-            return self.maximum_uncertainty(paths, gptol=gptol)
-        E = paths.get_potential_energy(index=np.s_[:])
-        self._maximum_energy_checked = True
-        self._E_max = E.max()
-        return np.argmax(E)
+    def __init__(self, real_finder=None, restart=False, logfile=None,
+                 maxtrial=10, plot_kwargs=None, phase_kwargs=None,
+                 pathsdatabase=None, **kwargs):
+        super().__init__(**kwargs)
+        self.real_finder = real_finder
+        self.restart = restart
+        self.logfile = logfile
+        self.maxtrial = maxtrial
+        self.plot_kwargs = plot_kwargs or {}
+        self.phase_kwargs = phase_kwargs or {}
+        # self.pathsdatabase = pathsdatabase or PathsDatabase()
+        self.pathsdatabase = pathsdatabase
 
-    def check_alternate_energy_convergence(self, paths, idx=None, **kwargs):
-        if kwargs['iter'] % 2 == 0:
-            return 0
-        return self.check_maximum_energy_convergence(paths, idx=idx, **kwargs)
+    def optimize(self, paths, label=None, real_finder=None, restart=None,
+                 logfile=None, maxtrial=None, plot_kwargs=None,
+                 phase_kwargs=None, pathsdatabase=None, **kwargs):
+        # Initialize
+        label = label or self.label or paths.label
+        real_finder = real_finder or self.real_finder
+        if restart is not None:
+            restart = restart
+        logfile = logfile or self.logfile
+        maxtrial = maxtrial or self.maxtrial
+        plot_kwargs = plot_kwargs or self.plot_kwargs
+        phase_kwargs = phase_kwargs or self.phase_kwargs
+        pathsdatabase = pathsdatabase or self.pathsdatabase
+        # LOGGER INIT
+        close_log = False
+        if logfile is None:
+            def printt(*line, end='\n'):
+                print(*line, end=end)
+        elif isinstance(logfile, str):
+            logdir = os.path.dirname(logfile)
+            if logdir == '':
+                logdir = '.'
+            if not os.path.exists(logdir):
+                os.makedirs(logdir)
+            logfile = open(logfile, 'a')
+            def printt(*line, end='\n'):
+                lines = ' '.join([str(l) for l in line]) + end
+                logfile.write(lines)
+                logfile.flush()
+            close_log = True
+        elif logfile.__class__.__name__ == "TextIOWrapper":
+            def printt(*line, end='\n'):
+                lines = ' '.join([str(l) for l in line]) + end
+                logfile.write(lines)
+                logfile.flush()
+        # Finish Initialize
+        # DEFINE for convinience
+        pdb = pathsdatabase
+        # End DEFINE
 
-    def alternate_saddle(self, paths, iter=None):
-        if iter % 2 == 0:
-            return self.maximum_uncertainty(paths)
-        E = paths.get_potential_energy(index=np.s_[:])
-        X = paths.get_distances(index=np.s_[:])
-        dE = np.diff(E)
-        dX = np.diif(X)
-        ddEdX2 = np.diff(dE / dX) / dX[:-1]
-        saddle = np.arange(1, paths.N - 1)[np.abs(ddEdX2) < self.gptol]
-        if len(saddle) == 0:
-            return np.argmax(E)
-        return np.random.choice(saddle)
+        printt("====================")
+        printt("       GPAO")
+        printt("====================")
+        iteration = 0
+        if restart:
+            printt("\nReading %s " % pdb.filename)
+            paths_data = pdb.get_last_paths_data()
+            paths = paths_data['paths']
+            iteration = data['iteration'] + 1
 
-    def check_alternate_saddle_convergence(self, paths, idx=None, **kwargs):
-        if kwargs['iter'] % 2 == 0:
-            return False
-        blackids = paths.imgdata.data_ids['image']
-        E = paths.get_potential_energy(index=np.s_[:])
-        data_ids = paths.add_data(index=idx, blackids=blackids)
-        imgdata = paths.get_image_data(data_ids=data_ids)
-        if np.abs(E[idx] - imgdata['V'][-1]) < self.gptol:
-            return 1
-        return 0
-
-    def acquisition(self, paths, phase=None, iter=0):
-        if phase is None:
-            phase = self.phase
-        self._maximum_uncertainty_checked = False
-        self._maximum_energy_checked = False
-        self._target_energy_checked = False
-        phase = self.Phase.lower().replace(" ", "_")
-        return getattr(self, phase)(paths, iter=iter)
-
-    def check_convergence(self, paths, phase=None, iter=None, logfile=None,
-                          **kwargs):
-        phase = phase or self.phase
-        imgdata = paths.get_image_data()
-        if len(imgdata['V']) < 3:
-            logfile.write("Initial index : %d \n" % (paths.N // 3))
-            paths.add_data(index=paths.N // 3)
-            logfile.write("Energy added : %.4f\n" % imgdata['V'][-1])
-            logfile.flush()
-            return False
-
-        idx = self.acquisition(paths, phase=phase, iter=iter)
-        logfile.write("Add new idx  : %d \n" % idx)
-        logfile.flush()
-
-        phase_name = self.Phase.lower().replace(" ", "_")
-        phase = 'check_' + phase_name + '_convergence'
-        self.phase += getattr(self, phase)(paths, idx=idx, iter=iter,
-                                           logfile=logfile, **kwargs)
-        logfile.write("Energy added : %.4f\n" % imgdata['V'][-1])
-        logfile.flush()
-        if self.phase >= len(self.Phases):
-            # logfile.write("Last phase. Checking dS...")
-            # if paths.finder.real_finder.isConverged(paths):
-            cov_max = np.max(paths.get_covariance())
-            logfile.write("Last phase. Checking Cov max %f" % cov_max)
-            if cov_max < self.cov_max_tol:
-                logfile.write("..Converged!\n")
-                return True
-            logfile.write(".. Too big not converged\n")
-            # dist = frechet_distance(self._prevcoords, paths)
-            # logfile.write(" converged, checking displacement %f" % dist)
-            # if dist < self.distance_tol:
-            #     logfile.write('Distance %f < tol, Converged!' % dist)
-            #     return True
-            # self._prevcoords = paths.copy()
-            return False
-            # logfile.write("NOT converged\n")
-        # self._prevcoords = paths.copy()
-        return False
-
-    def I_prepared_my_paths_in_various_ways(self, paths, **kwargs):
-        if 'auto et' == self.Phase.lower():
-            pass
-        # if True:
-            # logfile = kwargs.get('logfile')
-            # logfile.write('Prepare my paths in various ways \n')
-            # paths.fluctuate(initialize=True)
-
-    def optimize(self, paths, gptol=0.01, maxiter=50, restart=None,
-                 **search_kwargs):
-        label = getattr(self, 'label', None) or paths.label
-        log = self.log or label + '.log'
-        logdir = os.path.dirname(log)
-        if logdir == '':
-            logdir = '.'
-        if not os.path.exists(logdir):
-            os.makedirs(logdir)
-        with open(log, 'a+') as logfile:
-            dir = os.path.dirname(log)
-            if dir == '':
-                dir = '.'
-            if not os.path.exists(dir):
-                os.makedirs(dir)
-            if os.path.exists(label + '_pathsdata.db') and self.restart:
-                logfile.write("\nReading %s \n" % (label + '_pathsdata.db'))
-                data = self._load(paths, filename=label+'_pathsdata.db')
-                paths = data['paths']
-                iter_number = data['rowid'] + 1
-            else:
-                filename = label + '_initial'
-                logfile.write("Writting %s \n" % (label + '_pathsdata.db'))
-                self._save(paths, filename=filename)
-                iter_number = 1
-
-            logfile.flush()
-            i = iter_number
-            while not self.check_convergence(paths, iter=i, logfile=logfile):
-                data_ids = paths.imgdata.data_ids['image']
-                imgdata = paths.get_image_data(ids=data_ids)
-                dat = [str(d) for d in data_ids]
-                logfile.write("Iteration    : %d\n" % i)
-                logfile.write("Phase        : %s\n" % self.Phase)
-                logfile.write("Number of Dat: %d\n" % len(dat))
-                logfile.write("ImgData idx  : %s\n" % ', '.join(dat))
-                # logfile.write("Energy added : %.4f\n" % imgdata['V'][-1])
-                filename = label + '_{i:02d}'.format(i=i)
-                self.I_prepared_my_paths_in_various_ways(paths, logfile=logfile)
-                paths.search(real_finder=True, logfile=logfile, **search_kwargs)
-                self.results.update(paths.finder.real_finder.results)
-                self._save(paths, filename=filename)
-                i += 1
-                if self.maxtrial < i:
-                    logfile.write("Max iteration, %d, reached! \n" % self.maxtrial)
+        for name, p_kwargs in phase_kwargs.items():
+            class_name = name.replace(" ", "")
+            module = __import__('taps.pathfinder.gpao', {}, None, [class_name])
+            phase = getattr(module, class_name)(**p_kwargs)
+            printt("Phase       : %s" % name)
+            while True:
+                printt("====================")
+                printt("       %s : %03d" % (name, iteration))
+                printt("====================")
+                if maxtrial < iteration:
+                    printt("Max iteration, %d, reached! " % maxtrial)
                     break
+                if phase.check_convergence(paths, printt):
+                    printt("Converged! ")
+                    break
+                new_ids = phase.acquisition(paths, printt)
+                str_ids = [str(id) for id in new_ids]
+                printt("Iteration    : %d" % iteration)
+                printt("ImgData idx  : %s" % ', '.join(str_ids))
+                paths.search(real_finder=True, logfile=printt)
+                self.results.update(paths.finder.real_finder.results)
+                self._save(paths, iteration=iteration)
+                iteration += 1
+            printt("")
 
-            dat = [str(d) for d in paths.imgdata.data_ids['image']]
-            logfile.write("Iteration    : %d\n" % i)
-            logfile.write("Phase        : %s\n" % self.Phase)
-            logfile.write("Number of Dat: %d\n" % len(dat))
-            logfile.write("ImgData idx  : %s\n" % ', '.join(dat))
-            filename = label + '_{i:02d}'.format(i=i)
-            self.I_prepared_my_paths_in_various_ways(paths, logfile=logfile)
-            paths.search(real_finder=True, logfile=logfile, **search_kwargs)
-            self.results.update(paths.finder.real_finder.results)
-            self._save(paths, filename=filename)
+        if close_log:
+            logfile.close()
         return paths
 
-    def _save(self, paths, filename=None, plot_kwargs=None):
-        label = getattr(self, 'label', None) or paths.label
+    def _save(self, paths, pathsdatabase=None, plot_kwargs=None, iteration='',
+              label=None):
+        pathsdatabase = pathsdatabase or self.pathsdatabase
         plot_kwargs = plot_kwargs or self.plot_kwargs
-        self.plot(paths, filename=filename, **plot_kwargs)
-        # paths.plot(filename=filename, savefig=True, gaussian=True)
-        PathsDatabase = PathsDatabase(label + '_pathsdata.db')
-        data = [{'paths': paths}]
-        PathsDatabase.write(data=data)
+        iteration = iteration
+        label = label or self.label
+
+        if plot_kwargs != {}:
+            if iteration != '':
+                iteration = '_' + '%03d' % iteration
+                plot_kwargs['filename'] = label + iteration
+            view(paths, **plot_kwargs)
+        pathsdatabase.write(data=[{'paths': paths}])
 
     def _load(self, paths, filename=None, plot_kwargs=None):
         PathsDatabase = PathsDatabase(filename)
@@ -378,8 +218,3 @@ class GPAO(PathFinder):
         #### IDK WHY but remove read-only
         data['paths'].coords = data['paths'].coords.copy()
         return data
-
-    def patch_paths(self, paths):
-        if self.__dict__.get('_patch_paths') is not None:
-            return self.__dict__.get('_patch_paths')(paths)
-        return paths

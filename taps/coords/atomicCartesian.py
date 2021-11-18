@@ -1,7 +1,7 @@
 from taps.coords import Cartesian
 from taps.utils.arraywrapper import arraylike
 
-@arraylike
+# @arraylike
 class AtomicCartesian(Cartesian):
 
     def __int__(self, mass=None, **kwargs):
