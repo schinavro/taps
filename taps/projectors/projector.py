@@ -201,7 +201,7 @@ class Projector:
     def m_inv(self, masses, coords):
         return masses, coords
 
-    pipeline = staticmethod(pipeline)
+    # pipeline = staticmethod(pipeline)
 
 
 class Mask(Projector):
@@ -349,7 +349,7 @@ class Sine(Projector):
     def x(self, coords):
         # return dst((coords - line), type=1, norm='ortho').flatten()
         return dst((coords[..., 1:-1] - self.line()),
-                    type=1, norm='ortho')[..., :self.Nk]
+                   type=1, norm='ortho')[..., :self.Nk]
 
     @Projector.pipeline
     def x_inv(self, rcoords):
@@ -367,7 +367,7 @@ class Sine(Projector):
     def _x(self, coords):
         # return dst((coords - line), type=1, norm='ortho').flatten()
         return dst((coords[..., 1:-1] - self.line()),
-                    type=1, norm='ortho')[..., :self.Nk]
+                   type=1, norm='ortho')[..., :self.Nk]
 
     @Projector.pipeline
     def _x_inv(self, rcoords):
@@ -377,8 +377,8 @@ class Sine(Projector):
         _ = np.zeros((*self.shape, self.N))
         _[..., :self.Nk] = rcoords.reshape(*self.shape, self.Nk)
         _coords = idst(_, type=1, norm='ortho') + line
-        coords = np.concatenate([self.init[..., nax],
-                                 _coords, self.fin[..., nax]], axis=-1)
+        coords = np.concatenate([self.init[..., nax], _coords,
+                                 self.fin[..., nax]], axis=-1)
         return coords
 
     @Projector.pipeline
@@ -393,8 +393,9 @@ class Sine(Projector):
            shape DxNk -> DxN-2
         """
         coords = dst((coords[..., 1:-1] - self.line()),
-                      type=1, norm='ortho')[..., :self.Nk]
-        return dst(forces[..., 1:-1], type=1, norm='ortho')[..., :self.Nk], coords
+                     type=1, norm='ortho')[..., :self.Nk]
+        return dst(forces[..., 1:-1],
+                   type=1, norm='ortho')[..., :self.Nk], coords
 
     @Projector.pipeline
     def f_inv(self, rforces, rcoords):

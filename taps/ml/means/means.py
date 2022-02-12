@@ -1,5 +1,6 @@
 import numpy as np
 
+
 class Mean:
     """
     Zero mean function
@@ -29,6 +30,7 @@ class Mean:
 
     def get_hyperparameters(self):
         return self.hyperparameters
+
 
 class Average(Mean):
     """

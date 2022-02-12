@@ -4,6 +4,7 @@ from numpy.linalg.linalg import LinAlgError
 from numpy.linalg import inv, cholesky
 from numpy import log, sum, diagonal
 
+
 class Regression:
     """
     Return a function that should be minimized
@@ -29,16 +30,16 @@ class Regression:
     def kernel_regression(self, kernel, mean, *args, data=None, **kwargs):
         """
         k : class Kernel; k(X, X) ((DxN + 1) x m) x ((DxN + 1) x n) array
-        X : imgdata['X']; position of atoms, (D x N) x m dimension array
-        Y : imgdata['Y']; energy and forces of atoms One dimensional array
+        X : imgdb['X']; position of atoms, (D x N) x m dimension array
+        Y : imgdb['Y']; energy and forces of atoms One dimensional array
             with length (m + m x (D x N)) Potential comes first.
         m : mean function
         M : a number of data
         """
-        k, m, x0 = kernel, mean, kernel.get_hyperparameters()
+        x0 = kernel.get_hyperparameters()
         likelihood = self.likelihood(kernel, mean, data)
         res = minimize(likelihood, x0=x0, **self.kernel_regression_kwargs)
-        k.set_hyperparameters(res.x)
+        kernel.set_hyperparameters(res.x)
 
     def mean_regression(self, mean, kernel, *args, data=None, **kwargs):
         mean.set_hyperparameters(data=data)
@@ -48,6 +49,7 @@ class Regression:
         X = data['kernel']['X']
         Y = data['kernel']['Y']
         Y_m = Y - m(X)
+
         def likelihood(hyperparameters):
             k.set_hyperparameters(hyperparameters)
             K = k(X, X, noise=True)
@@ -88,6 +90,7 @@ class Regression:
         if no_boundary:
             bounds = None
         return {'x0': x0, 'bounds': bounds, 'method': method}
+
 
 class NonGradientRegression(Regression):
     def likelihood(hyperparameters_list):

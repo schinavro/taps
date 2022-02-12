@@ -2,8 +2,9 @@ import numpy as np
 import numexpr as ne
 from numpy import identity as I
 from numpy import newaxis as nax
-from numpy import vstack, atleast_3d
+from numpy import vstack
 from taps.ml.kernels import Kernel
+
 
 class SquaredExponential(Kernel):
     """ Function like class that generate kernel matrix.
@@ -19,7 +20,8 @@ class SquaredExponential(Kernel):
 
     """
     key2idx = {'sigma_f': 0, 'l^2': 1, 'sigma_n^e': 2, 'sigma_n^f': 3}
-    hyperparameters = {'sigma_f': 1, 'l^2': 1, 'sigma_n^e': 0, 'sigma_n^f': 0}
+    hyperparameters = {'sigma_f': 1, 'l^2': 1, 'sigma_n^e': 0.1,
+                       'sigma_n^f': 0.1}
 
     def __call__(self, Xn=None, Xm=None, orig=False, noise=False,
                  hyperparameters=None, gradient_only=False, hessian_only=False,

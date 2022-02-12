@@ -399,24 +399,7 @@ class Plotter:
             ax.set_ylim(self.ylimHE)
         ttlE = ''
         formatkwargs = {'x': 'dist', 'pf': 'paths.finder'}
-        # for key, value in paths.finder.display_graph_title_parameters.items():
-        #     formatkwargs['key'] = key
-        #     if not eval(value['under_the_condition'].format(**formatkwargs)):
-        #         continue
-        #     label = value['label']
-        #     unit = eval(value.get('unit', '""').format(p='paths'))
-        #     if unit == 'unitless' or unit is None:
-        #         unit = ''
-        #     f = eval(value['value'].format(**formatkwargs))
-        #     number = self.display_float(f, unit=unit)
-        #     ttlE += label + r': ${n:s}$'.format(n=number) + ';   '
-        # if ttlE == '':
-        #     ttlE = self.ttlE
-        # else:
-        #     ttlE = ttlE[:-3]
-        # ax.set_title(ttlE)
-        # ax.set_xlabel(self.xlblE, fontsize=self.ftszEXlbl)
-        # ax.set_ylabel(self.ylblV + Vunit, fontsize=self.ftszVYlbl)
+
         ax.set_ylabel('Total & Potential', fontsize=self.ftszVYlbl)
 
         dist = paths.get_distances(index=np.s_[1:-1])
@@ -431,10 +414,7 @@ class Plotter:
             cov_max_idx = cov_coords.argmax()
             annot_x = dist[cov_max_idx]
             annot_y = V[cov_max_idx] + cov_coords.max()
-            # ax.annotate(s=r'$\Sigma_{max}$', xy=(annot_x, annot_y),
-            #             xytext=(0, 16), textcoords='offset points',
-            #             ha='center', va='center',
-            #             fontsize=13, arrowprops=dict(arrowstyle='->'))
+
         H = V + T
         # ax.plot(dist, H, '--')
         ax2 = ax.twinx()
@@ -449,52 +429,13 @@ class Plotter:
         else:
             lns += ax.plot(H, self.mrkrH, label='$H$')
             lns += ax2.plot(T, self.mrkrT, label='$T$')
-        # if gaussian:
-        #     color = lighten_color(lns[-1].get_color())
-        #     ax.fill_between(dist, H + uncertainty_coords, H - uncertainty_coords,
-        #                     color=color)
 
-
-        # Max E indicator
         x0 = dist[V.argmax()]
         y0 = V.min()
         x1 = x0
         y1 = V.max()
         dE = (V.max() - y0)
         dE = r'$%s$' % self.display_float(dE, unit=Vunit)
-        # ax.annotate(s=r'$V_{max}$', xy=(x0, y1),
-        #             xytext=(0, -16), textcoords='offset points',
-        #             ha='center', va='center',
-        #             fontsize=13, arrowprops=dict(arrowstyle='->'))
-        # for key, value in paths.finder.display_graph_parameters.items():
-        #     formatkwargs['key'] = key
-        #     plot = getattr(ax, value.get('plot', 'plot'))
-        #     if not eval(value['under_the_condition'].format(**formatkwargs)):
-        #         continue
-        #     args = eval(value['args'].format(**formatkwargs))
-        #     kwargs = eval(value['kwargs'].format(**formatkwargs))
-        #     pltobj = plot(*args, **kwargs)
-        #     if isinstance(pltobj, list):
-        #         pltobj = pltobj[0]
-        #     amnt = value.get('lighten_color_amount')
-        #     if amnt is not None:
-        #         pltobj.set_color(lighten_color(pltobj.get_color(), amount=amnt))
-        #     if value.get('isLabeld', True):
-        #         lns.append(pltobj)
-        # sp1 = ax.transData.transform_point((x0, y0))
-        # sp2 = ax.transData.transform_point((x1, y1))
-        # rise = (sp2[1] - sp1[1])
-        # run = (sp2[0] - sp1[0])
-        # slope_degrees = np.degrees(np.arctan2(rise, run))
-        # label=r'$\Sigma_{max}$',
-        # ax.text(x1, (y0 + y1) / 2, dE, rotation=slope_degrees, size=13,
-        #         horizontalalignment='center', verticalalignment='top')
-        # ax.annotate(s=dE, xy=(x1, (y0 + y1) / 2), xytext=(10, 0), size=13,
-        #             textcoords='offset points', rotation=slope_degrees,
-        #             arrowprops=dict(arrowstyle='<->'),
-        #             horizontalalignment='left',
-        #             verticalalignment='bottom', label=r'$V_{max}$')
-        # lnVMx.set_rotation(slope_degrees)
         if savefig:
             plt.tight_layout()
             if gaussian:

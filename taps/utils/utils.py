@@ -61,7 +61,7 @@ class ImageIndexing:
 
 def paths2dct(paths, necessary_parameters, allowed_properties, class_objects,
               save_calc=False, save_model=False, save_finder=False,
-              save_prj=False, save_imgdata=False, save_plotter=False):
+              save_prj=False, save_imgdb=False, save_plotter=False):
     dct = OrderedDict()
     P, N = paths.P, paths.N
     for key, value in paths.__dict__.items():
@@ -239,7 +239,7 @@ def dataframe2dct(dataframe, index=None, reader=csvreader):
             continue
         # elif 'finder_res' == key:
         #    continue
-        # elif 'imgdata_database' == key:
+        # elif 'imgdb_database' == key:
         #    continue
         if key in ['calc']:
             calculators = df(key).lower()

@@ -1,29 +1,24 @@
 import os
 import time
-import pickle
 import sqlite3
 import numpy as np
-from numpy import newaxis as nax
-from sqlite3 import OperationalError
 from collections import OrderedDict
-from scipy.spatial import KDTree
-
-from taps.paths import Paths
 
 from taps.utils.antenna import packing, unpacking, dictify, classify
 # from taps.descriptor import SphericalHarmonicDescriptor
 
+
 class Database:
 
-    metadata=OrderedDict(
+    metadata = OrderedDict(
         ctimeout='real'
     )
 
     def __init__(self, filename=None, entries=None, metadata=None,
-                 _cache=None, **kwargs):
+                 _cache=None):
+        self.filename = filename or self.__class__.__name__ + '.db'
         self.entries = entries or self.entries
         self.metadata = metadata or self.metadata
-        self.filename = filename or self.__class__.__name__ + '.db'
         self._cache = _cache or dict()
 
     def create_table(self, filename=None, table_name=None, **kwargs):
@@ -76,11 +71,8 @@ class Database:
                 if cache[i] is None:
                     datum[keys[i]] = None
                 elif entries[keys[i]] == 'blob':
-                    a, b = unpacking(cache[i], includesize=True)
-                    if a == []:
-                        datum[keys[i]] = classify(b)
-                    else:
-                        datum[keys[i]] = a[0]
+                    val = unpacking(cache[i], includesize=True)[0][0]
+                    datum[keys[i]] = classify(val)
                 else:
                     datum[keys[i]] = cache[i]
             data.append(datum)
@@ -116,11 +108,8 @@ class Database:
                 if cache[i] is None:
                     datum[keys[i]] = None
                 elif entries[keys[i]] == 'blob':
-                    a, b = unpacking(cache[i], includesize=True)
-                    if a == []:
-                        datum[keys[i]] = classify(b)
-                    else:
-                        datum[keys[i]] = a[0]
+                    val = unpacking(cache[i], includesize=True)[0][0]
+                    datum[keys[i]] = classify(val)
                 else:
                     datum[keys[i]] = cache[i]
             data.append(datum)
@@ -128,8 +117,39 @@ class Database:
         conn.close()
         return data
 
+    def read_latest(self, filename=None, table_name=None, entries=None,
+                    **kwargs):
+        filename = filename or self.filename
+        entries = entries or self.entries
+        table_name = table_name or self.table_name
+        if not os.path.exists(filename):
+            self.create_table(table_name=table_name)
+
+        conn = sqlite3.connect(filename)
+        c = conn.cursor()
+
+        keys = ['rowid'] + list(entries.keys())
+        data = []
+        select_statement = "SELECT " + ', '.join(keys) + " FROM "
+        select_statement += table_name + " ORDER BY rowid DESC LIMIT 1;"
+        c.execute(select_statement)
+        cache = c.fetchone()
+        datum = {'rowid': cache[0]}
+        for i in range(1, len(keys)):
+            if cache[i] is None:
+                datum[keys[i]] = None
+            elif entries[keys[i]] == 'blob':
+                val = unpacking(cache[i], includesize=True)[0][0]
+                datum[keys[i]] = classify(val)
+            else:
+                datum[keys[i]] = cache[i]
+        data.append(datum)
+        conn.commit()
+        conn.close()
+        return data
+
     def write(self, data, filename=None, table_name=None, entries=None,
-                 **kwargs):
+              **kwargs):
         """
         Parameters
         ==========
@@ -163,7 +183,7 @@ class Database:
                     elif v is None:
                         dat.append(v)
                     else:
-                        dat.append(packing(**dictify(v, ignore_cache=False)))
+                        dat.append(packing(dictify(v, ignore_cache=False)))
                 else:
                     dat.append(v)
             insert_statement = 'INSERT INTO ' + table_name

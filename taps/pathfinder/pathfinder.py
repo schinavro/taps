@@ -35,3 +35,6 @@ class PathFinder:
 
     def isConverged(self, *args, **kwargs):
         return True
+
+    def get_x0(self, coords):
+        return coords.flatten()

@@ -19,9 +19,14 @@ def read_csv(label, index=0):
 
 
 def get_simple_coords(init, fin, N, **pkwargs):
-    dist = fin.positions - init.positions  # A x 3
-    simple_line = linspace(0, 1, N)[:, np.newaxis, np.newaxis] * dist
-    coords = (simple_line + init.positions).T  # N x A x 3 -> 3 x A x N
+    if getattr(init, 'positions', None) is not None:
+        dist = fin.positions - init.positions  # A x 3
+        simple_line = linspace(0, 1, N)[:, np.newaxis, np.newaxis] * dist
+        coords = (simple_line + init.positions).T  # N x A x 3 -> 3 x A x N
+    else:
+        dist = fin - init
+        simple_line = linspace(0, 1, N)[np.newaxis, :] * dist[..., np.newaxis]
+        coords = (simple_line + init[..., np.newaxis])
     return coords
 
 
