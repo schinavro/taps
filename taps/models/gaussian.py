@@ -6,7 +6,7 @@ from numpy.linalg import inv, cholesky
 
 from taps.models import Model
 from taps.ml.kernels import Kernel
-from taps.ml.means import Mean
+# from taps.ml.means import Mean
 from taps.ml.regressions import Regression
 
 class Gaussian(Model):
@@ -23,7 +23,7 @@ class Gaussian(Model):
         Actuall model that Gaussian PES supposed to be approximate
     'kernel': Kernel class
         kernel function for the Gaussian process
-    'mean': Mean class
+    'mean': Model class
         User define Mean function used in GP
 
     """

@@ -56,7 +56,7 @@ class Model:
         if key == 'real_model':
             return self
         else:
-            super().__getattr__(key)
+            super().__getattribute__(key)
 
     def get_properties(self, paths, properties=['potential'],
                        index=np.s_[:], coords=None, caching=False,
@@ -128,6 +128,12 @@ class Model:
                 if caching:
                     model.results['pgradients'] = res.copy()
                 results[new_property] = model.prj.f_inv(res, new_coords)[0]
+            elif new_property == 'potential':
+                res = results[new_property]
+                if caching:
+                    model.results['ppotential'] = res.copy()
+                results[new_property] = model.prj.V_inv(res)
+
             elif new_property == 'hessian':
                 res = results[new_property]
                 if caching:

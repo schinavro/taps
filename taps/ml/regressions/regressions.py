@@ -6,6 +6,11 @@ from numpy import log, sum, diagonal
 
 
 class Regression:
+    def __call__(self, *args, **kwargs):
+        self.train(*args, **kwargs)
+
+
+class GaussianProcessRegressor(Regression):
     """
     Return a function that should be minimized
     log_likelihood with gradient data involves.
@@ -21,13 +26,14 @@ class Regression:
 
         self.optimized = optimized
 
-    def __call__(self, *args, kernel=None, mean=None, **kwargs):
+    def train(self, kernel=None, mean=None, database=None, **kwargs):
         if mean is not None:
-            self.mean_regression(mean, kernel, *args, **kwargs)
+            mean.train(mean.kernel, database)
         if kernel is not None:
-            self.kernel_regression(kernel, mean, *args, **kwargs)
+            data = database.get_image_data()
+            self.kernel_regression(kernel, mean, data=data)
 
-    def kernel_regression(self, kernel, mean, *args, data=None, **kwargs):
+    def kernel_regression(self, kernel, mean, data=None):
         """
         k : class Kernel; k(X, X) ((DxN + 1) x m) x ((DxN + 1) x n) array
         X : imgdb['X']; position of atoms, (D x N) x m dimension array

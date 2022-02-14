@@ -77,6 +77,20 @@ class Projector:
                 return getattr(self.pipeline, name)(coords)
             return prj(self, coords)
 
+        def V(self, potential):
+            if self.pipeline is not None:
+                potential = getattr(self.pipeline, name)(potential)
+            return prj(self, potential)
+
+        def V_inv(self, potential):
+            """
+            Get numpy array and return numpy array
+            """
+            if self.pipeline is not None:
+                potential = prj(self, potential)
+                return getattr(self.pipeline, name)(potential)
+            return prj(self, potential)
+
         def f(self, forces, coords):
             if self.pipeline is not None:
                 forces, coords = getattr(self.pipeline, name)(forces, coords)
@@ -160,6 +174,14 @@ class Projector:
     @pipeline
     def _x_inv(self, coords):
         return coords
+
+    @pipeline
+    def V(self, potential):
+        return potential
+
+    @pipeline
+    def V_inv(self, potential):
+        return potential
 
     @pipeline
     def f(self, forces, coords):
