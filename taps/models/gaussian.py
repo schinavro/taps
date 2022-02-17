@@ -9,6 +9,7 @@ from taps.ml.kernels import Kernel
 # from taps.ml.means import Mean
 from taps.ml.regressions import Regression
 
+
 class Gaussian(Model):
     """
     Gaussian Potential Energy Surface model

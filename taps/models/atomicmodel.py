@@ -12,6 +12,9 @@ from ase.data import atomic_masses
 
 
 class AtomicModel(Model):
+    """
+    
+    """
     implemented_properties = ['stresses', 'potential', 'hessian',
                               'gradients', 'positions', 'forces']
 
