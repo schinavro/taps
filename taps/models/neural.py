@@ -79,8 +79,7 @@ class NeuralNetwork(Model):
     """
     implemented_properties = ['potential', 'gradients', 'hessian']
 
-    def __init__(self, real_model=None, kernel=None, regression=None, **kwargs):
-        self.real_model = real_model or self
+    def __init__(self, kernel=None, regression=None, **kwargs):
         self.kernel = kernel or PyTorchKernel()
         self.regression = regression or PyTorchRegression()
 
@@ -96,6 +95,9 @@ class NeuralNetwork(Model):
             self.results['gradients'] = self.kernel.get_gradients(coords)
         if 'hessian' in properties:
             self.results['hessian'] = self.kernel.get_hessian(coords)
+
+    def train(self, *args, **kwargs):
+        self.regression.train(*args, **kwargs)
 
     def save_hyperparameters(self, filename):
         self.kernel.save_hyperparameters(filename)

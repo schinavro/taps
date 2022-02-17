@@ -6,32 +6,49 @@ from numpy import log, sum, diagonal
 
 
 class Regression:
+    def __call__(self, *args, **kwargs):
+        self.train(*args, **kwargs)
+
+
+def likelihood(kernel=None, mean=None, data=None):
+    k, m = kernel, mean
+    X = data['kernel']['X']
+    Y = data['kernel']['Y']
+    Y_m = Y - m(X)
+
+    def likelihood(hyperparameters):
+        k.set_hyperparameters(hyperparameters)
+        K = k(X, X, noise=True)
+        detK = np.linalg.det(K)
+        try:
+            detK = diagonal(cholesky(K))
+            log_detK = sum(log(detK))
+        except LinAlgError:
+            # Postive definite matrix
+            detK = np.linalg.det(K)
+            # print(detK)
+            if detK <= 1e-5:
+                log_detK = -5
+            else:
+                log_detK = log(detK)
+        return log_detK + 0.5 * (Y_m.T @ (inv(K) @ Y_m))
+    return likelihood
+
+
+class GaussianProcessRegressor(Regression):
     """
     Return a function that should be minimized
     log_likelihood with gradient data involves.
     """
 
-    def __init__(self, kernel_regression_kwargs=None,
-                 mean_regression_kwargs=None, optimized=False):
+    def __init__(self, minimize_kwargs=None, loss=None, optimized=False):
         # self.kernel_regression=None or KernelRegression()
-        self.kernel_regression_kwargs = kernel_regression_kwargs or \
-                  {"method": "BFGS"}
-        # self.mean_regression=None or MeanRegression()
-        self.mean_regression_kwargs = mean_regression_kwargs or {}
+        self.minimize_kwargs = minimize_kwargs or {"method": "BFGS"}
 
+        self.loss = loss or likelihood
         self.optimized = optimized
 
-    def train(self, kernel=None, mean=None, database=None, **kwargs):
-        if mean is not None:
-            mean.train(mean.kernel, database)
-        if kernel is not None:
-            data = database.get_image_data()
-            self.kernel_regression(kernel, mean, data=data)
-
-    def __call__(self, *args, **kwargs):
-        self.train(*args, **kwargs)
-
-    def kernel_regression(self, kernel, mean, data=None):
+    def train(model, loss_fn, database):
         """
         k : class Kernel; k(X, X) ((DxN + 1) x m) x ((DxN + 1) x n) array
         X : imgdb['X']; position of atoms, (D x N) x m dimension array
@@ -40,37 +57,11 @@ class Regression:
         m : mean function
         M : a number of data
         """
+        kernel, mean, database = model.kernel, model.mean, database
         x0 = kernel.get_hyperparameters()
-        likelihood = self.likelihood(kernel, mean, data)
-        res = minimize(likelihood, x0=x0, **self.kernel_regression_kwargs)
+        loss = self.loss(kernel, mean, database)
+        res = minimize(loss, x0=x0, **self.kernel_regression_kwargs)
         kernel.set_hyperparameters(res.x)
-
-    def mean_regression(self, mean, kernel, *args, data=None, **kwargs):
-        mean.set_hyperparameters(data=data)
-
-    def likelihood(self, kernel=None, mean=None, data=None):
-        k, m = kernel, mean
-        X = data['kernel']['X']
-        Y = data['kernel']['Y']
-        Y_m = Y - m(X)
-
-        def likelihood(hyperparameters):
-            k.set_hyperparameters(hyperparameters)
-            K = k(X, X, noise=True)
-            detK = np.linalg.det(K)
-            try:
-                detK = diagonal(cholesky(K))
-                log_detK = sum(log(detK))
-            except LinAlgError:
-                # Postive definite matrix
-                detK = np.linalg.det(K)
-                # print(detK)
-                if detK <= 1e-5:
-                    log_detK = -5
-                else:
-                    log_detK = log(detK)
-            return log_detK + 0.5 * (Y_m.T @ (inv(K) @ Y_m))
-        return likelihood
 
     def reg_kwargs(self, regression_method=None, hyperparameters=None,
                    hyperparameters_bounds=None):

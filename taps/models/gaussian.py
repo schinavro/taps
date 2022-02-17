@@ -6,8 +6,9 @@ from numpy.linalg import inv, cholesky
 
 from taps.models import Model
 from taps.ml.kernels import Kernel
-# from taps.ml.means import Mean
-from taps.ml.regressions import Regression
+from taps.ml.means import Mean
+from taps.ml.regressions.regressions import GaussianProcessRegressor
+
 
 
 class Gaussian(Model):
@@ -40,7 +41,7 @@ class Gaussian(Model):
         self.real_model = real_model or self
         self.kernel = kernel or Kernel()
         self.mean = mean or Mean()
-        self.regression = regression or Regression()
+        self.regression = regression or GaussianProcessRegressor()
 
         super().__init__(**kwargs)
 
