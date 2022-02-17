@@ -2,6 +2,7 @@ import copy
 import hashlib
 import binascii
 import numpy as np
+from pathlib import Path
 from numpy import pi, dot
 from numpy import newaxis as nax
 from numpy.linalg import norm
@@ -32,8 +33,8 @@ class Model:
     data_ids: dict
        dictionary contains id of the data.
        In order to save the data, use
-       >>> paths.add_data(index=[0, -1]) # create & save initial and final image
-       >>> paths.imgdata.data_ids["image"]
+       >>> paths.add_image_data(index=[0, -1]) # create & save initial and final image
+       >>> paths.imgdb.data_ids["image"]
        [1, 2, 15, ...]
     optimized: bool
        Bool check hyperparameters
@@ -124,9 +125,19 @@ class Model:
 
             if new_property == 'gradients':
                 res = results[new_property]
+                if caching:
+                    model.results['pgradients'] = res.copy()
                 results[new_property] = model.prj.f_inv(res, new_coords)[0]
+            elif new_property == 'potential':
+                res = results[new_property]
+                if caching:
+                    model.results['ppotential'] = res.copy()
+                results[new_property] = model.prj.V_inv(res)
+
             elif new_property == 'hessian':
                 res = results[new_property]
+                if caching:
+                    model.results['phessian'] = res.copy()
                 results[new_property] = model.prj.h_inv(res, new_coords)[0]
 
         if caching:
@@ -135,8 +146,6 @@ class Model:
             property = list(results.keys())[0]
             return results[property]
         return results
-
-
 
     def get_potential(self, paths, **kwargs):
         return self.get_properties(paths, properties='potential', **kwargs)
@@ -174,12 +183,14 @@ class Model:
         return str(binascii.hexlify(dk))[2:-1]
 
     def get_label(self, coord=None):
-        directory, prefix = Path(self.label).parts
+        path = Path(self.label)
+        directory, name = str(path.parent), path.name
         unique_hash = self.generate_unique_hash(coord)
-        return directory + '/' + unique_hash + '/' + prefix
+        return directory + '/' + unique_hash + '/' + name
 
     def get_directory(self, coord=None):
-        directory, prefix = Path(self.label).parts
+        path = Path(self.label)
+        directory, name = str(path.parent), path.name
         unique_hash = self.generate_unique_hash(coord)
         return directory + '/' + unique_hash + '/'
 
@@ -549,7 +560,7 @@ class PeriodicModel(Model):
         return angle.flatten()
 
 
-class SineModel(Model):
+class Sine(Model):
     """
     TODO: Document it and move it to separate files
     """
@@ -560,8 +571,8 @@ class SineModel(Model):
         V = -129.7 + 0.1 * np.sin(4 * coords).sum(axis=(0, 1))
         dV = 0.1 * 4 * np.cos(4 * coords)
         coords = np.atleast_3d(coords)
-        D, M, P = coords.shape
-        _coords = coords.reshape(D * M, P)
+        D, A, N = coords.shape
+        _coords = coords.reshape(D * M, N)
         H = np.zeros((D * M, P))  # DM x P
         H[0] = -(0.1 * 16) * np.sin(4 * _coords[0])
         H[1] = -(0.1 * 16) * np.sin(4 * _coords[1])
@@ -591,11 +602,12 @@ class Cosine(Model):
     def calculate(self, paths, coords, properties=['potential'], **kwargs):
         if len(coords.shape) == 1:
             coords = coords[:, np.newaxis]
+        coords_ = coords.coords + self.phi
         if 'potential' in properties:
-            V = self.V0+self.A*np.cos(self.omega*(coords+self.phi)).sum(axis=0)
+            V = self.V0+self.A*np.cos(self.omega*(coords_)).sum(axis=0)
             self.results['potential'] = V
         if 'gradients' in properties or 'forces' in properties:
-            F = self.omega * self.A * np.sin(self.omega * (coords+self.phi))
+            F = self.omega * self.A * np.sin(self.omega * (coords_))
             if 'gradients' in properties:
                 self.results['gradients'] = -F
             if 'forces' in properties:
@@ -606,10 +618,64 @@ class Cosine(Model):
             omega2A = self.omega * self.omega * self.A
             D = np.prod(shape[:-1])
             N = shape[-1]
-            _coords = coords.reshape(D, N)
+            _coords = coords_.reshape(D, N)
             H = np.zeros((D, N))  # D x N
-            H = omega2A*np.cos(self.omega * (_coords+self.phi))
-            H = np.einsum('i..., ij->ij...', H, np.identity(D))
+            H = -omega2A*np.cos(self.omega * (_coords+self.phi))
+            H = np.einsum('ik, ij->ijk', H, np.identity(D))
+            H = H.reshape((D, D, N))
+            self.results['hessian'] = H
+
+
+class Eggholder(Model):
+    """
+    >>> from sympy import symbols, cos, Derivative, summation, IndexedBase
+    >>> from sympy import latex
+    >>> d, D = symbols('d D', integer=True)
+    >>> x = symbols('\mathbf{x}', cls=IndexedBase)
+    >>> w, V0, A, d = symbols("\omega V0 A d")
+    >>> V = V0 + A * summation(x[d]**2 * cos(w * x[d]), (d, 1, D))
+    >>> print(latex(V))
+    >>> A \sum_{d=1}^{D} \cos{\left(\omega {\mathbf{x}}_{d} \right)} {\mathbf{x}}_{d}^{2} + V_{0}
+    >>> dV = Derivative(V, x[d], evaluate=True)
+    >>> print(latex(dV))
+    >>> A \sum_{d=1}^{D} \left(- \omega \sin{\left(\omega {\mathbf{x}}_{d} \right)} {\mathbf{x}}_{d}^{2} + 2 \cos{\left(\omega {\mathbf{x}}_{d} \right)} {\mathbf{x}}_{d}\right)
+    """
+    implemented_properties = {'potential', 'gradients', 'forces', 'hessian'}
+    A = 1.
+    B = 0.1
+    omega = 2*np.pi
+    phi = 0.
+    V0 = 0.
+
+    def __init__(self, A=None, B=None, omega=None, phi=None, V0=None, **kwargs):
+        self.A = A or self.A
+        self.B = B or self.B
+
+        super().__init__(**kwargs)
+
+    def calculate(self, paths, coords, properties=['potential'], **kwargs):
+        if len(coords.shape) == 1:
+            coords = coords[:, np.newaxis]
+        cos, sin = np.cos, np.sin
+        x = coords.coords
+        A, B, V0, w, phi = self.A, self.B, self.V0, self.omega, self.phi
+        w = self.omega
+        if 'potential' in properties:
+            V = V0+self.A*(B*x*x - cos(w*(x+phi))).sum(axis=0)
+            self.results['potential'] = V
+
+        if 'gradients' in properties:
+            dV = A *(2*B*x + w * np.sin(w * (x+phi)))
+            self.results['gradients'] = dV
+
+        if 'hessian' in properties:
+            shape = coords.shape
+            D = np.prod(shape[:-1])
+            N = shape[-1]
+            x = x.reshape(D, N)
+            H = np.zeros((D, N))  # D x N
+            H = A * (2*B + w * w * cos(w * (x + phi)))
+            H = np.einsum('ik, ij->ijk', H, np.identity(D))
             H = H.reshape((D, D, N))
             self.results['hessian'] = H
 

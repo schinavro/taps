@@ -16,18 +16,18 @@ mutable struct Paths
     model::Model
     prefix::String
     directory::String
-    imgdata::Database
+    imgdb::Database
     tag::Dict
     cache::Dict
 end
 
 function Paths(;coords="Cartesian", coords_kwargs=Dict(), model="MullerBrown", model_kwargs=Dict(),
-       prefix="paths", directory=".", imgdata="ImgData", imgdata_kwargs=Dict(),
+       prefix="paths", directory=".", imgdb="imgdb", imgdb_kwargs=Dict(),
        tag=Dict(), cache=Dict())
     coords = getfield(Main, Symbol(coords))(;coords_kwargs...)
     model = getfield(Main, Symbol(model))(;model_kwargs...)
-    imgdata = getfield(Main, Symbol(imgdata))(;imgdata_kwargs...)
-    Paths(coords, model, prefix, directory, imgdata, tag, cache)
+    imgdb = getfield(Main, Symbol(imgdb))(;imgdb_kwargs...)
+    Paths(coords, model, prefix, directory, imgdb, tag, cache)
 end
 
 function Base.getproperty(paths::Paths, name::Symbol, x)

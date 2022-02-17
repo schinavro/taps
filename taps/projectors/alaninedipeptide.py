@@ -137,8 +137,8 @@ class AlaninedipeptideInverse(Projector):
         return np.array([thi, tsi]), self._x_inv(coords)
 
 
-    def found_new_data(self, imgdata):
-        count = imgdata._c.count()
+    def found_new_data(self, imgdb):
+        count = imgdb._c.count()
         if count == 0:
             raise NotImplementedError('No data found')
         is_count_changed = self._cache['count'] != count

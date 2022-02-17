@@ -24,7 +24,7 @@ class Paths:
         Model that calculates potential energy of intermediate coordinates.
     finder  : PathFinder class
         Class that optimize the coordinates suitable for the finder class.
-    imgdata : Database class
+    imgdb : Database class
         Class made to easily accessible to the calculated database.
     tag     : dict
         Auxilary parameters for external use.
@@ -47,14 +47,14 @@ class Paths:
     """
 
     def __init__(self, coords=None, label=None, model=None,
-                 finder=None, imgdata=None, tag=None, **kwargs):
+                 finder=None, imgdb=None, tag=None, **kwargs):
 
         self.coords = coords
         self.label = label
 
         self.model = model
         self.finder = finder
-        self.imgdata = imgdata
+        self.imgdb = imgdb
         self.tag = tag
 
         for key, value in kwargs.items():
@@ -81,7 +81,7 @@ class Paths:
         return self.coords.get_displacements(self, **kwargs)
 
     def get_velocities(self, **kwargs):
-        """ Calculate velocity
+        r""" Calculate velocity
         If :class:`Cartesian` is cartesian, velocity is calculated via
         :math:`\mathbf{x}_{i+1} - \mathbf{x}_{i}`"""
         return self.coords.get_velocities(self, **kwargs)
@@ -165,14 +165,14 @@ class Paths:
 
     def get_image_data(self, **kwargs):
         """" list of int; Get rowid of data"""
-        return self.imgdata.get_image_data(self, **kwargs)
+        return self.imgdb.get_image_data(self, **kwargs)
 
-    def add_data(self, index=None, coords=None, cache_model=True,
-                 regression=True, blackids=None, **kwargs):
+    def add_image_data(self, index=None, coords=None, force=False,
+                       cache_model=True, regression=True, **kwargs):
         """ Adding a calculation data to image database
 
-        if index given -> create coords -> add_data
-        if coords given -> add_data
+        if index given -> create coords -> add_image_data
+        if coords given -> add_image_data
         coords : atomic configuration
         datum : atomic configuration with energy and forces
            shape,  A number of tuples
@@ -185,10 +185,9 @@ class Paths:
         if coords is None:
             # Create positional descriptor
             coords = self.coords(index=index)
-        ids = self.imgdata.add_data(self, coords, search_similar_image=True,
-                                    blackids=blackids)
+        ids = self.imgdb.add_image_data(self, coords, force=force)
         if cache_model:
-            self.imgdata.add_data_ids(ids)
+            self.imgdb.add_image_data_ids(ids)
         if regression:
             self.model.regression(kernel=self.model.kernel,
                                   mean=self.model.mean,
@@ -207,7 +206,7 @@ class Paths:
         """ Delete current cache on all modules"""
         self.model._cache = {}
         self.real_model._cache = {}
-        self.imgdata._cache = {}
+        self.imgdb._cache = {}
         self.prj._cache = {}
 
     def reset_results(self):

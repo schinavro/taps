@@ -59,8 +59,16 @@ def read_header(arrbytes):
 
 
 def dictify(obj, ignore_cache=True):
-    if isinstance(obj, type) or inspect.ismethod(obj):
+    if isinstance(obj, type) or inspect.ismethod(obj) \
+             or inspect.isfunction(obj):
         return None
+    elif isinstance(obj, Atoms):
+        from ase.db.row import atoms2dict
+        kwargs = atoms2dict(obj)
+        kwargs['cell'] = kwargs['cell'].array
+        return {'__name__': 'Atoms',
+                '__module__': obj.__class__.__module__,
+                'kwargs': kwargs}
     elif isinstance(obj, dict):
         dct = {}
         for k, v in obj.items():
@@ -71,7 +79,8 @@ def dictify(obj, ignore_cache=True):
             elif (k[0] == '_' and ignore_cache):
                 continue
 
-            if v is None or isinstance(v, type) or inspect.ismethod(v):
+            if v is None or isinstance(v, type) or inspect.ismethod(v) \
+                    or inspect.isfunction(v):
                 continue
             elif isinstance(v, (dict, list)):
                 dct[k] = dictify(v, ignore_cache=ignore_cache)
@@ -80,11 +89,11 @@ def dictify(obj, ignore_cache=True):
             else:
                 dct[k] = dictify(v, ignore_cache=ignore_cache)
         return dct
-
     elif isinstance(obj, list):
         lst = []
         for v in obj:
-            if v is None or isinstance(v, type) or inspect.ismethod(v):
+            if v is None or isinstance(v, type) or inspect.ismethod(v) \
+                    or inspect.isfunction(v):
                 continue
             elif isinstance(v, (dict, list)):
                 lst.append(dictify(v, ignore_cache=ignore_cache))
@@ -93,13 +102,6 @@ def dictify(obj, ignore_cache=True):
             else:
                 lst.append(dictify(v, ignore_cache=ignore_cache))
         return lst
-    elif isinstance(obj, Atoms):
-        from ase.db.row import atoms2dict
-        kwargs = atoms2dict(obj)
-        kwargs['cell'] = kwargs['cell'].array
-        return {'__name__': 'Atoms2',
-                '__module__': obj.__class__.__module__,
-                'kwargs': kwargs}
     else:
         dct = {}
         for k, v in vars(obj).items():
@@ -110,7 +112,8 @@ def dictify(obj, ignore_cache=True):
             elif (k[0] == '_') and ignore_cache:
                 continue
 
-            if v is None or isinstance(v, type) or inspect.ismethod(v):
+            if v is None or isinstance(v, type) or inspect.ismethod(v) \
+                    or inspect.isfunction(v):
                 continue
             elif isinstance(v, (dict, list)):
                 dct[k] = dictify(v, ignore_cache=ignore_cache)
@@ -123,10 +126,12 @@ def dictify(obj, ignore_cache=True):
 
 
 def classify(obj):
-    if isinstance(obj, dict) and obj.get('__name__') == 'Atoms2':
+    if isinstance(obj, dict) and obj.get('__name__') == 'Atoms':
         from ase.db.row import AtomsRow
-        return AtomsRow(obj['kwargs']).toatoms(attach_calculator=True,
+        return AtomsRow(obj['kwargs']).toatoms(# attach_calculator=True,
                                       add_additional_information=True)
+    elif isinstance(obj, np.ndarray):
+        return obj
     elif isinstance(obj, dict) and obj.get('__module__') is not None:
         module = import_module(obj['__module__'])
         ##

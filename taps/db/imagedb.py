@@ -12,6 +12,7 @@ from numpy import newaxis as nax
 from taps.utils.antenna import packing
 from taps.projectors import Projector
 
+
 class ImageDatabase(Database):
     """
     Database for image
@@ -19,26 +20,30 @@ class ImageDatabase(Database):
     TODO: Make it handle Coordinate class
     """
 
-    entries=OrderedDict(
+    entries = OrderedDict(
         coord='blob',
+        pcoord='blob',
         label='text',
         status='text',
         start_time='real',
         potential='blob',
         potentials='blob',
         gradients='blob',
+        pgradients='blob',
         finish_time='real',
         positions='blob',
         forces='blob'
     )
+
     def __init__(self, data_ids=None, data_bounds=None, table_name='image',
-                 prj=None, timeout=60, **kwargs):
+                 prj=None, timeout=60, similar_image_tol=0.05, **kwargs):
+        super().__init__(**kwargs)
         self.data_ids = data_ids or list()
         self.data_bounds = data_bounds or {}
         self.table_name = table_name
         self.prj = prj or Projector()
         self.timeout = timeout
-        super().__init__(**kwargs)
+        self.similar_image_tol = similar_image_tol
 
     def read(self, ids, prj=None, table_name=None, entries=None, **kwargs):
         prj = prj or self.prj
@@ -47,7 +52,6 @@ class ImageDatabase(Database):
         data = super().read(ids,
                             table_name=table_name, entries=entries, **kwargs)
         return data
-
 
     def read_all(self, prj=None, table_name=None, entries=None, **kwargs):
         prj = prj or self.prj
@@ -105,6 +109,7 @@ class ImageDatabase(Database):
             self._cache['old_data_ids'] = []
             self._cache['data'] = {
                 'coords': np.zeros((*shape, 0), dtype=float),
+                'pcoords': np.zeros((*shape, 0), dtype=float),
                 'potential': np.zeros(0, dtype=float),
                 'gradients': np.zeros((*shape, 0), dtype=float),
                 'coords_raw': np.zeros((*shape_raw, 0), dtype=float),
@@ -168,29 +173,41 @@ class ImageDatabase(Database):
             for i in range(M):
                 coords_raw = new_data[i]['coord'][..., nax]
                 gradients_raw = new_data[i]['gradients'].copy()
-                gradients_prj, _ = prj.f(gradients_raw,
-                                         pcoords.similar(coords_raw))
-
                 if data_bounds.get('gradients') is not None:
                     ub = data_bounds['gradients'].get('upperbound')
                     lb = data_bounds['gradients'].get('lowerbound')
+                    shape = gradients_raw.shape[:-1]
                     if ub is not None:
-                        if np.any(gradients_raw > ub):
+                        lgrl = np.linalg.norm(gradients_raw, axis=0)
+                        if np.any(lgrl > ub):
                             print('Gradients ub fix')
-                        gradients_raw[gradients_raw > ub] = ub
-                        gradients_prj[gradients_prj > ub] = ub
-                    elif lb is not None:
-                        if np.any(gradients_raw < lb):
-                            print('Gradients lb fix')
-                        gradients_raw[gradients_raw < lb] = lb
-                        gradients_prj[gradients_prj < lb] = lb
+                        gr_mask = lgrl > ub
+                        gr = gradients_raw[..., gr_mask] / lgrl[gr_mask]
+                        gradients_raw[..., gr_mask] = ub * gr
+
+                gradients_prj, _ = prj.f(gradients_raw,
+                                         pcoords.similar(coords_raw))
+
+                # if data_bounds.get('gradients') is not None:
+                #     ub = data_bounds['gradients'].get('upperbound')
+                #     lb = data_bounds['gradients'].get('lowerbound')
+                #     if ub is not None:
+                #         if np.any(gradients_raw > ub):
+                #             print('Gradients ub fix')
+                #         gradients_raw[gradients_raw > ub] = ub
+                #         gradients_prj[gradients_prj > ub] = ub
+                #     elif lb is not None:
+                #         if np.any(gradients_raw < lb):
+                #             print('Gradients lb fix')
+                #         gradients_raw[gradients_raw < lb] = lb
+                #         gradients_prj[gradients_prj < lb] = lb
                 gradients_raws.append(gradients_raw)
                 gradients_prjs.append(gradients_prj)
             if M != 0:
                 new_grad_raw = cat(gradients_raws, axis=-1)
                 new_grad_prj = cat(gradients_prjs, axis=-1)
                 data['gradients_raw'] = cat([data['gradients_raw'],
-                                              new_grad_raw], axis=-1)
+                                             new_grad_raw], axis=-1)
                 data['gradients'] = cat([data['gradients'],
                                          new_grad_prj], axis=-1)
         self._cache['old_data_ids'].extend(new_data_ids)
@@ -209,7 +226,7 @@ class ImageDatabase(Database):
     def mean_data(self, data):
         return self.kernel_data(data)
 
-    def add_data_ids(self, ids, overlap_handler=True):
+    def add_image_data_ids(self, ids, overlap_handler=True):
         """
         ids : dict of list
         """
@@ -222,7 +239,51 @@ class ImageDatabase(Database):
         else:
             self.data_ids.extend(ids)
 
-    def add_data(self, paths, coords=None, return_data=False, **kwargs):
+    def add_image_data(self, paths, coords=None, force=False, **kwargs):
+        M = coords.N
+        ids = []
+        for m in range(M):
+            coord = coords(index=[m])
+            id = self.search_image(paths, coord, **kwargs)
+            if id != [] and force:
+                coord = self.create_similar_coords(coord)
+            elif id != []:
+                ids.extend(id)
+                continue
+            data = self.create_image_data(paths, coord, **kwargs)
+            ids.extend(self.write(data))
+        return ids
+
+    def create_similar_coords(self, coords):
+        M = coords.N
+        new_coords = coords.copy()
+        imgtree = self.create_imgtree()
+        for m in range(M):
+            coord = coords(index=[m])
+            pcoord = self.prj.x(coord)
+            pshap = pcoord.shap
+            pD = np.prod(pshap)
+            new_coord = pcoord.coords.flatten()
+            while True:
+                dist, prxi = imgtree.query(new_coord)
+                if dist > self.similar_image_tol:
+                    break
+                walk = np.random.normal(size=pD,
+                                        scale=2 * self.similar_image_tol)
+                new_coord += walk
+            pcoord.coords = new_coord.reshape(*pshap, 1)
+            new_coords.coords[..., m] = self.prj.x_inv(pcoord).coords[..., 0]
+        return new_coords
+
+    def create_imgtree(self):
+        data = self.read_all(entries={'pcoord': 'blob'})
+        D, M = np.prod(data[0]['pcoord'].shape), len(data)
+        coords_T = np.zeros((M, D))
+        for m in range(M):
+            coords_T[m] = data[m]['pcoord'].flatten()
+        return KDTree(coords_T)
+
+    def add_image_data2(self, paths, coords=None, return_data=False, **kwargs):
         """
         paths : Paths class
         coords : Coordnates class
@@ -243,8 +304,7 @@ class ImageDatabase(Database):
                 self.queue(ids_ntbc, arr_ntbc, **kwargs)
                 data = self.create_image_data(paths, coords_ntbc, **kwargs)
                 self.update(ids_ntbc, data)
-
-            except Exception as e:
+            except Exception:
                 self.queue(ids_ntbc, arr_ntbc, status='Failed', **kwargs)
                 raise NotImplementedError()
                 # raise Exception(str(e)) from e
@@ -396,14 +456,20 @@ class ImageDatabase(Database):
         for m in range(M):
             datum = OrderedDict(zip(properties, [None] * len(properties)))
             coord = coords(index=[m])
+            pcoord = prj.x(coord)
             datum['coord'] = coord.coords[..., 0]
-            datum['start_time'] = None
-            datum['status'] = None
+            datum['pcoord'] = pcoord.coords[..., 0]
+            datum['start_time'] = time.time()
+            datum['status'] = "Running"
 
             results = paths.get_properties(coords=coord,
                                            properties=props,
                                            real_model=True, caching=True)
+
             datum['finish_time'] = time.time()
+            if "gradients" in props:
+                datum["pgradients"] = paths.model.real_model.results[
+                                                            'pgradients']
 
             for key, val in results.items():
                 datum[key] = val
@@ -462,7 +528,7 @@ class ImageDatabase(Database):
         for m in range(M):
             datum = OrderedDict(
                 coord=coords[..., m], label=None, status=status,
-                start_time=time.time(), potential= None, potentials=None,
+                start_time=time.time(), potential=None, potentials=None,
                 gradients=None, finish_time=None, positions=None, forces=None
             )
             id = ids_image[m]
@@ -484,7 +550,7 @@ class ImageDatabase(Database):
 
 
 class AtomicImageDatabase(ImageDatabase):
-    table=OrderedDict(
+    table = OrderedDict(
         atoms='blob',
         symbols='text',
         image_number='integer',

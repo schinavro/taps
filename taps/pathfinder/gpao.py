@@ -1,11 +1,7 @@
 import os
 import numpy as np
-from numpy import newaxis as nax
-from collections import OrderedDict
 
-from taps.db import PathsDatabase
 from taps.pathfinder import PathFinder
-from taps.utils.shortcut import isstr, isLst, isdct, isbool
 from taps.visualize import view
 
 
@@ -18,13 +14,13 @@ class GPAOPhase:
         printt(" Covmax: %.3f" % cov_max)
         if cov_max < self.cov_tol:
             return 1
-        printt(" Number of Dat: %d" % len(paths.imgdata.data_ids))
+        printt(" Number of Dat: %d" % len(paths.imgdb.data_ids))
         return 0
 
     def acquisition(self, paths, printt):
         idx = np.argmax(paths.get_covariance())
-        printt(idx)
-        ids = paths.add_data(index=[idx], blackids=paths.imgdata.data_ids)
+        printt(" Paths Index added : %d" % idx)
+        ids = paths.add_image_data(index=[idx], force=True)
         return ids
 
 
@@ -53,10 +49,9 @@ class UncertainOrMaximumEnergy(GPAOPhase):
         cov_max = cov.max()
         if cov_max < self.cov_tol:
             idx = np.argmax(cov)
-            return paths.add_data(index=[idx], blackids=paths.imgdata.data_ids)
+            return paths.add_image_data(index=[idx], force=True)
         E = paths.get_potential()
-        return paths.add_data(index=[np.argmax(E)],
-                              blackids=paths.imgdata.data_ids)
+        return paths.add_image_data(index=[np.argmax(E)], force=True)
 
 
 class AutoEt(GPAOPhase):
@@ -95,36 +90,41 @@ class AutoEt(GPAOPhase):
         else:
             Et = (Emax + Et - 2*self.Et_tol) / 2
         return Et
+        return E.min()
 
     def get_next_mean(self, paths, **kwargs):
         E = paths.get_potential_energy()
-        return E.max() #  + (V.max() - V.min())*0.1
+        return E.max()
+
 
 class GPAO(PathFinder):
+    """
+    """
 
-    def __init__(self, real_finder=None, restart=False, logfile=None,
-                 maxtrial=10, plot_kwargs=None, phase_kwargs=None,
-                 pathsdatabase=None, **kwargs):
+    def __init__(self, real_finder=None, iteration=0,
+                 maxtrial=10, logfile=None, plot_kwargs=None,
+                 phase_kwargs=None, pathsdatabase=None, **kwargs):
         super().__init__(**kwargs)
         self.real_finder = real_finder
-        self.restart = restart
-        self.logfile = logfile
+        self.iteration = iteration
         self.maxtrial = maxtrial
+        self.logfile = logfile
         self.plot_kwargs = plot_kwargs or {}
         self.phase_kwargs = phase_kwargs or {}
         # self.pathsdatabase = pathsdatabase or PathsDatabase()
         self.pathsdatabase = pathsdatabase
 
     def optimize(self, paths, label=None, real_finder=None, restart=None,
-                 logfile=None, maxtrial=None, plot_kwargs=None,
+                 iteration=None, maxtrial=None, logfile=None, plot_kwargs=None,
                  phase_kwargs=None, pathsdatabase=None, **kwargs):
         # Initialize
         label = label or self.label or paths.label
         real_finder = real_finder or self.real_finder
         if restart is not None:
             restart = restart
-        logfile = logfile or self.logfile
+        self.iteration = iteration or self.iteration
         maxtrial = maxtrial or self.maxtrial
+        logfile = logfile or self.logfile
         plot_kwargs = plot_kwargs or self.plot_kwargs
         phase_kwargs = phase_kwargs or self.phase_kwargs
         pathsdatabase = pathsdatabase or self.pathsdatabase
@@ -140,6 +140,7 @@ class GPAO(PathFinder):
             if not os.path.exists(logdir):
                 os.makedirs(logdir)
             logfile = open(logfile, 'a')
+
             def printt(*line, end='\n'):
                 lines = ' '.join([str(l) for l in line]) + end
                 logfile.write(lines)
@@ -152,18 +153,12 @@ class GPAO(PathFinder):
                 logfile.flush()
         # Finish Initialize
         # DEFINE for convinience
-        pdb = pathsdatabase
+        # pdb = pathsdatabase
         # End DEFINE
 
         printt("====================")
         printt("       GPAO")
         printt("====================")
-        iteration = 0
-        if restart:
-            printt("\nReading %s " % pdb.filename)
-            paths_data = pdb.get_last_paths_data()
-            paths = paths_data['paths']
-            iteration = data['iteration'] + 1
 
         for name, p_kwargs in phase_kwargs.items():
             class_name = name.replace(" ", "")
@@ -172,9 +167,9 @@ class GPAO(PathFinder):
             printt("Phase       : %s" % name)
             while True:
                 printt("====================")
-                printt("       %s : %03d" % (name, iteration))
+                printt("       %s : %03d" % (name, self.iteration))
                 printt("====================")
-                if maxtrial < iteration:
+                if maxtrial < self.iteration:
                     printt("Max iteration, %d, reached! " % maxtrial)
                     break
                 if phase.check_convergence(paths, printt):
@@ -182,23 +177,25 @@ class GPAO(PathFinder):
                     break
                 new_ids = phase.acquisition(paths, printt)
                 str_ids = [str(id) for id in new_ids]
-                printt("Iteration    : %d" % iteration)
-                printt("ImgData idx  : %s" % ', '.join(str_ids))
+                printt("Iteration    : %d" % self.iteration)
+                printt("imgdb idx  : %s" % ', '.join(str_ids))
                 paths.search(real_finder=True, logfile=printt)
                 self.results.update(paths.finder.real_finder.results)
-                self._save(paths, iteration=iteration)
-                iteration += 1
+                self.save(paths, pathsdatabase=pathsdatabase,
+                          plot_kwargs=plot_kwargs, iteration=self.iteration,
+                          label=label)
+                self.iteration += 1
             printt("")
 
         if close_log:
             logfile.close()
         return paths
 
-    def _save(self, paths, pathsdatabase=None, plot_kwargs=None, iteration='',
-              label=None):
+    def save(self, paths, pathsdatabase=None, plot_kwargs=None, iteration='',
+             label=None):
         pathsdatabase = pathsdatabase or self.pathsdatabase
         plot_kwargs = plot_kwargs or self.plot_kwargs
-        iteration = iteration
+        iteration = iteration or self.iteration
         label = label or self.label
 
         if plot_kwargs != {}:
@@ -207,14 +204,3 @@ class GPAO(PathFinder):
                 plot_kwargs['filename'] = label + iteration
             view(paths, **plot_kwargs)
         pathsdatabase.write(data=[{'paths': paths}])
-
-    def _load(self, paths, filename=None, plot_kwargs=None):
-        PathsDatabase = PathsDatabase(filename)
-        query = "rowid DESC LIMIT 1;"
-        where = " ORDER BY "
-        columns = ['rowid', 'paths']
-        data = PathsDatabase.read(query=query, where=where, columns=columns)[0]
-        data['paths'] = self.patch_paths(data['paths'])
-        #### IDK WHY but remove read-only
-        data['paths'].coords = data['paths'].coords.copy()
-        return data

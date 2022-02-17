@@ -39,9 +39,9 @@ class Cartesian(Coordinate):
         """
         Return vector
         """
-        init = self.coords[..., -1, nax]
-        p = coords or self.coords
-        return p - init
+        init = self.coords[..., 0, nax]
+        # p = coords or self.coords
+        return self.coords - init
 
     def velocities(self, paths, coords=None, epoch=None, index=np.s_[:]):
         """ Return velocity at each step
@@ -64,6 +64,8 @@ class Cartesian(Coordinate):
         if index == np.s_[:]:
             p = np.concatenate([p, p[..., -1, nax]], axis=-1)
             return (p[..., 1:] - p[..., :-1]) / dt
+            # vel = np.diff(p, n=1, prepend=p[..., 0, nax]) / dt
+            # return vel
         elif index == np.s_[1:-1]:
             return (p[..., 2:] - p[..., 1:-1]) / dt
         i = np.arange(N)[index]

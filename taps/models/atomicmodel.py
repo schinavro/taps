@@ -12,6 +12,9 @@ from ase.data import atomic_masses
 
 
 class AtomicModel(Model):
+    """
+    
+    """
     implemented_properties = ['stresses', 'potential', 'hessian',
                               'gradients', 'positions', 'forces']
 
@@ -154,7 +157,7 @@ class AtomicModel(Model):
         Use trajectory to write..
         """
         from ase.io.trajectory import TrajectoryWriter
-        if ".traj" not in filename or ".trj" not in filename:
+        if not (".traj" in filename or ".trj" in filename):
             filename = filename + ".traj"
         if not isinstance(coords, np.ndarray):
             coords = coords.coords
@@ -224,14 +227,14 @@ class AlanineDipeptide(AtomicModel):
         if self.mass_type == 'invariant':
             return np.array([[110], [70]])
         #   return masses
-        k, imgdata = paths.model.kernel, paths.imgdata
+        k, imgdb = paths.model.kernel, paths.imgdb
         hyperparameters = {'sigma_f': 0.1,
                            'sigma_n^f': 1e-3,
                            'sigma_n^e': 1e-4,
                            'l^2': 0.01}
-        if self.found_new_data(imgdata):
+        if self.found_new_data(imgdb):
 
-            for row in imgdata._c.select('id>%d' % self._cache['count']):
+            for row in imgdb._c.select('id>%d' % self._cache['count']):
                 I_phi, I_psi = self.get_inertia(row.positions, masses)
                 self._cache['I_phi'].append(I_phi)
                 self._cache['I_psi'].append(I_psi)

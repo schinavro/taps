@@ -1,8 +1,7 @@
 import copy
 import numpy as np
-from taps.utils.arraywrapper import arraylike
 
-#@arraylike
+
 class Coordinate:
     """ Discretized Coordinates
     ttt : Total transition time
@@ -11,7 +10,7 @@ class Coordinate:
     def __init__(self, coords=None, epoch=3, unit='ang/fs'):
         coords = np.asarray(coords, dtype=float)
         self.coords = coords
-        self.epoch = epoch # Total transition time
+        self.epoch = epoch  # Total transition time
         self.unit = unit
 
     def __call__(self, index=np.s_[:], coords=None):
@@ -30,6 +29,10 @@ class Coordinate:
     @property
     def shape(self):
         return self.coords.shape
+
+    @property
+    def shap(self):
+        return self.coords.shape[:-1]
 
     def reshape(self, *shape):
         self.coords.reshape(*shape)
@@ -72,11 +75,12 @@ class Coordinate:
         coords = (simple_line + init)  # N x A x 3 -> 3 x A x N
         return coords
 
-
     def fluctuate(self, initialize=False, cutoff_f=10, fluctuation=0.03,
-                  fourier={'type': 1}):
+                  fourier={'type': 1}, seed=None):
         """Give random fluctuation"""
         from scipy.fftpack import idst
+        if seed is not None:
+            np.random.seed(seed)
         rand = np.random.rand
         NN = np.sqrt(2 * (cutoff_f + 1))
         if initialize:
@@ -122,6 +126,8 @@ class Coordinate:
         for prop in properties:
             if prop in [m, d, v, a]:
                 results[prop] = parsed_results[prop]
+            elif prop == 'epoch':
+                results['epoch'] = self.epoch
             elif prop in ['distances', 'speeds', 'kinetic_energies']:
                 if results.get(prop) is not None:
                     continue
@@ -145,6 +151,9 @@ class Coordinate:
             return results[properties[0]]
         return results
 
+    def get_epoch(self, paths, **kwargs):
+        return self.get_kinetics(paths, properties='masses', **kwargs)
+
     def get_masses(self, paths, **kwargs):
         return self.get_kinetics(paths, properties='masses', **kwargs)
 
@@ -167,7 +176,8 @@ class Coordinate:
         return self.get_kinetics(paths, properties='momentums', **kwargs)
 
     def get_kinetic_energies(self, paths, **kwargs):
-        return self.get_kinetics(paths, properties='kinetic_energies', **kwargs)
+        return self.get_kinetics(paths, properties='kinetic_energies',
+                                 **kwargs)
 
     def get_kinetic_energy_gradients(self, paths, **kwargs):
         return self.get_kinetics(paths, properties='kinetic_energy_gradients',

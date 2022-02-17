@@ -1,12 +1,12 @@
 
 using SQLite, DataFrames
 
-export read_data, ImgData
+export read_data, imgdb
 
-struct ImgData<:Database
+struct imgdb<:Database
     filename::String
 end
-ImgData() = ImgData("imgdata.db")
+imgdb() = imgdb("imgdb.db")
 
 function Base.getproperty(database::Database, name::Symbol, x)
     if length(String(name)) > 7 && String(name)[end-6:end] == "_kwargs"
