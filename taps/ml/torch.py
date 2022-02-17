@@ -100,12 +100,13 @@ class PyTorchRegression(Regression):
         self.optimizer = optimizer
 
         self.epochs = epochs or 5
-        self.batch_size = batch_size or 1
+        self.batch_size = batch_size or 10
         self.device = device or "cuda" if tc.cuda.is_available() else "cpu"
         self.log = log or sys.stdout
         super().__init__(**kwargs)
 
-    def train(self, kernel, database, loss=None, optimizer=None, epochs=None,
+    def train(self, kernel=None, database=None,
+              loss=None, optimizer=None, epochs=None,
               batch_size=None, device=None, log=None):
         """
         database: Database class
@@ -185,16 +186,16 @@ class PyTorchKernel(nn.Module):
     >>>     nn.ReLU(),
     >>>     nn.Linear(512, outshape)
     >>> )
-    >>> kernel = PyTorchKernel(sequence=sequence, device=device)
+    >>> kernel = PyTorchKernel(sequential=sequence, device=device)
     """
-    def __init__(self, sequence=None, prj=None):
+    def __init__(self, sequential=None, prj=None):
         super(PyTorchKernel, self).__init__()
-        self.sequence = sequence
+        self.sequential = sequential
         self.prj = prj or TensorProjector()
 
     def forward(self, tensor):
         # tensor = self.flatten(tensor)
-        logits = self.sequence(tensor)
+        logits = self.sequential(tensor)
         return logits
 
     def get_potential(self, coords):
