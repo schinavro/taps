@@ -2,4 +2,4 @@
 
 """Totally Accurate Pathway Simulator (Environment)"""
 
-__version__ = '1.23.0b1'
+__version__ = '0.4'

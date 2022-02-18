@@ -1,12 +1,7 @@
 import os
 import time
 import numpy as np
-from random import randrange, random
 from taps.paths import Paths
-from taps.db import PathsDatabase
-from taps.build import read_csv
-from taps.utils.utils import ImageIndexing
-from taps.distances import FrechetDistance
 
 
 class OneDict(dict):
@@ -25,7 +20,8 @@ class Population:
     """
     metadata = {'dcut': None, 'iteration': None, }
 
-    def __init__(self, PathsDatabase='PathsDatabase.db', number_of_candidates=10,
+    def __init__(self, PathsDatabase='PathsDatabase.db',
+                 number_of_candidates=10,
                  logfile=None):
         self.initialize_pathsdata(PathsDatabase)
         self.initialize_candidates()
@@ -39,7 +35,7 @@ class Population:
                     'current_candidates_ids': 'blob', 'time': 'text'}
         if type(PathsDatabase) == str:
             PathsDatabase = PathsDatabase(PathsDatabase, metadata=metadata,
-                                  key_mapper=key_mapper)
+                                          key_mapper=key_mapper)
         self.PathsDatabase = PathsDatabase
 
     def initialize_metadata(self):
@@ -85,7 +81,7 @@ class Population:
         where = " ORDER BY "
         columns = ['dcut', 'iteration', 'current_candidates_ids', 'time']
         metadata = self.PathsDatabase.read(query=query, columns=columns,
-                                       table_name='metadata', where=where)
+                                           table_name='metadata', where=where)
         if len(metadata) == 0:
             return None
         return metadata[0]

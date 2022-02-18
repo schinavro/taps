@@ -7,8 +7,8 @@ from ase.data.colors import jmol_colors
 from matplotlib import pyplot as plt
 import matplotlib.colors as mc
 from mpl_toolkits.mplot3d import Axes3D
-from taps.utils.shortcut import isStr, isstr, istpl, isBool, isInt, isint, isSclr
-from taps.utils.shortcut import isflt, islst, isArr, isTpl, issclr
+from taps.utils.shortcut import isStr, isstr, istpl, isBool, isInt, isint
+from taps.utils.shortcut import isflt, islst, isTpl, issclr
 from taps.utils.shortcut import isarr, asst, dflt
 
 
@@ -388,17 +388,18 @@ class Plotter:
                         format=self.save_format)
 
     def plot_energy_paths(self, paths, savefig, filename, gaussian):
-        Vunit, Kunit = '', ''
+        # Vunit, Kunit = '', ''
+        Vunit = ''
         if paths.model.real_model.unit != 'unitless':
             Vunit = '$(%s)$' % paths.model.unit
-        Kunit = '$(%s)$' % (paths.coords.unit or 'unitless')
+        # Kunit = '$(%s)$' % (paths.coords.unit or 'unitless')
 
         fig, ax = plt.subplots(figsize=self.fgszE)
         ax.tick_params(axis='both', which='major', labelsize=self.tick_size)
         if self.ylimHE is not None:
             ax.set_ylim(self.ylimHE)
-        ttlE = ''
-        formatkwargs = {'x': 'dist', 'pf': 'paths.finder'}
+        # ttlE = ''
+        # formatkwargs = {'x': 'dist', 'pf': 'paths.finder'}
 
         ax.set_ylabel('Total & Potential', fontsize=self.ftszVYlbl)
 

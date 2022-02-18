@@ -142,13 +142,13 @@ class GPAO(PathFinder):
             logfile = open(logfile, 'a')
 
             def printt(*line, end='\n'):
-                lines = ' '.join([str(l) for l in line]) + end
+                lines = ' '.join([str(lin) for lin in line]) + end
                 logfile.write(lines)
                 logfile.flush()
             close_log = True
         elif logfile.__class__.__name__ == "TextIOWrapper":
             def printt(*line, end='\n'):
-                lines = ' '.join([str(l) for l in line]) + end
+                lines = ' '.join([str(lin) for lin in line]) + end
                 logfile.write(lines)
                 logfile.flush()
         # Finish Initialize

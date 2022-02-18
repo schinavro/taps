@@ -72,7 +72,8 @@ class Julia(Model):
         modeljl = dirname + '/' + jldir
         julia = 'julia --project %s ' % modeljl
         argoptions = " ".join(args)
-        keyoptions = " ".join(["--%s " % k + str(v).lower() for k, v in kwargs.items()])
+        keyoptions = " ".join(["--%s " % k + str(v).lower() for k, v in
+                               kwargs.items()])
 
         command = julia + argoptions + " " + keyoptions
 
@@ -102,21 +103,24 @@ class Julia(Model):
     def initialize_serial(self, *args, **kwargs):
         self.io.read(*args, **kwargs)
 
-    def construct_coords(self, coords):
+    def construct_coords(self, coords, nprc=None):
         # Construct coords
+        nprc = nprc or self.io.nprc
         coords_list = np.array_split(coords, nprc, axis=-1)
         coordskey = {'all': {'host': self.io.chost, "port": self.io.cport},
-                     **dict([('%d' % rank, {'coords_kwargs':{
-                         'coords': coords_list[rank]}}) for rank in range(nprc)])}
-        self.io.update_parallel(**kwargs)
+                     **dict([('%d' % rank, {'coords_kwargs': {
+                      'coords': coords_list[rank]}}) for rank in range(nprc)])}
+        self.io.update_parallel(coordskey)
 
-    def calculate(self, paths, coords, properties=['potential'], nprc=None, **kwargs):
+    def calculate(self, paths, coords, properties=['potential'], nprc=None,
+                  **kwargs):
         nprc = nprc or self.io.nprc
 
         self.construct_coords(coords)
         # Excute
         intype, instruction = b'2', b'get_properties'
-        self.io.send(intype=intype, instruction=instruction, properties=properties)
+        self.io.send(intype=intype, instruction=instruction,
+                     properties=properties)
 
         # Write results
         returnkey = {'all': {'model_kwargs': {'results': None}}}
@@ -140,7 +144,8 @@ class Julia(Model):
         return self.calculate(paths, coords, properties=['mass'], **kwargs)
 
     def get_effective_mass(self, paths, coords=None, **kwargs):
-        return self.calculate(paths, coords, properties=['effective_mass'], **kwargs)
+        return self.calculate(paths, coords, properties=['effective_mass'],
+                              **kwargs)
 
     def _print_stdout(self):
         line = []

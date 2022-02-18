@@ -1,14 +1,9 @@
-import time
 import numpy as np
-from numpy import newaxis as nax
-
-from numpy.linalg import inv, cholesky
-
+from numpy.linalg import inv
 from taps.models import Model
 from taps.ml.kernels import Kernel
 from taps.ml.means import Mean
 from taps.ml.regressions.regressions import GaussianProcessRegressor
-
 
 
 class Gaussian(Model):
@@ -60,7 +55,7 @@ class Gaussian(Model):
         data = paths.get_image_data(prj=self.prj)
 
         orig_shape = coords.shape[:-1]
-        D, M, N = np.prod(coords.D), len(data['potential']), coords.N
+        D, N = np.prod(coords.D), coords.N
 
         Xm = data['kernel']['X']
         Xn = coords.coords.reshape(D, N)

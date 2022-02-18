@@ -1,6 +1,7 @@
 import numpy as np
 from taps.visualize.plotter import Plotter
 
+
 class Alaninedipeptide(Plotter):
     def __init__(self, **kwargs):
         self.mapfile = "alanine_map.pkl"

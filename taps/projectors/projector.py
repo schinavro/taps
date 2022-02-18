@@ -3,7 +3,6 @@ from numpy import newaxis as nax
 from numpy import atleast_3d
 
 from scipy.fftpack import idst, dst
-# from ase.data import atomic_masses
 
 
 class Projector:

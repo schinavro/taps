@@ -1,3 +1,4 @@
+import numpy as np
 from taps.prorjectors import Projector
 from ase.wyckoff.wyckoff import Wyckoff
 from ase.wyckoff.xtal2 import parse_wyckoff_site

@@ -1,7 +1,6 @@
 import copy
 import pickle
 import numpy as np
-from taps.coords import Cartesian
 
 
 class Paths:
@@ -101,9 +100,9 @@ class Paths:
         return self.coords.get_kinetic_energies(self, **kwargs)
 
     def get_kinetic_energy_gradients(self, **kwargs):
-        """ Calculate kinetic energy gradient.
+        r""" Calculate kinetic energy gradient.
         differentiate Kinetic energy w.r.t. each point, That is we calculate
-        :math:`\partial_{\mathbf{x}}E_{\mathrm{kin}}`
+        :math: `\partial_{\mathbf{x}}E_{\mathrm{kin}}`
         """
         return self.coords.get_kinetic_energy_gradients(self, **kwargs)
 

@@ -1,11 +1,3 @@
-import re
-import time
-import pickle
-import subprocess
-import numpy as np
-from numpy import newaxis as nax
-from numpy.linalg import norm
-
 from taps.projectors import Projector
 
 
@@ -34,7 +26,7 @@ class PathFinder:
         finder.optimize(paths=paths, **kwargs)
 
     def isConverged(self, *args, **kwargs):
-        return True
+        return self.optimize
 
     def get_x0(self, coords):
         return coords.flatten()

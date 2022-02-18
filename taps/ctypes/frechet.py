@@ -1,6 +1,7 @@
 # ctypes_test.py
 import ctypes
 import pathlib
+import numpy as np
 
 if __name__ == "__main__":
     # Load the shared library into ctypes
@@ -13,8 +14,6 @@ dist.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int,
                  ctypes.POINTER(ctypes.c_double)]
 dist.restype = ctypes.c_double
 
-
-import numpy as np
 D = 1
 M = 2
 P = 300

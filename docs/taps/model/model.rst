@@ -61,7 +61,7 @@ Every model class should contain `calculate` that gets coordinates and save it o
 .. toctree::
 
     mullerbrown
-    atomicmodel
+    ase
 
 
 List of all Methods

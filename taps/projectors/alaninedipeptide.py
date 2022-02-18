@@ -136,7 +136,6 @@ class AlaninedipeptideInverse(Projector):
         tsi = sum(torque[:, n:].sum(axis=1) * e_ax[:, -1], axis=0)
         return np.array([thi, tsi]), self._x_inv(coords)
 
-
     def found_new_data(self, imgdb):
         count = imgdb._c.count()
         if count == 0:

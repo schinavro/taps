@@ -6,7 +6,7 @@ from ase.calculators.emt import EMT
 from ase.optimize import QuasiNewton
 
 from taps.paths import Paths
-from taps.models.atomicmodel import AtomicModel
+from taps.models.ase import ASE
 from taps.projectors import Mask
 from taps.pathfinder import NEB
 
@@ -38,7 +38,7 @@ qn.run(fmax=0.05)
 fin = qn.atoms.positions.T
 slab.constraints = []
 
-model = AtomicModel(image=slab)
+model = ASE(image=slab)
 prj = Mask(mask=~np.array(mask), orig_coord=_slab.positions.T)
 finder = NEB(prj=prj, iter=10)
 

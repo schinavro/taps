@@ -1,7 +1,6 @@
 import os
-from taps.pathfinder import PathFinder
 import numpy as np
-from scipy.optimize import minimize, check_grad
+from scipy.optimize import minimize
 
 from .dao import DAO
 
@@ -59,7 +58,8 @@ class OnsagerMachlup:
     required_static_property_S = ['gradients']
     required_static_property_dS = ['gradients', 'hessian']
     required_kinetic_property_S = ['velocities', 'masses', 'epoch']
-    required_kinetic_property_dS = ['velocities', 'accelerations', 'masses', 'epoch']
+    required_kinetic_property_dS = ['velocities', 'accelerations', 'masses',
+                                    'epoch']
 
     def __init__(self, gam=None, D=None, N=None, shape=None,
                  **kwargs):
@@ -139,7 +139,8 @@ class TransitionTimePenalty:
     required_kinetic_property_S = ['epoch']
     required_kinetic_property_dS = ['epoch']
 
-    def __init__(self, muT=None, Tt=None, D=None, N=None, shape=None, **kwargs):
+    def __init__(self, muT=None, Tt=None, D=None, N=None, shape=None,
+                 **kwargs):
         self.muT = muT
         self.Tt = Tt
         self.D = D
@@ -151,7 +152,6 @@ class TransitionTimePenalty:
         2qj 2qj21 2qj11 2D2
         """
         return self.muT * (epoch - self.Tt) ** 2
-
 
     def dS(self, epoch=None, **kwargs):
 
@@ -261,7 +261,8 @@ class TAO(DAO):
                 dSdx, dSdt = ds.dS(**results)
                 resx += dSdx
                 rest += dSdt
-            return np.concatenate([prj.f(resx, paths.coords)[0].flatten(), [rest]])
+            return np.concatenate([prj.f(resx, paths.coords)[0].flatten(),
+                                  [rest]])
         return calculator
 
     def optimize(self, paths=None, logfile=None, action_kwargs=None,
@@ -282,13 +283,13 @@ class TAO(DAO):
             logfile = open(logfile, 'a')
 
             def printt(*line, end='\n'):
-                lines = ' '.join([str(l) for l in line]) + end
+                lines = ' '.join([str(lin) for lin in line]) + end
                 logfile.write(lines)
                 logfile.flush()
             close_log = True
         elif logfile.__class__.__name__ == "TextIOWrapper":
             def printt(*line, end='\n'):
-                lines = ' '.join([str(l) for l in line]) + end
+                lines = ' '.join([str(lin) for lin in line]) + end
                 logfile.write(lines)
                 logfile.flush()
         else:

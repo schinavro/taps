@@ -1,11 +1,10 @@
-import copy
 import numpy as np
-from numpy import array, outer, linspace, random, dot
+from numpy import linspace, random
 from taps.paths import Paths
 from taps.utils.utils import pandas2dct
 from ase.ga.utilities import closest_distances_generator
 from scipy.spatial import cKDTree as KDTree
-from scipy.fftpack import dst, idst
+from scipy.fftpack import idst
 
 
 def row2paths(row):
@@ -69,7 +68,8 @@ def get_random_coords(init, fin, N, **pkwargs):
         # if mic:
         #     relpos = np.linalg.solve(cell.T, full.reshape(3, N * (P - 2)))
         #     pb = array([0.5, 0.5, 0.5]) * pbc
-        #     mic_full = full + dot(cell, (relpos > pb) - pb).reshape(3, N, step)
+        #     mic_full = full + dot(cell, (relpos > pb) - pb).reshape(3, N,
+        #                           step)
         #     mic_masked = mic_full[:, mask, :].T
         if trial > 1000:
             # raise PathsNotFoundError('We couldn\'t find the proper path')
