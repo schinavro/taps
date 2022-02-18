@@ -5,11 +5,6 @@ from numpy.linalg import inv, cholesky
 from numpy import log, sum, diagonal
 
 
-class Regression:
-    def __call__(self, *args, **kwargs):
-        self.train(*args, **kwargs)
-
-
 def likelihood(kernel=None, mean=None, data=None):
     k, m = kernel, mean
     X = data['kernel']['X']
@@ -33,6 +28,18 @@ def likelihood(kernel=None, mean=None, data=None):
                 log_detK = log(detK)
         return log_detK + 0.5 * (Y_m.T @ (inv(K) @ Y_m))
     return likelihood
+
+
+class Regression:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __call__(self, *args, **kwargs):
+        self.setup(*args, **kwargs)
+        self.train(*args, **kwargs)
+
+    def setup(self, loss):
+        pass
 
 
 class GaussianProcessRegressor(Regression):

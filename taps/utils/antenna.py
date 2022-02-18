@@ -128,8 +128,7 @@ def dictify(obj, ignore_cache=True):
 def classify(obj):
     if isinstance(obj, dict) and obj.get('__name__') == 'Atoms':
         from ase.db.row import AtomsRow
-        return AtomsRow(obj['kwargs']).toatoms(# attach_calculator=True,
-                                      add_additional_information=True)
+        return AtomsRow(obj['kwargs']).toatoms(add_additional_information=True)
     elif isinstance(obj, np.ndarray):
         return obj
     elif isinstance(obj, dict) and obj.get('__module__') is not None:
