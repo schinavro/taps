@@ -11,7 +11,7 @@ from ase.data import atomic_masses
 # from ase.symbols import Symbols
 
 
-class AtomicModel(Model):
+class ASE(Model):
     """
     
     """
@@ -170,7 +170,7 @@ class AtomicModel(Model):
             trj.write(image)
 
 
-class AlanineDipeptide(AtomicModel):
+class AlanineDipeptide(ASE):
 
     def get_directory(self, coord=None):
         """
@@ -264,7 +264,7 @@ class AlanineDipeptide(AtomicModel):
                               self.results["positions"])
 
 
-class AlanineDipeptide3D(AtomicModel):
+class AlanineDipeptide3D(ASE):
 
     def get_labels2(self, paths, idx=None, coords=None):
         if coords is None:
