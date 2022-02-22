@@ -1,8 +1,8 @@
 import numpy as np
 from numpy.linalg import solve
-from numpy import identity as I
+from numpy import identity as II
 from numpy import newaxis as nax
-from numpy import vstack, cos, sin, atleast_3d
+from numpy import vstack, cos, sin
 
 from taps.ml.kernels import Kernel
 
@@ -98,7 +98,7 @@ class PeriodicKernel(Kernel):
         if orig:
             if noise:
                 noise_f = hyperparameters.get('sigma_n^e', 0)
-                return K + noise_f * I(N)
+                return K + noise_f * II(N)
             return K                               # N x M
         # 2 x Cosnm * Sinnm   # D x N x M
         Sin2nm = sin(2 * Xnm)
@@ -117,7 +117,7 @@ class PeriodicKernel(Kernel):
         dc_dd_glob = -pipi * Sin2nm[:, :, nax] * Sin2mn[nax, ...] / llll
         # DxNx1xM x Dx1xDx1 -> DxNxDxM
         Cos2nm = cos(2 * Xnm)
-        dc_dd_diag = 2 * pipi * Cos2nm[:, :, nax] * I(D)[:, nax, :, nax] / ll
+        dc_dd_diag = 2 * pipi * Cos2nm[:, :, nax] * II(D)[:, nax, :, nax] / ll
         # DxNxDxM - DxNxDxM
         Kdd = dc_dd_glob + dc_dd_diag
         Kdd *= K[nax, :, nax, :]
@@ -169,5 +169,5 @@ class PeriodicKernel(Kernel):
             noise_f = hyperparameters.get('sigma_n^e', 0)
             noise_df = hyperparameters.get('sigma_n^f', 0)
             noise = np.array([noise_f] * N + [noise_df] * D * N)
-            return Kext + noise * I((D + 1) * N)
+            return Kext + noise * II((D + 1) * N)
         return Kext

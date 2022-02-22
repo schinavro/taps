@@ -75,13 +75,18 @@ class NeuralNetwork(Model):
     >>> from taps.models.neural import NeuralNetwork
     >>> model = NeuralNetwork(real_model=)
 
+    def save_hyperparameters(self, filename):
+        self.kernel.save_hyperparameters(filename)
+
+    def load_hyperparameters(self, filename):
+        self.kernel.load_hyperparameters(filename)
+
 
     """
     implemented_properties = ['potential', 'gradients', 'hessian']
 
-    def __init__(self, kernel=None, regression=None, **kwargs):
-        self.kernel = kernel or PyTorchKernel()
-        self.regression = regression or PyTorchRegression()
+    def __init__(self, kernel=None, **kwargs):
+        self.kernel = kernel
 
         super().__init__(**kwargs)
 
@@ -96,11 +101,44 @@ class NeuralNetwork(Model):
         if 'hessian' in properties:
             self.results['hessian'] = self.kernel.get_hessian(coords)
 
-    def train(self, *args, **kwargs):
-        self.regression.train(*args, **kwargs)
 
-    def save_hyperparameters(self, filename):
-        self.kernel.save_hyperparameters(filename)
+def train(model, loss_fn, x0, database, optimizer, epochs=5,
+          batch_size=10, device='cpu', log=sys.stdout):
+    """
+    PyTorch NN Regression
+    """
+    train_dataloader = dataloader(database, batch_size=batch_size)
 
-    def load_hyperparameters(self, filename):
-        self.kernel.load_hyperparameters(filename)
+    for t in range(epochs):
+        # _train(train_dataloader, kernel, loss, optimizer, device, log)
+        size = len(train_dataloader.dataset)
+        kernel.train()
+        for batch, (X, y) in enumerate(train_dataloader):
+            X, y = X.to(device), y.view(-1, 1).to(device)
+
+            # Compute prediction error
+            pred = kernel(X)
+            l = loss(pred, y)
+
+            # Backpropagation
+            optimizer.zero_grad()
+            l.backward()
+            optimizer.step()
+
+            if batch % 100 == 0:
+                l, current = l.item(), batch * len(X)
+                log.write(f"loss: {l:>7f}  [{current:>5d}/{size:>5d}] \n")
+
+
+def dataloader(database, batchsize):
+    """
+    database: Database class
+    batch_size: Int
+
+    >>> dataloader = data_loader(database)
+    >>> assert isinstance(dataloader)
+    """
+    dataset = ImageDatabaseDataset(database)
+    return DataLoader(dataset, batch_size=batch_size)
+
+    

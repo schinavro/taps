@@ -3,6 +3,7 @@ import numpy as np
 
 from taps.pathfinder import PathFinder
 from taps.visualize import view
+from taps.db import PathsDatabase
 
 
 class GPAOPhase:
@@ -111,8 +112,8 @@ class GPAO(PathFinder):
         self.logfile = logfile
         self.plot_kwargs = plot_kwargs or {}
         self.phase_kwargs = phase_kwargs or {}
-        # self.pathsdatabase = pathsdatabase or PathsDatabase()
-        self.pathsdatabase = pathsdatabase
+        self.pathsdatabase = pathsdatabase or PathsDatabase()
+        # self.pathsdatabase = pathsdatabase
 
     def optimize(self, paths, label=None, real_finder=None, restart=None,
                  iteration=None, maxtrial=None, logfile=None, plot_kwargs=None,

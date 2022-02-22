@@ -60,10 +60,10 @@ class Paths:
             setattr(self, key, value)
 
     def get_kinetics(self, **kwargs):
-        return self.coords.get_kinetics(self, **kwargs)
+        return self.coords.get_kinetics(paths=self, **kwargs)
 
     def get_masses(self, **kwargs):
-        return self.coords.masses(self, **kwargs)
+        return self.coords.masses(paths=self, **kwargs)
 
     def get_distances(self, **kwargs):
         """ Calculate the distances of the pathway (accumulative)
@@ -71,25 +71,25 @@ class Paths:
         Calls the :meth:`get_distances` at the ``paths.model``.
         Model calls the :meth:`get_distances` in the ``paths.coords``.
         """
-        return self.coords.get_distances(self, **kwargs)
+        return self.coords.get_distances(paths=self, **kwargs)
 
     def get_speeds(self, **kwargs):
-        return self.coords.get_speeds(self, **kwargs)
+        return self.coords.get_speeds(paths=self, **kwargs)
 
     def get_displacements(self, **kwargs):
-        return self.coords.get_displacements(self, **kwargs)
+        return self.coords.get_displacements(paths=self, **kwargs)
 
     def get_velocities(self, **kwargs):
         r""" Calculate velocity
         If :class:`Cartesian` is cartesian, velocity is calculated via
         :math:`\mathbf{x}_{i+1} - \mathbf{x}_{i}`"""
-        return self.coords.get_velocities(self, **kwargs)
+        return self.coords.get_velocities(paths=self, **kwargs)
 
     def get_accelerations(self, **kwargs):
         """ Calculate acceleration
         If :class:`Cartesian` is cartesian, velocity is calculated via
         """
-        return self.coords.get_accelerations(self, **kwargs)
+        return self.coords.get_accelerations(paths=self, **kwargs)
 
     def get_momentums(self, **kwargs):
         """ Calculate momentum of the pathway"""
@@ -97,60 +97,60 @@ class Paths:
 
     def get_kinetic_energies(self, **kwargs):
         """ Calculate kinetic energy of the pathway"""
-        return self.coords.get_kinetic_energies(self, **kwargs)
+        return self.coords.get_kinetic_energies(paths=self, **kwargs)
 
     def get_kinetic_energy_gradients(self, **kwargs):
         r""" Calculate kinetic energy gradient.
         differentiate Kinetic energy w.r.t. each point, That is we calculate
         :math: `\partial_{\mathbf{x}}E_{\mathrm{kin}}`
         """
-        return self.coords.get_kinetic_energy_gradients(self, **kwargs)
+        return self.coords.get_kinetic_energy_gradients(paths=self, **kwargs)
 
     def get_properties(self, **kwargs):
         """ Directly calls the :meth:`get_properties` in ``paths.model``"""
-        return self.model.get_properties(self, **kwargs)
+        return self.model.get_properties(paths=self, **kwargs)
 
     def get_potential_energy(self, **kwargs):
         """ Calculate potential( energy) """
-        return self.model.get_potential_energy(self, **kwargs)
+        return self.model.get_potential_energy(paths=self, **kwargs)
 
     def get_potential(self, **kwargs):
         """ Calculate potential """
-        return self.model.get_potential(self, **kwargs)
+        return self.model.get_potential(paths=self, **kwargs)
 
     def get_potential_energies(self, **kwargs):
         """ Equivalanet to Calculate potentials"""
-        return self.model.get_potential_energies(self, **kwargs)
+        return self.model.get_potential_energies(paths=self, **kwargs)
 
     def get_potentials(self, **kwargs):
         """ Calculate potentials, individual energy of each atoms"""
-        return self.model.get_potentials(self, **kwargs)
+        return self.model.get_potentials(paths=self, **kwargs)
 
     def get_forces(self, **kwargs):
         """ Calculate - potential gradient"""
-        return self.model.get_forces(self, **kwargs)
+        return self.model.get_forces(paths=self, **kwargs)
 
     def get_gradient(self, **kwargs):
         """ Calculate potential gradient"""
-        return self.model.get_gradient(self, **kwargs)
+        return self.model.get_gradient(paths=self, **kwargs)
 
     def get_gradients(self, **kwargs):
         """ Calculate potential gradient(s)"""
-        return self.model.get_gradients(self, **kwargs)
+        return self.model.get_gradients(paths=self, **kwargs)
 
     def get_hessian(self, **kwargs):
         """ Calculate Hessian of a potential"""
-        return self.model.get_hessian(self, **kwargs)
+        return self.model.get_hessian(paths=self, **kwargs)
 
     def get_total_energy(self, **kwargs):
         """ Calculate kinetic + potential energy"""
-        V = self.model.get_potential_energy(self, **kwargs)
-        T = self.model.get_kinetic_energies(self, **kwargs)
+        V = self.model.get_potential_energy(paths=self, **kwargs)
+        T = self.model.get_kinetic_energies(paths=self, **kwargs)
         return V + T
 
     def get_covariance(self, **kwargs):
         """ Calculate covariance. It only applies when potential is guassian"""
-        return self.model.get_covariance(self, **kwargs)
+        return self.model.get_covariance(paths=self, **kwargs)
 
     def get_higest_energy_idx(self):
         """ Get index of highest potential energy simplified"""
@@ -164,10 +164,10 @@ class Paths:
 
     def get_image_data(self, **kwargs):
         """" list of int; Get rowid of data"""
-        return self.imgdb.get_image_data(self, **kwargs)
+        return self.imgdb.get_image_data(paths=self, **kwargs)
 
     def add_image_data(self, index=None, coords=None, force=False,
-                       cache_model=True, regression=True, **kwargs):
+                       cache_model=True, **kwargs):
         """ Adding a calculation data to image database
 
         if index given -> create coords -> add_image_data
@@ -187,11 +187,6 @@ class Paths:
         ids = self.imgdb.add_image_data(self, coords, force=force)
         if cache_model:
             self.imgdb.add_image_data_ids(ids)
-        if regression:
-            self.model.regression(kernel=self.model.kernel,
-                                  mean=self.model.mean,
-                                  data=self.get_image_data())
-            # self.model.regression.optimized = False
         return ids
 
     def fluctuate(self, *args, **kwargs):
@@ -200,20 +195,6 @@ class Paths:
     def search(self, **kwargs):
         """ Calculate optimized pathway"""
         self.finder.search(self, **kwargs)
-
-    def reset_cache(self):
-        """ Delete current cache on all modules"""
-        self.model._cache = {}
-        self.real_model._cache = {}
-        self.imgdb._cache = {}
-        self.prj._cache = {}
-
-    def reset_results(self):
-        """ Delete current results on all modules"""
-        self.model.results = {}
-        self.real_model.results = {}
-        self.finder.results = {}
-        self.real_finder.results = {}
 
     def to_pickle(self, filename=None, simple=True):
         """ Saving pickle simplified"""

@@ -48,8 +48,7 @@ class MullerBrown(Model):
     y0 = np.array([0, 0.5, 1.5, 1])
     potential_unit = 'unitless'
 
-    def calculate(self, paths, coords, properties=['potential'],
-                  **kwargs):
+    def calculate(self, coords, properties=['potential'], **kwargs):
         """
         x : N shape array
         y : N shape array

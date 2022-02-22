@@ -26,6 +26,12 @@ class Coordinate:
         coords = self.coords[..., idx]
         return self.__class__(coords=coords, **kwargs)
 
+    def __len__(self):
+        return self.coords.shape[-1]
+
+    def __getitem__(self, idx):
+        return self.coords[..., idx]
+
     @property
     def shape(self):
         return self.coords.shape

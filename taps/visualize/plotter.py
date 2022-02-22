@@ -404,7 +404,7 @@ class Plotter:
         ax.set_ylabel('Total & Potential', fontsize=self.ftszVYlbl)
 
         dist = paths.get_distances(index=np.s_[1:-1])
-        V = paths.get_potential_energy(index=np.s_[1:-1])
+        V = paths.get_potential(index=np.s_[1:-1])
         T = paths.get_kinetic_energies(index=np.s_[1:-1])
         lns = ax.plot(dist, V, self.mrkrV, label='$V$')
         if gaussian:
@@ -562,7 +562,7 @@ class Plotter:
 
     def plot_info_map(self, paths, plt, ax, information='maximum_energy'):
         if information == 'maximum_energy':
-            E = paths.get_potential_energy(index=np.s_[1:-1])
+            E = paths.get_potential(index=np.s_[1:-1])
             unit = paths.model.unit
             string = r'$\mu^{(max)} : %s$' % self.display_float(E.max(),
                                                                 unit=unit)
@@ -757,10 +757,10 @@ class Plotter:
         coords = self.prj(paths.coords(coords=_coords))
         shape = (range_x, range_y)
         if model_type == 'real':
-            E = paths.get_potential_energy(coords=coords, real_model=True)
+            E = paths.get_potential(coords=coords, real_model=True)
             return E.reshape(shape)
         elif model_type == 'ave_map':
-            ave_map = paths.get_potential_energy(coords=coords)
+            ave_map = paths.get_potential(coords=coords)
             return ave_map.reshape(shape)
         elif model_type == 'cov_map':
             cov_map = paths.get_covariance(coords=coords)

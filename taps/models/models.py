@@ -52,10 +52,12 @@ class Model:
         else:
             super().__getattribute__(key)
 
-    def get_properties(self, paths, properties=['potential'],
+    def __call__(self, coords):
+        return self.get_potential(coords=coords)
+
+    def get_properties(self, paths=None, properties=['potential'],
                        index=np.s_[:], coords=None, caching=False,
-                       real_model=False, use_raw_coords=False,
-                       return_dict=False, **kwargs):
+                       real_model=False, return_dict=False, **kwargs):
         """ pre-calculation rutine.
 
         Calculate static related properties.
@@ -85,11 +87,7 @@ class Model:
                 raise NotImplementedError('Can not calaculate %s' % property)
         if coords is None:
             coords = paths.coords(index=index)
-        if not use_raw_coords:
-            if coords.__class__.__name__ == 'ndarray':
-                coords = model.prj._x(coords)
-            else:
-                coords = model.prj.x(coords)
+
         new_coords = None
         new_properties = []
         results = {}
@@ -111,7 +109,7 @@ class Model:
             new_coords = coords
 
         if new_coords is not None:
-            model.calculate(paths, new_coords, properties=new_properties,
+            model.calculate(new_coords, paths=paths, properties=new_properties,
                             **kwargs)
 
         for new_property in new_properties:
@@ -141,32 +139,32 @@ class Model:
             return results[property]
         return results
 
-    def get_potential(self, paths, **kwargs):
-        return self.get_properties(paths, properties='potential', **kwargs)
+    def get_potential(self, **kwargs):
+        return self.get_properties(properties='potential', **kwargs)
 
-    def get_potentials(self, paths, **kwargs):
-        return self.get_properties(paths, properties='potentials', **kwargs)
+    def get_potentials(self, **kwargs):
+        return self.get_properties(properties='potentials', **kwargs)
 
-    def get_potential_energy(self, paths, **kwargs):
-        return self.get_properties(paths, properties='potential', **kwargs)
+    def get_potential_energy(self, **kwargs):
+        return self.get_properties(properties='potential', **kwargs)
 
-    def get_potential_energies(self, paths, **kwargs):
-        return self.get_properties(paths, properties='potentials', **kwargs)
+    def get_potential_energies(self, **kwargs):
+        return self.get_properties(properties='potentials', **kwargs)
 
-    def get_forces(self, paths, **kwargs):
-        return self.get_properties(paths, properties='forces', **kwargs)
+    def get_forces(self, **kwargs):
+        return self.get_properties(properties='forces', **kwargs)
 
-    def get_gradient(self, paths, **kwargs):
-        return self.get_properties(paths, properties='gradients', **kwargs)
+    def get_gradient(self, **kwargs):
+        return self.get_properties(properties='gradients', **kwargs)
 
-    def get_gradients(self, paths, **kwargs):
-        return self.get_properties(paths, properties='gradients', **kwargs)
+    def get_gradients(self, **kwargs):
+        return self.get_properties(properties='gradients', **kwargs)
 
-    def get_hessian(self, paths, **kwargs):
-        return self.get_properties(paths, properties='hessian', **kwargs)
+    def get_hessian(self, **kwargs):
+        return self.get_properties(properties='hessian', **kwargs)
 
-    def get_covariance(self, paths, **kwargs):
-        return self.get_properties(paths, properties='covariance', **kwargs)
+    def get_covariance(self, **kwargs):
+        return self.get_properties(properties='covariance', **kwargs)
 
     def generate_unique_hash(self, positions):
         """return string that explains current calculation

@@ -1,7 +1,41 @@
-
 import numpy as np
 from numpy import newaxis as nax
 from taps.models import Model
+
+
+class Mean(Model):
+    implemented_properties = {'potential', 'gradients', 'hessian'}
+
+    def __init__(self, hyperparameters=0., **kwargs):
+        self.hyperparameters = hyperparameters
+        super().__init__(**kwargs)
+
+    def calculate(self, coords, properties=None, **kwargs):
+        shape, N = coords.coords.shape[:-1], coords.N
+        D = coords.D
+
+        if 'potential' in properties:
+            self.results['potential'] = np.zeros(N) + self.hyperparameters
+        if 'gradients' in properties:
+            self.results['gradients'] = np.zeros((*shape, N))
+        if 'hessian' in properties:
+            self.results['hessian'] = np.zeros((D, D, N))
+
+    def __call__(self, coords):
+        return self.get_potential(coords=coords)
+
+    def dV(self, coords):
+        return self.get_gradients(coords=coords).flatten()
+
+    def ddV(self, coords):
+        return self.get_hessian(coords=coords).flatten()
+
+    def set_hyperparameters(self, hyperparameters=None, data=None):
+        if hyperparameters is not None:
+            self.hyperparameters = hyperparameters
+
+    def get_hyperparameters(self):
+        return self.hyperparameters
 
 
 class Sine(Model):

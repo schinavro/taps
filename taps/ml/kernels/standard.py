@@ -1,6 +1,6 @@
 import numpy as np
 import numexpr as ne
-from numpy import identity as I
+from numpy import identity as II
 from numpy import newaxis as nax
 from numpy import vstack
 from taps.ml.kernels import Kernel
@@ -81,7 +81,7 @@ class SquaredExponential(Kernel):
         if orig:
             if noise:
                 noise_f = hyperparameters.get('sigma_n^e', 0)
-                return K + noise_f * I(N)    # N x M
+                return K + noise_f * II(N)    # N x M
             return K
         # Derivative coefficient D x N x M
         dc_gd = -Xnm / ll
@@ -97,7 +97,7 @@ class SquaredExponential(Kernel):
         # dc_dd_glob = -Xnm[:, :, nax, :] * Xmn[nax, :, :, :] / ll / ll
         dc_dd_glob = np.einsum('inm, jnm -> injm', dc_gd, -dc_gd)
         # ∂_mn exp(Xn - Xm)^2
-        dc_dd_diag = I(D)[:, nax, :, nax] / ll
+        dc_dd_diag = II(D)[:, nax, :, nax] / ll
         # DxNxDxM - DxNxDxM
         Kdd = (dc_dd_glob + dc_dd_diag) * K[nax, :, nax, :]
         # DN x DM
@@ -173,6 +173,6 @@ class SquaredExponential(Kernel):
             noise_f = hyperparameters.get('sigma_n^e', 0)
             noise_df = hyperparameters.get('sigma_n^f', 0)
             noise = np.array([noise_f] * N + [noise_df] * D * N)
-            I1 = I((D + 1) * N)
+            I1 = II((D + 1) * N)
             return ne.evaluate("Kext + noise * I1")
         return Kext

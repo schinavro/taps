@@ -3,7 +3,50 @@ from numpy.linalg import inv
 from taps.models import Model
 from taps.ml.kernels import Kernel
 from taps.ml.means import Mean
-from taps.ml.regressions.regressions import GaussianProcessRegressor
+from taps.projectors import Projector
+from taps.coords import Cartesian
+
+
+def serialize(database, prj):
+    """
+    Database serialization function
+    """
+    entries = dict(coord='blob', potential='blob', gradients='blob')
+    data_list = database.read_all(entries=entries)
+    M = len(data_list)
+    coords_shape = data_list[0]['coord'].shape
+    gradients_shape = data_list[0]['gradients'].shape[:-1]
+    coords = Cartesian(coords=np.zeros((*coords_shape, M)))
+    potential = np.zeros(M)
+    gradients = np.zeros((*gradients_shape, M))
+
+    data = dict()
+    for m in range(M):
+        datum = data_list[m]
+        coords.coords[..., m] = datum['coord']
+        potential[m] = datum['potential']
+        gradients[..., m] = datum['gradients'][..., 0]
+
+    data['coords'] = coords
+    data['potential'] = potential
+    data['gradients'] = gradients
+
+    data['kernel_coords'] = prj.x(coords)
+    data['kernel_potential'] = potential
+    data['kernel_gradients'] = prj.f(gradients, coords)[0]
+
+    return data
+
+
+def reshape_data(mean, data):
+    m = mean
+    dm = m.get_gradients(coords=data['coords']).flatten()
+    potential = data['kernel_potential'] - m(data['coords'])
+    gradients = data['kernel_gradients'].flatten() - dm
+
+    X = data['kernel_coords'].coords
+    Y_m = np.concatenate([potential, gradients])
+    return X, Y_m
 
 
 class Gaussian(Model):
@@ -29,18 +72,30 @@ class Gaussian(Model):
                               'hessian'}
 
     def __init__(self, real_model=None, kernel=None, mean=None,
-                 regression=None, **kwargs):
+                 regression=None,  # Deprecated
+                 **kwargs):
         """
         data array
         """
         self.real_model = real_model or self
         self.kernel = kernel or Kernel()
         self.mean = mean or Mean()
-        self.regression = regression or GaussianProcessRegressor()
 
         super().__init__(**kwargs)
 
-    def calculate(self, paths, coords, properties=None, **kwargs):
+    def set_lambda(self, imgdb, Θk=None, Θm=None):
+        if Θk is not None:
+            self.kernel.set_hyperparameters(Θk)
+        if Θm is not None:
+            self.mean.set_hyperparameters(Θm)
+
+        self.data = serialize(imgdb, self.prj)
+        self.Xm, self.Y_m = reshape_data(self.mean, self.data)
+        k = self.kernel
+        self.K_y_inv = inv(k(self.Xm, self.Xm, noise=True))
+        self.Λ = self.K_y_inv @ self.Y_m
+
+    def calculate(self, coords, imgdb=None, properties=None, **kwargs):
         """
         P : int | length of image to consider / or number of image to calculate
         D : int | Dimension
@@ -52,54 +107,44 @@ class Gaussian(Model):
         Y :
         return : Dim x N x P - 2 array
         """
-        data = paths.get_image_data(prj=self.prj)
+        if imgdb is not None:
+            self.set_lambda(imgdb)
+        # data = paths.get_image_data(prj=self.prj)
 
         orig_shape = coords.shape[:-1]
         D, N = np.prod(coords.D), coords.N
 
-        Xm = data['kernel']['X']
-        Xn = coords.coords.reshape(D, N)
-        Y = data['kernel']['Y']
+        Xm, Λ = self.Xm, self.Λ
+        Xn = coords.reshape(D, N)
+        # dY = data['kernel_gradients'].flatten()
 
-        k, m = self.kernel, self.mean
+        def m(x): return self.mean.get_potential(coords=x, **kwargs)
+        def dm(x): return self.mean.get_gradients(coords=x, **kwargs).flatten()
+        def ddm(x): return self.mean.get_hessian(coords=x, **kwargs).flatten()
 
-        # Re calculate the hyperparameters if data has changed
-        if data['data_ids'] != self._cache.get('data_ids'):
-            self.regression(mean=m, kernel=k, data=data)
-            self._cache['K_y_inv'] = inv(k(Xm, Xm, noise=True))
-            self._cache['data_ids'] = data['data_ids'].copy()
-        K_y_inv = self._cache['K_y_inv']
-
-        if 'potential_and_gradient' in properties:
-            N = len(Xn[..., :])
-            K_s = k(Xm, Xn)  # (D+1)N x (D+1)M x P
-            mu = m(Xn) + K_s.T @ K_y_inv @ (Y - m(Xn))
-            E = mu[: N]
-            F = -mu[N:].reshape(*orig_shape, N)
-            self.results['potential_and_forces'] = E, F
-
+        k = self.kernel
         if 'potential' in properties:
-            K_s = k(Xm, Xn, potential_only=True)  # (D+1)N x M
-            potential = m.V(Xn) + K_s.T @ K_y_inv @ (Y - m(Xm))
+            K_s = k(Xm, Xn, potential_only=True)          # (D+1)M x N
+            potential = m(Xn) + K_s.T @ Λ                 # N
             self.results['potential'] = potential
         if 'gradients' in properties:
-            dK_s = k(Xm, Xn, gradient_only=True)  # (D+1)N x (D+1)M x P
-            mu_f = m.dV(Xn) + dK_s.T @ K_y_inv @ (Y - m(Xm))
+            dK_s = k(Xm, Xn, gradient_only=True)          # (D+1)M x DN
+            mu_f = dm(Xn) + dK_s.T @ Λ                    # DN
             self.results['gradients'] = mu_f.reshape(*orig_shape, N)
         if 'hessian' in properties:
-            K_s = k(Xm, Xn, hessian_only=True)            # (D+1)N x DDM
-            H = m.H(Xn) + K_s.T @ K_y_inv @ (Y - m(Xm))  # DDM
+            ddK_s = k(Xm, Xn, hessian_only=True)          # (D+1)M x DDN
+            H = ddm(Xn) + ddK_s.T @ Λ                     # DDN
             self.results['hessian'] = H.reshape(D, D, N)
 
         if 'covariance' in properties:
+            K_y_inv = self.K_y_inv
             K = k(Xn, Xn, orig=True)
             K_s = k(Xm, Xn)
             K_s_T = k(Xn, Xm)
             self.results['covariance'] = K - (K_s_T @ K_y_inv @ K_s)[:N, :N]
 
-    def get_covariance(self, paths, **kwargs):
-        cov_coords = self.get_properties(paths, properties='covariance',
-                                         **kwargs)
+    def get_covariance(self, **kwargs):
+        cov_coords = self.get_properties(properties='covariance', **kwargs)
         _ = np.diag(cov_coords)
         cov_coords = _.copy()
         cov_coords[_ < 0] = 0
@@ -113,3 +158,50 @@ class Gaussian(Model):
         for k, v in self.kernel.hyperparameters.items():
             info.append(f"{k: <11}" + ": " + str(v))
         return '\n'.join(info)
+
+
+class Likelihood:
+    """
+    """
+    def __init__(self, kernel=None, mean=None, database=None, kernel_prj=None):
+        self.k, self.m = kernel, mean
+        kernel_prj = kernel_prj or Projector()
+        data = serialize(database, kernel_prj)
+        self.X, self.Y_m = reshape_data(mean, data)
+        self.Y_m_T = self.Y_m.T
+
+    def __call__(self, hyperparameters):
+        self.k.set_hyperparameters(hyperparameters)
+        K = self.k(self.X, self.X, noise=True)
+        detK = np.linalg.det(K)
+        try:
+            detK = np.diagonal(np.linalg.cholesky(K))
+            log_detK = np.sum(np.log(detK))
+        except np.linalg.LinAlgError:
+            # Postive definite matrix
+            detK = np.linalg.det(K)
+            # print(detK)
+            if detK <= 1e-5:
+                log_detK = -5
+            else:
+                log_detK = np.log(detK)
+        return log_detK + 0.5 * (self.Y_m_T @ (inv(K) @ self.Y_m))
+
+
+class NonGradientLikelihood(Likelihood):
+    def __call__(self, hyperparameters):
+        self.k.set_hyperparameters(hyperparameters)
+        K = self.k(self.X, self.X, noise=True)
+        detK = np.linalg.det(K)
+        try:
+            detK = np.diagonal(np.linalg.cholesky(K))
+            log_detK = np.sum(np.log(detK))
+        except np.linalg.LinAlgError:
+            # Postive definite matrix
+            detK = np.linalg.det(K)
+            # print(detK)
+            if detK <= 1e-5:
+                log_detK = -5
+            else:
+                log_detK = np.log(detK)
+        return log_detK + 0.5 * (self.Y_m.T @ (inv(K) @ self.Y_m))
