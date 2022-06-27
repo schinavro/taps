@@ -1,6 +1,6 @@
-
 from taps.db import Database
 from collections import OrderedDict
+
 
 class PathsDatabase(Database):
     """
@@ -9,14 +9,14 @@ class PathsDatabase(Database):
       load : Sqlite -> json+ binary -> dictionary -> Paths
 
     """
-    entries=OrderedDict(
+    entries = OrderedDict(
         paths='blob',
     )
+
     def __init__(self, data_ids=None, table_name='paths', **kwargs):
         super().__init__(**kwargs)
         self.data_ids = data_ids or list()
         self.table_name = table_name
-
 
     def read(self, ids, table_name=None, entries=None, **kwargs):
         table_name = table_name or self.table_name
@@ -24,7 +24,6 @@ class PathsDatabase(Database):
         data = super().read(ids,
                             table_name=table_name, entries=entries, **kwargs)
         return data
-
 
     def read_all(self, table_name=None, entries=None, **kwargs):
         table_name = table_name or self.table_name
@@ -39,7 +38,6 @@ class PathsDatabase(Database):
         data = super().read_latest(table_name=table_name, entries=entries,
                                    **kwargs)
         return data
-
 
     def write(self, data, table_name=None, entries=None, **kwargs):
         table_name = table_name or self.table_name

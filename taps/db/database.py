@@ -44,7 +44,7 @@ class Database:
         conn.close()
 
     def read(self, ids, filename=None, table_name=None, entries=None,
-             **kwargs):
+             return_dict=False, **kwargs):
         """
         ids: [1, 2, 3, ..]
         return [{'coord':...}, ]
@@ -72,7 +72,9 @@ class Database:
                     datum[keys[i]] = None
                 elif entries[keys[i]] == 'blob':
                     val = unpacking(cache[i], includesize=True)[0][0]
-                    datum[keys[i]] = classify(val)
+                    if not return_dict:
+                        val = classify(val)
+                    datum[keys[i]] = val
                 else:
                     datum[keys[i]] = cache[i]
             data.append(datum)
@@ -80,7 +82,8 @@ class Database:
         conn.close()
         return data
 
-    def read_all(self, filename=None, table_name=None, entries=None, **kwargs):
+    def read_all(self, filename=None, table_name=None, entries=None,
+                 return_dict=False, **kwargs):
         """
         return list of dict
         """
@@ -109,7 +112,9 @@ class Database:
                     datum[keys[i]] = None
                 elif entries[keys[i]] == 'blob':
                     val = unpacking(cache[i], includesize=True)[0][0]
-                    datum[keys[i]] = classify(val)
+                    if not return_dict:
+                        val = classify(val)
+                    datum[keys[i]] = val
                 else:
                     datum[keys[i]] = cache[i]
             data.append(datum)
@@ -118,7 +123,7 @@ class Database:
         return data
 
     def read_latest(self, filename=None, table_name=None, entries=None,
-                    **kwargs):
+                    return_dict=False, **kwargs):
         filename = filename or self.filename
         entries = entries or self.entries
         table_name = table_name or self.table_name
@@ -140,7 +145,10 @@ class Database:
                 datum[keys[i]] = None
             elif entries[keys[i]] == 'blob':
                 val = unpacking(cache[i], includesize=True)[0][0]
-                datum[keys[i]] = classify(val)
+                if not return_dict:
+                    datum[keys[i]] = classify(val)
+                else:
+                    datum[keys[i]] = val
             else:
                 datum[keys[i]] = cache[i]
         data.append(datum)

@@ -88,6 +88,8 @@ class Model:
         if coords is None:
             coords = paths.coords(index=index)
 
+        coords = model.prj.x(coords)
+
         new_coords = None
         new_properties = []
         results = {}
@@ -187,6 +189,68 @@ class Model:
 
     def get_state_info(self):
         return ""
+
+    def get_finite_gradients(self, coords=None, paths=None, eps=1e-2,
+                             **kwargs):
+        if coords is None:
+            coords = paths.coords
+
+        shap, shape = coords.shap, coords.shape
+        properties = ['potential']
+        coords = self.prj.x(coords)
+        D, N = coords.D, coords.N
+        gradients = np.zeros((D, N))
+        self.calculate(coords=coords, properties=properties, **kwargs)
+        E0 = self.results['potential'].copy()
+        for d in range(D):
+            dx = np.zeros(shape)
+            dx[(*np.unravel_index(d, shap),)] = eps
+            dcoords = coords.similar(coords=coords.coords + dx)
+            self.calculate(coords=dcoords, properties=properties, **kwargs)
+            E1 = self.results['potential'].copy()
+            gradients[d] = (E1 - E0) / eps
+        return gradients
+
+    def get_finite_hessian(self, coords=None, paths=None, eps=1e-2, **kwargs):
+        if coords is None:
+            coords = paths.coords
+        coords = self.prj.x(coords)
+        # shap, shape = coords.shap, coords.shape.T
+
+        D, N = coords.D, coords.N
+        shape = (N, D)
+        shap = (D)
+
+        def g(x):
+            coords.coords = x.T
+            self.get_properties(coords=coords, properties=['gradients'])
+            return self.results['gradients'].T
+
+        x = coords.coords.T.copy()
+        dx = np.zeros(shape)
+        G = np.zeros((*shape, 2*D))
+
+        for d in range(D):
+            idx = (slice(None), *np.unravel_index(d, shap))
+            dx[idx] = eps
+
+            G[..., d] = g(x + dx)        # NxAx3
+            G[..., -(d+1)] = g(x - dx)    # NxAx3
+            dx[idx] = 0.
+
+        hessian = np.zeros((N, D, D))
+        for d1 in range(D):
+            i = (slice(None), *np.unravel_index(d1, shap))
+            for d2 in range(D):
+                j = (slice(None), *np.unravel_index(d2, shap))
+
+                ij = (*i, d2)
+                i_j = (*i, -(d2+1))
+                ji = (*j, d1)
+                j_i = (*j, -(d1+1))
+                hessian[:, d1, d2] = G[ij] - G[i_j] + G[ji] - G[j_i]
+
+        return hessian / (4 * eps)
 
     def save(self, paths, *args, real_model=None, coords=None, index=np.s_[:],
              **kwargs):

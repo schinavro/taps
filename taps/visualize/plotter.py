@@ -327,15 +327,15 @@ class Plotter:
         # im = ax.pcolormesh(X, Y, self.display_map(ave_map), cmap=self.cma2,
         #                    vmin=-150, vmax=100)
         # fig.colorbar(im, cax=cax)
-        cbar = fig.colorbar(CS)
-        ticklabs = cbar.ax.get_yticklabels()
-        cbar.ax.set_yticklabels(ticklabs, fontsize=self.ftszGMuClrbr)
+        # cbar = fig.colorbar(CS)
+        # ticklabs = cbar.ax.get_yticklabels()
+        # cbar.ax.set_yticklabels(ticklabs, fontsize=self.ftszGMuClrbr)
         # cbar.ax.tick_params(labelsize=self.ftszGMuClrbr)
 
         #  forces = paths.model.get_forces(paths, index=np.s_[:])
         self.plot_trajectory(paths, plt, ax,
                              xlim=self.xlimGMu, ylim=self.ylimGMu)
-        self.plot_data(paths, plt, ax)
+        # self.plot_data(paths, plt, ax)
         # self.plot_information(paths, plt, ax, information='finder')
         # self.plot_info_map(paths, plt, ax, information='maximum_energy')
 
@@ -366,7 +366,7 @@ class Plotter:
         # fig.colorbar(im, cax=cax)
         cbar2 = fig.colorbar(im)
         ticklabs2 = cbar2.ax.get_yticklabels()
-        cbar2.ax.set_yticklabels(ticklabs2, fontsize=self.ftszGCovClrbr)
+        # cbar2.ax.set_yticklabels(ticklabs2, fontsize=self.ftszGCovClrbr)
         # cbar2.ax.tick_params(labelsize=self.ftszGCovClrbr)
         self.plot_trajectory(paths, plt, ax,
                              xlim=self.xlimGCov, ylim=self.ylimGCov)

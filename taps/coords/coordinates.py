@@ -8,29 +8,12 @@ class Coordinate:
 
     """
     def __init__(self, coords=None, epoch=3, unit='ang/fs'):
-        coords = np.asarray(coords, dtype=float)
         self.coords = coords
         self.epoch = epoch  # Total transition time
         self.unit = unit
 
-    def __call__(self, index=np.s_[:], coords=None):
-        if coords is not None:
-            kwargs = self.__dict__.copy()
-            del kwargs['coords']
-            return self.__class__(coords=coords, **kwargs)
-        if index.__class__.__name__ == 'slice' and index == np.s_[:]:
-            return self
-        kwargs = self.__dict__.copy()
-        del kwargs['coords']
-        idx = np.arange(self.N)[index].reshape(-1)
-        coords = self.coords[..., idx]
-        return self.__class__(coords=coords, **kwargs)
-
     def __len__(self):
         return self.coords.shape[-1]
-
-    def __getitem__(self, idx):
-        return self.coords[..., idx]
 
     @property
     def shape(self):
@@ -96,7 +79,7 @@ class Coordinate:
         fluc[..., :cutoff_f] = fluctuation * (0.5 - rand(*size[:-1], cutoff_f))
         self.coords[..., 1:-1] += idst(fluc, **fourier) / NN
 
-    def get_kinetics(self, paths, properties=['kinetic_energies'],
+    def get_kinetics(self, properties=['kinetic_energies'],
                      return_dict=False, **kwargs):
         """
         Dumb way of calculate.. but why not.
@@ -122,7 +105,7 @@ class Coordinate:
         parsed_properties = list(irreplaceable)
         parsed_results = {}
         for prop in parsed_properties:
-            parsed_results[prop] = getattr(self, prop)(paths, **kwargs)
+            parsed_results[prop] = getattr(self, prop)(**kwargs)
 
         # Name convention
         m, d, v, a = 'masses', 'displacements', 'velocities', 'accelerations'
@@ -157,36 +140,35 @@ class Coordinate:
             return results[properties[0]]
         return results
 
-    def get_epoch(self, paths, **kwargs):
-        return self.get_kinetics(paths, properties='masses', **kwargs)
+    def get_epoch(self, **kwargs):
+        return self.get_kinetics(properties='masses', **kwargs)
 
-    def get_masses(self, paths, **kwargs):
-        return self.get_kinetics(paths, properties='masses', **kwargs)
+    def get_masses(self, **kwargs):
+        return self.get_kinetics(properties='masses', **kwargs)
 
-    def get_distances(self, paths, **kwargs):
-        return self.get_kinetics(paths, properties='distances', **kwargs)
+    def get_distances(self, **kwargs):
+        return self.get_kinetics(properties='distances', **kwargs)
 
-    def get_speeds(self, paths, **kwargs):
-        return self.get_kinetics(paths, properties='speeds', **kwargs)
+    def get_speeds(self, **kwargs):
+        return self.get_kinetics(properties='speeds', **kwargs)
 
-    def get_displacements(self, paths, **kwargs):
-        return self.get_kinetics(paths, properties='displacements', **kwargs)
+    def get_displacements(self, **kwargs):
+        return self.get_kinetics(properties='displacements', **kwargs)
 
-    def get_velocities(self, paths, **kwargs):
-        return self.get_kinetics(paths, properties='velocities', **kwargs)
+    def get_velocities(self, **kwargs):
+        return self.get_kinetics(properties='velocities', **kwargs)
 
-    def get_accelerations(self, paths, **kwargs):
-        return self.get_kinetics(paths, properties='accelerations', **kwargs)
+    def get_accelerations(self, **kwargs):
+        return self.get_kinetics(properties='accelerations', **kwargs)
 
-    def get_momentums(self, paths, **kwargs):
-        return self.get_kinetics(paths, properties='momentums', **kwargs)
+    def get_momentums(self, **kwargs):
+        return self.get_kinetics(properties='momentums', **kwargs)
 
-    def get_kinetic_energies(self, paths, **kwargs):
-        return self.get_kinetics(paths, properties='kinetic_energies',
-                                 **kwargs)
+    def get_kinetic_energies(self, **kwargs):
+        return self.get_kinetics(properties='kinetic_energies', **kwargs)
 
-    def get_kinetic_energy_gradients(self, paths, **kwargs):
-        return self.get_kinetics(paths, properties='kinetic_energy_gradients',
+    def get_kinetic_energy_gradients(self, **kwargs):
+        return self.get_kinetics(properties='kinetic_energy_gradients',
                                  **kwargs)
 
     @property

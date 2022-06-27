@@ -7,13 +7,163 @@ from taps.models.models import Model
 
 from ase.atoms import Atoms
 from ase.data import atomic_masses
+import hashlib
+import binascii
+from pathlib import Path
+from multiprocessing import Pool
+
+
 # from ase.calculators.calculator import get_calculator_class
 # from ase.symbols import Symbols
 
 
+def get_directory(directory, coord):
+    unique_hash = generate_unique_hash(coord)
+    return directory + '/' + unique_hash
+
+
+def generate_unique_hash(positions):
+    """return string that explains current calculation
+    """
+    dk = hashlib.pbkdf2_hmac('sha512', b"Heyy!C@reful!ThisisMyP@ssword!",
+                             positions.tobytes(), 1234)
+    return str(binascii.hexlify(dk))[2:-1]
+
+
+class Calculator:
+    def __init__(self, image, properties, directory=None):
+        self.image = image
+        self.properties = properties
+        self.directory = directory
+
+    def __call__(self, positions):
+        image = self.image
+        results = {}
+        image.positions = positions
+        if self.directory is not None:
+            directory = get_directory(self.directory, positions)
+            image.calc.directory = directory
+
+        for property in ['potential', 'gradients',
+                         'initial_positions', 'positions',
+                         'forces', 'hessian']:
+
+            if property not in self.properties:
+                continue
+            if property == 'potential':
+                results[property] = image.get_potential_energy()
+            if property in ['gradients', 'forces']:
+                forces = image.get_forces()
+                results['forces'] = forces
+                results['gradients'] = -forces
+            if property == 'initial_positions':
+                results[property] = image.positions
+            if property == 'hessian':
+                results[property] = image.get_hessian()
+
+        if 'positions' in self.properties:
+            results[property] = image.positions
+
+        return results
+
+
+class ASE2(Model):
+    """
+
+    """
+    implemented_properties = ['stresses', 'potential', 'hessian',
+                              'gradients', 'positions', 'forces']
+
+    def __init__(self, image=None, directory=None, parallel=False,
+                 **kwargs):
+        super().__init__(**kwargs)
+        self.image = image
+        self.directory = directory
+        self.parallel = parallel
+
+    def calculate(self, coords, properties=['potential'], **kwargs):
+        if not isinstance(coords, np.ndarray):
+            coords = coords.coords
+        if len(coords.shape) == 2:
+            coords = coords[np.newaxis, ...]
+
+        results_raw = []
+        script = Calculator(self.image, properties, directory=self.directory)
+
+        if self.parallel:
+            with Pool(16) as pool:
+                results_raw = pool.map(script, coords)
+        else:
+            for positions in coords:
+                results_raw.append(script(positions))
+
+        self.results = self.packaging(results_raw)
+
+    def packaging(self, raw):
+        """
+        Convert list of dictionaries to dictionary of arrays
+        """
+        N = len(raw)
+        if N == 0:
+            return {}
+
+        results = {}
+        for key, value in raw[0].items():
+            if key == 'potentials':
+                results[key] = np.zeros((N, *value.shape))
+            elif key == 'potential':
+                results[key] = np.zeros(N)
+            elif key == 'forces' or key == 'gradients':
+                results[key] = np.zeros((N, *value.shape))
+            elif key == 'positions' or key == 'initial_positions':
+                results[key] = np.zeros((N, *value.shape))
+            elif key == 'hessian':
+                results[key] = np.zeros((N, *value.shape))
+            else:
+                results[key] = np.zeros((N, *value.shape))
+
+        for i in range(N):
+            for key, value in raw[i].items():
+                results[key][i] = value
+
+        return results
+
+    def get_masses(self, paths, coords=None, image=None, **kwargs):
+        image = image or self.image
+        return atomic_masses[image.symbols.numbers, np.newaxis]
+
+    def get_effective_mass(self, paths, coords=None, image=None, **kwargs):
+        image = image or self.image
+        m = atomic_masses[image.symbols.numbers]
+        return np.repeat(m, 3)[np.newaxis]
+
+    @classmethod
+    def Coord2image(cls, coord, label, **kwargs):
+        image = Atoms(positions=coord, **kwargs)
+        image.calc.label = label
+        return copy.deepcopy(image)
+
+    def write(self, paths, coords, filename=None, **kwargs):
+        """
+        Use trajectory to write..
+        """
+        from ase.io.trajectory import TrajectoryWriter
+        if not (".traj" in filename or ".trj" in filename):
+            filename = filename + ".traj"
+        if not isinstance(coords, np.ndarray):
+            coords = coords.coords
+        trj = TrajectoryWriter(filename, mode="a")
+        N = coords.shape[-1]
+        image = self.image.copy()
+        for n in range(N):
+            positions = coords[:, :, n]
+            image.positions = positions
+            trj.write(image)
+
+
 class ASE(Model):
     """
-    
+
     """
     implemented_properties = ['stresses', 'potential', 'hessian',
                               'gradients', 'positions', 'forces']
@@ -41,7 +191,7 @@ class ASE(Model):
 
         super().__init__(**kwargs)
 
-    def calculate(self, paths, coords, properties=['potential'], **kwargs):
+    def calculate(self, coords, properties=['potential'], **kwargs):
         results_raw = {}
         if not isinstance(coords, np.ndarray):
             coords = coords.coords
@@ -131,7 +281,7 @@ class ASE(Model):
         return copy.deepcopy(image)
 
     def positions2image(self, positions=None, image=None, set_label=None,
-                    set_directory=None):
+                        set_directory=None):
         image = image or self.image
         set_label = set_label or self.set_label
         set_directory = set_directory or self.set_directory

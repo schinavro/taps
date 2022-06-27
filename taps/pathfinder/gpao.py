@@ -75,7 +75,7 @@ class AutoEt(GPAOPhase):
     def acquisition(self, paths, printt, *args, **kwargs):
         Et = self.get_next_et(paths)
         paths.finder.real_finder.action_kwargs['Energy Restraint']['Et'] = Et
-        paths.model.mean.hyperparameters = self.get_next_mean(paths)
+        paths.model.mean.set_hyperparameters(self.get_next_mean(paths))
         return super().acquisition(paths, printt, *args, **kwargs)
 
     def get_next_et(self, paths, **kwargs):
@@ -100,11 +100,14 @@ class AutoEt(GPAOPhase):
 
 class GPAO(PathFinder):
     """
+    from taps.pathfinder import GPAO
+    GPAO()
     """
 
     def __init__(self, real_finder=None, iteration=0,
                  maxtrial=10, logfile=None, plot_kwargs=None,
-                 phase_kwargs=None, pathsdatabase=None, **kwargs):
+                 phase_kwargs=None, pathsdatabase=None, regression_kwargs=None,
+                 **kwargs):
         super().__init__(**kwargs)
         self.real_finder = real_finder
         self.iteration = iteration
@@ -113,6 +116,7 @@ class GPAO(PathFinder):
         self.plot_kwargs = plot_kwargs or {}
         self.phase_kwargs = phase_kwargs or {}
         self.pathsdatabase = pathsdatabase or PathsDatabase()
+        self.regression_kwargs = regression_kwargs or {}
         # self.pathsdatabase = pathsdatabase
 
     def optimize(self, paths, label=None, real_finder=None, restart=None,
@@ -177,6 +181,7 @@ class GPAO(PathFinder):
                     printt("Converged! ")
                     break
                 new_ids = phase.acquisition(paths, printt)
+                self.regression(paths)
                 str_ids = [str(id) for id in new_ids]
                 printt("Iteration    : %d" % self.iteration)
                 printt("imgdb idx  : %s" % ', '.join(str_ids))
@@ -191,6 +196,19 @@ class GPAO(PathFinder):
         if close_log:
             logfile.close()
         return paths
+
+    def regression(self, paths):
+        from scipy.optimize import minimize  # , Bounds
+        from taps.models.gaussian import Likelihood
+        model, database = paths.model, paths.imgdb
+        loss_fn = Likelihood(kernel=model.kernel, mean=model.mean,
+                             database=database, kernel_prj=model.prj)
+        x0 = model.kernel.get_hyperparameters()
+        # sigma_f, l^2, sigma_n^e, sigma_n^f
+        # bounds = Bounds([1e-2, 1e-2, 1e-5, 1e-6], [5e1, 1e2, 1e-2, 1e-3])
+        # sbounds=bounds, method='L-BFGS-B'
+        res = minimize(loss_fn, x0, **self.regression_kwargs)
+        model.set_lambda(database, Θk=res.x)
 
     def save(self, paths, pathsdatabase=None, plot_kwargs=None, iteration='',
              label=None):

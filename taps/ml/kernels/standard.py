@@ -4,6 +4,7 @@ from numpy import identity as II
 from numpy import newaxis as nax
 from numpy import vstack
 from taps.ml.kernels import Kernel
+from taps.coords import Coordinate
 
 
 class SquaredExponential(Kernel):
@@ -60,6 +61,11 @@ class SquaredExponential(Kernel):
              DN x DDM array
         """
 
+        if isinstance(Xm, Coordinate):
+            Xm = Xm.coords
+        if isinstance(Xn, Coordinate):
+            Xn = Xn.coords
+
         if hyperparameters is None:
             hyperparameters = self.hyperparameters
         ll = hyperparameters.get('l^2')
@@ -74,7 +80,6 @@ class SquaredExponential(Kernel):
         X = Xn.reshape(D, N)
         Y = Xm.reshape(D, M)
 
-
         Xnm = X[:, :, nax] - Y[:, nax, :]            # D x N x M
         dists = (Xnm ** 2).sum(axis=0)               # N x M
         K = sig_f * np.exp(-.5 * dists / ll)         # N x M
@@ -87,8 +92,9 @@ class SquaredExponential(Kernel):
         dc_gd = -Xnm / ll
         # DxNxM x NxM -> DxNxM -> DNxM
         Kgd = np.vstack(dc_gd * K[nax, ...])
+        Kp = vstack([K, Kgd])
         if potential_only:
-            return vstack([K, Kgd])                  # (D+1)xN x M
+            return Kp                       # (D+1)xN x M
         # DxNxM * 1xNxM -> NxDM
         Kdg = np.hstack(-dc_gd * K[nax, ...])
         # DxNxM -> NxDxM
@@ -102,21 +108,24 @@ class SquaredExponential(Kernel):
         Kdd = (dc_dd_glob + dc_dd_diag) * K[nax, :, nax, :]
         # DN x DM
         Kdd = Kdd.reshape(D * N, D * M)
+        dK = vstack([Kdg, Kdd])
         if gradient_only:
             # (D+1)N x DM
-            return vstack([Kdg, Kdd])
+            return Kp, dK
         if hessian_only:
             # Delta _ dd
             dnm = np.arange(D)
             # DxNxM * DxNxM -> NxDxDxM
             # dc_hg_glob = np.einsum('inm, jnm -> nijm', -dc_gd, -dc_gd)
             dc_hg_glob = np.empty((D, D, N, M))
-            DC1 = dc_gd[nax, :, :, :]
-            DC2 = dc_gd[:, nax, :, :]
-            # DxNxM * DxNxM -> DxDxNxM
+            DC1 = -dc_gd[nax, :, :, :]
+            DC2 = -dc_gd[:, nax, :, :]
+            # 1xDxNxM * D'x1xNxM -> DxD'xNxM
             ne.evaluate("DC1 * DC2", out=dc_hg_glob)
             # DxD'xNxM -> D'xDxNxM -> NxDxD'xM
             dc_hg_glob = np.swapaxes(dc_hg_glob, 0, 1).swapaxes(0, 2)
+            # DxD'xNxM ->  NxD'xDxM
+            # dc_hg_glob = np.swapaxes(dc_hg_glob, 0, 2)
 
             # DxNxM -> NxDxM -> NxDDxM
             dc_hg_diag = np.zeros((N, D, D, M))
@@ -165,7 +174,7 @@ class SquaredExponential(Kernel):
             # DxNxDDxM -> DN x DxDxM
             Khd = Khd.reshape(D * N, D * D * M)
             # print(Khd.shape)
-            return np.vstack([Khg, Khd])  # (D+1)N x DDM
+            return Kp, dK, np.vstack([Khg, Khd])  # (D+1)N x DDM
 
         Kext = np.block([[K, Kdg],
                         [Kgd, Kdd]])  # (D+1)N x (D+1)M

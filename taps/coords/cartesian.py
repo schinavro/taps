@@ -28,6 +28,22 @@ class Cartesian(Coordinate):
         self.mass = mass
         super().__init__(**kwargs)
 
+    def __getitem__(self, idx):
+        return self.coords[..., idx]
+
+    def __call__(self, index=np.s_[:], coords=None):
+        if coords is not None:
+            kwargs = self.__dict__.copy()
+            del kwargs['coords']
+            return self.__class__(coords=coords, **kwargs)
+        if index.__class__.__name__ == 'slice' and index == np.s_[:]:
+            return self
+        kwargs = self.__dict__.copy()
+        del kwargs['coords']
+        idx = np.arange(self.N)[index].reshape(-1)
+        coords = self.coords[..., idx]
+        return self.__class__(coords=coords, **kwargs)
+
     def masses(self, paths, **kwargs):
         if isinstance(self.mass, np.ndarray):
             return self.mass[..., nax]
@@ -61,7 +77,10 @@ class Cartesian(Coordinate):
         dt = self.dt
         if index == np.s_[:]:
             p = np.concatenate([p, p[..., -1, nax]], axis=-1)
-            return (p[..., 1:] - p[..., :-1]) / dt
+            # return (p[..., 1:] - p[..., :-1]) / dt
+            vel = (p[..., 1:] - p[..., :-1]) / dt
+            vel[..., -1] = vel[..., -2]
+            return vel
             # vel = np.diff(p, n=1, prepend=p[..., 0, nax]) / dt
             # return vel
         elif index == np.s_[1:-1]:
@@ -93,7 +112,10 @@ class Cartesian(Coordinate):
         ddt = dt * dt
         if index == np.s_[:]:
             p = concatenate([p[..., 0, nax], p, p[..., -1, nax]], axis=-1)
-            return (2 * p[..., 1:-1] - p[..., :-2] - p[..., 2:]) / ddt
+            # return (2 * p[..., 1:-1] - p[..., :-2] - p[..., 2:]) / ddt
+            acc = (2 * p[..., 1:-1] - p[..., :-2] - p[..., 2:]) / ddt
+            acc[..., -1] = acc[..., -2]
+            return acc
         elif index == np.s_[1:-1]:
             return (2 * p[..., 1:-1] - p[..., :-2] - p[..., 2:]) / ddt
         i = np.arange(N)[index]

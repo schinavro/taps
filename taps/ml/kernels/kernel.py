@@ -110,7 +110,10 @@ class Kernel:
         Kdd = Kdd.reshape(D * N, D * M)
         if gradient_only:
             # (D+1)N x DM
-            return np.vstack([Kdg, Kdd])
+            if noise:
+                noise_f = hyperparameters.get('sigma_n^e', 0)
+                return K + noise_f * II(N), np.vstack([Kdg, Kdd])  # N x M
+            return K, np.vstack([Kdg, Kdd])
         if hessian_only:
             # Delta _ dd
             dnm = np.arange(D)
@@ -143,7 +146,8 @@ class Kernel:
             # DxNxDDxM -> DN x DxDxM
             Khd = Khd.reshape(D * N, D * D * M)
             # print(Khd.shape)
-            return np.vstack([Khg, Khd])  # (D+1)N x DDM
+            noise_f = hyperparameters.get('sigma_n^e', 0)
+            return K + noise_f * II(N), np.vstack([Kdg, Kdd]), np.vstack([Khg, Khd])  # (D+1)N x DDM
 
         Kext = np.block([[K, Kdg],
                         [Kgd, Kdd]])  # (D+1)N x (D+1)M

@@ -139,11 +139,18 @@ class Projector:
                 hess, coords = getattr(self.pipeline, name)(hess, coords)
             return prj(self, hess, coords)
 
-        def h_inv(self, hess, coords):
+        def h_inv(self, hessian, coords):
+            if self.domain is not None:
+                domain = self.domain.similar()
+            else:
+                domain = coords.similar()
             if self.pipeline is not None:
-                hess, coords = prj(self, hess, coords)
-                return getattr(self.pipeline, name)(hess, coords)
-            return prj(self, hess, coords)
+                forces, coords = prj(self, hessian, coords.coords)
+                domain.coords = coords
+                return getattr(self.pipeline, name)(forces, domain)
+            hessian, coords = prj(self, hessian, coords.coords)
+            domain.coords = coords
+            return hessian, domain
 
         def m(self, masses, coords):
             if self.pipeline is not None:
@@ -463,6 +470,269 @@ class Sine(Projector):
         line = np.linspace(0, 1, N)[nax] * dir[..., nax] + init[..., nax]
         self._line = line[..., 1:-1]
         return self._line
+
+
+class Sine2(Projector):
+    """
+    Tools for dimensional reducement.
+
+    Sine Projector
+    --------------
+    init : array; D or A x 3
+    fin  : array; D or A x 3
+    """
+    def __init__(self, N=None, Nk=None, init=None, fin=None, **kwargs):
+        self.N = N
+        self.Nk = Nk
+        self.init = init
+        self.fin = fin
+        super().__init__(**kwargs)
+
+    @property
+    def shap(self):
+        return self.init.shape
+
+    @property
+    def rank(self):
+        return len(self.init.shape)
+
+    @Projector.pipeline
+    def x(self, coords):
+        # return dst((coords - line), type=1, norm='ortho').flatten()
+        return dst((coords[1:-1] - self.line()),
+                   type=1, norm='ortho', axis=0)[:self.Nk]
+
+    @Projector.pipeline
+    def x_inv(self, rcoords):
+        # line = self.line()
+        # rcoords = rcoords.reshape(*self.shape, self.Nk)
+        # return idst(rcoords, type=1, norm='ortho') + line
+        _ = np.zeros((self.N-2, *self.shap))
+        _[:self.Nk] = rcoords.reshape(self.Nk, *self.shap)
+        _coords = idst(_, type=1, norm='ortho', axis=0) + self.line()
+        coords = np.concatenate([self.init[nax], _coords,
+                                 self.fin[nax]], axis=0)
+        return coords
+
+    @Projector.pipeline
+    def _x(self, coords):
+        # return dst((coords - line), type=1, norm='ortho').flatten()
+        return dst((coords[1:-1] - self.line()),
+                   type=1, norm='ortho', axis=0)[:self.Nk]
+
+    @Projector.pipeline
+    def _x_inv(self, rcoords):
+        line = self.line()
+        # rcoords = rcoords.reshape(*self.shape, self.Nk)
+        # return idst(rcoords, type=1, norm='ortho') + line
+        _ = np.zeros((self.N, *self.shap))
+        _[:self.Nk] = rcoords.reshape(self.Nk, *self.shap)
+        _coords = idst(_, type=1, norm='ortho', axis=0) + line
+        coords = np.concatenate([self.init[nax], _coords, self.fin[nax]],
+                                axis=0)
+        return coords
+
+    @Projector.pipeline
+    def f(self, forces, coords):
+        """
+        forces
+        ------
+           shape NkxD -> N-2xD
+
+        coords
+        ------
+           shape NkxD -> (N-2)xD
+        """
+        coords = dst((coords[1:-1] - self.line()),
+                     type=1, norm='ortho')[:self.Nk]
+        return dst(forces[1:-1],
+                   type=1, norm='ortho')[:self.Nk], coords
+
+    @Projector.pipeline
+    def f_inv(self, rforces, rcoords):
+        line = self.line()
+        # rcoords = rcoords.reshape(*self.shape, self.Nk)
+        # rforces = rforces.reshape(*self.shape, self.Nk)
+        _ = np.zeros((self.N - 2, *self.shap))
+        __ = np.zeros((self.N - 2, *self.shap))
+        _[..., :self.Nk] = rcoords.reshape(self.Nk, *self.shap)
+        __[..., :self.Nk] = rforces.reshape(self.Nk, *self.shap)
+        _coords = idst(_, type=1, norm='ortho', axis=0) + line
+        _forces = idst(__, type=1, norm='ortho', axis=0)
+        coords = np.concatenate([self.init[nax],
+                                _coords, self.fin[nax]], axis=0)
+        pad = np.zeros((1, *self.shap))
+        forces = np.concatenate([pad, _forces, pad], axis=0)
+        return forces, coords
+
+    @Projector.pipeline
+    def v(self, velocity, *args):
+        return dst(velocity, type=1, norm='ortho', axis=0)[:self.Nk], args
+
+    @Projector.pipeline
+    def v_inv(self, velocity, *args):
+        new_velocity = np.zeros((self.N-2, *self.shap))
+        new_velocity[:self.Nk] = velocity
+        return idst(new_velocity, type=1, norm='ortho', axis=0), args
+
+    @Projector.pipeline
+    def a(self, accel, *args):
+        return dst(accel, type=1, norm='ortho', axis=0)[:self.Nk], args
+
+    @Projector.pipeline
+    def a_inv(self, accel, *args):
+        new_accel = np.zeros((self.N-2, *self.shap))
+        new_accel[:self.Nk] = accel
+        return idst(new_accel, type=1, norm='ortho', axis=0), args
+
+    def line(self):
+        if self.__dict__.get('_line') is not None:
+            return self._line
+        init, fin, N = self.init, self.fin, self.N
+        dir = fin - init
+        if len(self.shap) == 2:
+            line = np.linspace(0, 1, N)[..., nax, nax] * dir[nax] + init[nax]
+        elif len(self.shap) == 1:
+            line = np.linspace(0, 1, N)[..., nax] * dir[nax] + init[nax]
+
+        self._line = line[1:-1]
+        return self._line
+
+
+class Mask2(Projector):
+    """
+    Mask projector for ignore some coordinates during optimization or
+    model calculation
+
+    Parameters
+    ----------
+
+    mask: boolean array
+        If it should be considered use true else False
+    idx: Int
+        the number of unmasked coordinate
+    orig_coord: array
+        For inverse operation, it will be filled up.
+    orig_mass: array
+        For inverse operation, it will be filled up.
+    """
+    def __init__(self, mask=None, orig_coord=None, orig_mass=None, **kwargs):
+        self.mask = mask
+        self.idx = np.arange(len(mask))[self.mask].reshape(-1)
+        self.orig_coord = orig_coord
+        self.orig_mass = orig_mass
+
+        super().__init__(**kwargs)
+
+    def ones(self, N):
+        if len(self.orig_coord.shape) == 1:
+            return np.ones(N)[:, nax]
+        if len(self.orig_coord.shape) == 2:
+            return np.ones(N)[:, nax, nax]
+
+    @property
+    def shap(self):
+        return self.orig_coord.shape
+
+    @Projector.pipeline
+    def x(self, coords):
+        return coords[:, self.mask]
+
+    @Projector.pipeline
+    def _x(self, coords):
+        return coords[:, self.mask]
+
+    @Projector.pipeline
+    def x_inv(self, coords):
+        N = len(coords)
+        orig_coords = self.orig_coord[np.newaxis] * self.ones(N)
+        orig_coords[:, self.mask] = coords
+        return orig_coords
+
+    @Projector.pipeline
+    def _x_inv(self, coords):
+        N = len(coords)
+        orig_coords = self.orig_coord[np.newaxis] * self.ones(N)
+        orig_coords[:, self.mask] = coords
+        return orig_coords
+
+    @Projector.pipeline
+    def f(self, forces, coords):
+        return forces[:, self.mask], coords[:, self.mask]
+
+    @Projector.pipeline
+    def f_inv(self, forces, coords):
+        N = len(coords)
+        orig_forces = np.zeros((N, *self.shap))
+        orig_forces[:, self.mask] = forces
+        orig_coords = (self.orig_coord[np.newaxis] * self.ones(N))
+        if isinstance(coords, np.ndarray):
+            orig_coords[:, self.mask] = coords
+        else:
+            orig_coords[:, self.mask] = coords.detach().numpy()
+        return orig_forces, orig_coords
+
+    @Projector.pipeline
+    def v(self, velocity, *args):
+        return velocity[:, self.mask], args
+
+    @Projector.pipeline
+    def v_inv(self, velocity, *args):
+        N = len(velocity)
+        orig_velocity = np.zeros((N, *self.orig_coord.shape))
+        orig_velocity[:, self.mask] = velocity
+        return orig_velocity, args
+
+    @Projector.pipeline
+    def a(self, accel, *args):
+        return accel[:, self.mask], args
+
+    @Projector.pipeline
+    def a_inv(self, accel, *args):
+        N = len(accel)
+        orig_accel = np.zeros((N, *self.orig_coord.shape))
+        orig_accel[:, self.mask] = accel
+        return orig_accel, args
+
+    @Projector.pipeline
+    def h(self, hessian, coords):
+        hmask = self.get_hmask()
+        return hessian[:, hmask][..., hmask], coords[:, self.mask]
+
+    @Projector.pipeline
+    def h_inv(self, hessian, coords):
+        N = len(coords)
+        shap = self.shap
+        D = np.prod(shap)
+        hmask = self.get_hmask()
+        orig_hessian = np.zeros((N, D, D))
+        for i, ii in enumerate(np.arange(len(hmask))[hmask]):
+            orig_hessian[:, ii, hmask] = hessian[:, i]
+        orig_coords = (self.orig_coord[np.newaxis] * self.ones(N))
+        if isinstance(coords, np.ndarray):
+            orig_coords[:, self.mask] = coords
+        else:
+            orig_coords[:, self.mask] = coords.detach().numpy()
+        return orig_hessian, orig_coords
+
+    @Projector.pipeline
+    def m(self, masses, coords):
+        return masses[:, self.mask], coords[:, self.mask]
+
+    @Projector.pipeline
+    def m_inv(self, masses, coords):
+        N = coords.shape[-1]
+        orig_masses = np.zeros((*self.orig_coord.shape, N))
+        orig_masses[:, self.mask] = masses
+        orig_coords = (self.orig_coord[np.newaxis] * self.ones(N))
+        orig_coords[:, self.mask] = coords
+        return orig_masses, orig_coords
+
+    def get_hmask(self, mask=None):
+        shape = self.orig_coord.shape
+        if len(shape) == 1:
+            return self.mask
+        return (np.array([self.mask] * shape[-1])).flatten()
 
 
 class MalonaldehydeProjector(Projector):

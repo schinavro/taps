@@ -7,12 +7,15 @@ from taps.projectors import Projector
 from taps.coords import Cartesian
 
 
-def serialize(database, prj):
+def serialize(database, prj, ids=None):
     """
     Database serialization function
     """
     entries = dict(coord='blob', potential='blob', gradients='blob')
-    data_list = database.read_all(entries=entries)
+    if ids is None:
+        data_list = database.read_all(entries=entries)
+    else:
+        data_list = database.read(ids=ids, entries=entries)
     M = len(data_list)
     coords_shape = data_list[0]['coord'].shape
     gradients_shape = data_list[0]['gradients'].shape[:-1]
@@ -40,7 +43,7 @@ def serialize(database, prj):
 
 def reshape_data(mean, data):
     m = mean
-    dm = m.get_gradients(coords=data['coords']).flatten()
+    dm = m.get_gradients(coords=data['kernel_coords']).flatten()
     potential = data['kernel_potential'] - m(data['coords'])
     gradients = data['kernel_gradients'].flatten() - dm
 
@@ -83,17 +86,19 @@ class Gaussian(Model):
 
         super().__init__(**kwargs)
 
-    def set_lambda(self, imgdb, Θk=None, Θm=None):
+    def set_lambda(self, imgdb, ids=None, Θk=None, Θm=None):
         if Θk is not None:
             self.kernel.set_hyperparameters(Θk)
         if Θm is not None:
             self.mean.set_hyperparameters(Θm)
 
-        self.data = serialize(imgdb, self.prj)
-        self.Xm, self.Y_m = reshape_data(self.mean, self.data)
+        data = serialize(imgdb, self.prj, ids=ids)
+        Xm, Y_m = reshape_data(self.mean, data)
+        self._cache['Xm'], self._cache['Y_m'] = Xm, Y_m
         k = self.kernel
-        self.K_y_inv = inv(k(self.Xm, self.Xm, noise=True))
-        self.Λ = self.K_y_inv @ self.Y_m
+        K_y_inv = inv(k(Xm, Xm, noise=True))
+        self._cache['K_y_inv'] = K_y_inv
+        self._cache['Λ'] = K_y_inv @ Y_m
 
     def calculate(self, coords, imgdb=None, properties=None, **kwargs):
         """
@@ -114,41 +119,49 @@ class Gaussian(Model):
         orig_shape = coords.shape[:-1]
         D, N = np.prod(coords.D), coords.N
 
-        Xm, Λ = self.Xm, self.Λ
-        Xn = coords.reshape(D, N)
-        # dY = data['kernel_gradients'].flatten()
-
         def m(x): return self.mean.get_potential(coords=x, **kwargs)
         def dm(x): return self.mean.get_gradients(coords=x, **kwargs).flatten()
         def ddm(x): return self.mean.get_hessian(coords=x, **kwargs).flatten()
-
         k = self.kernel
+
+        Xn = coords.reshape(D, N)
+        if self._cache.get('Λ') is not None:
+            Xm, Λ = self._cache['Xm'], self._cache['Λ']
+            if 'hessian' in properties:
+                K_s, dK_s, ddK_s = k(Xm, Xn, hessian_only=True)  # (D+1)M x DDN
+            elif 'gradients' in properties:
+                K_s, dK_s = k(Xm, Xn, gradient_only=True)     # (D+1)M x DN
+            else:
+                K_s = k(Xm, Xn, potential_only=True)             # (D+1)M x N
+        else:
+            Λ = np.array([0.])
+            K_s, dK_s, ddK_s = Λ, Λ, Λ
+
         if 'potential' in properties:
-            K_s = k(Xm, Xn, potential_only=True)          # (D+1)M x N
             potential = m(Xn) + K_s.T @ Λ                 # N
             self.results['potential'] = potential
         if 'gradients' in properties:
-            dK_s = k(Xm, Xn, gradient_only=True)          # (D+1)M x DN
             mu_f = dm(Xn) + dK_s.T @ Λ                    # DN
             self.results['gradients'] = mu_f.reshape(*orig_shape, N)
         if 'hessian' in properties:
-            ddK_s = k(Xm, Xn, hessian_only=True)          # (D+1)M x DDN
-            H = ddm(Xn) + ddK_s.T @ Λ                     # DDN
-            self.results['hessian'] = H.reshape(D, D, N)
-
+            # H = ddm(Xn) + ddK_s.T @ Λ                     # DDN
+            # self.results['hessian'] = H.reshape(D, D, N)
+            hessian = self.get_finite_hessian(coords=coords).T
+            self.results['hessian'] = hessian
         if 'covariance' in properties:
-            K_y_inv = self.K_y_inv
+            K_y_inv = self._cache['K_y_inv']
             K = k(Xn, Xn, orig=True)
             K_s = k(Xm, Xn)
             K_s_T = k(Xn, Xm)
             self.results['covariance'] = K - (K_s_T @ K_y_inv @ K_s)[:N, :N]
+            # self.results['covariance'] = np.zeros((N, N))
 
-    def get_covariance(self, **kwargs):
+    def get_covariance(self, sigma=3., **kwargs):
         cov_coords = self.get_properties(properties='covariance', **kwargs)
         _ = np.diag(cov_coords)
         cov_coords = _.copy()
         cov_coords[_ < 0] = 0
-        return 1.96 * np.sqrt(cov_coords) / 2
+        return sigma * np.sqrt(cov_coords)
 
     def get_hyperparameters(self, hyperparameters_list=None):
         return self.kernel.get_hyperparameters(hyperparameters_list)
@@ -163,10 +176,11 @@ class Gaussian(Model):
 class Likelihood:
     """
     """
-    def __init__(self, kernel=None, mean=None, database=None, kernel_prj=None):
+    def __init__(self, kernel=None, mean=None, database=None, kernel_prj=None,
+                 ids=None):
         self.k, self.m = kernel, mean
         kernel_prj = kernel_prj or Projector()
-        data = serialize(database, kernel_prj)
+        data = serialize(database, kernel_prj, ids=ids)
         self.X, self.Y_m = reshape_data(mean, data)
         self.Y_m_T = self.Y_m.T
 

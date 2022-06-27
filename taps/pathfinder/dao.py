@@ -1,6 +1,7 @@
 import os
 from taps.pathfinder import PathFinder
 import numpy as np
+from numpy import newaxis as nax
 from scipy.optimize import minimize, check_grad
 
 
@@ -73,6 +74,53 @@ class EnergyRestraint:
         # action - reaction
         # dS[..., 0] -= -(H[0] - self.Et) * (p[..., 0] / self.dt + F[..., 0])
         dS[..., [0, -1]] = 0.
+        dS = 2 * self.muE * dS
+        return dS.reshape(self.shape)
+
+
+class AtomicEnergyRestraint:
+    required_static_property_S = ['potential']
+    required_static_property_dS = ['potential', 'gradients']
+    required_kinetic_property_S = ['kinetic_energies', 'masses']
+    required_kinetic_property_dS = ['momentums', 'kinetic_energies']
+
+    def __init__(self, muE=None, Et=None, dt=None, D=None, N=None, shape=None,
+                 **kwargs):
+        self.muE = muE
+        self.Et = Et
+        self.dt = dt
+        self.D = D
+        self.N = N
+        self.shape = shape
+
+    def S(self, kinetic_energies=None, potential=None, **kwargs):
+        # H = paths.get_total_energy(index=np.s_[:])
+        H = kinetic_energies + potential
+        return self.muE * ((H - self.Et) ** 2).sum()
+
+    def dS(self, potential=None, gradients=None, momentums=None,
+           kinetic_energies=None, **kwargs):
+        N, D = self.N, self.D
+        # F = -paths.get_gradients(index=np.s_[:])
+        F = -gradients.reshape(N, D)
+        # p = paths.get_momentums(index=np.s_[:])
+        p = momentums.reshape(N, D)
+
+        # K = paths.get_kinetic_energies(index=np.s_[:])
+        K = kinetic_energies
+
+        # V = paths.get_potential_energy(index=np.s_[:])
+        V = potential
+
+        H = K + V
+        dS = np.zeros((self.N, self.D))
+        # D x (N - 2)
+        dS[1:-1] = ((H[:-2, nax] - self.Et) * p[:-2] / self.dt
+                    - ((H[1:-1, nax] - self.Et) * (
+                      p[1:-1] / self.dt + F[1:-1])))
+        # action - reaction
+        # dS[..., 0] -= -(H[0] - self.Et) * (p[..., 0] / self.dt + F[..., 0])
+        dS[[0, -1]] = 0.
         dS = 2 * self.muE * dS
         return dS.reshape(self.shape)
 
@@ -165,6 +213,77 @@ class OnsagerMachlup:
         return dS.reshape(self.shape)
 
 
+class AtomicOnsagerMachlup:
+    required_static_property_S = ['gradients']
+    required_static_property_dS = ['gradients', 'hessian']
+    required_kinetic_property_S = ['velocities', 'masses']
+    required_kinetic_property_dS = ['accelerations', 'masses']
+
+    def __init__(self, gam=None, dt=None, D=None, N=None, shape=None,
+                 **kwargs):
+        self.gam = gam
+        self.dt = dt
+        self.D = D
+        self.N = N
+        self.shape = shape
+
+    def S(self, potential=None, gradients=None, velocities=None, masses=None,
+          **kwargs):
+        """
+        2qj 2qj21 2qj11 2D2
+        """
+        N, D = self.N, self.D
+        # Vi, Vf = paths.get_potential_energy(index=[0, -1])
+        # F = -paths.get_gradients(index=np.s_[:]).reshape((D, N))
+        F = -gradients.reshape((N, D))
+        dV = -np.concatenate([F, F[nax, -1]], axis=0)
+        # v = paths.get_velocities(index=np.s_[:]).reshape((D, N))
+        v = velocities.reshape((N, D))
+        # m = paths.get_effective_mass(index=np.s_[:])
+        m = masses
+        if isinstance(m, np.ndarray):
+            m = m.reshape(1, D)
+        _gam = self.gam * m
+        # ldVl2 = (dV * dV).sum(axis=0)
+        ldVl2 = dV * dV
+        # DxMx(P-1) -> P
+        Som = (_gam * (v * v)
+               + (ldVl2[1:] + ldVl2[:-1]) / 2 / _gam
+               - v * (dV[1:] - dV[:-1])).sum() * self.dt / 4
+        # Som += (Vf - Vi) / 2
+        # Som = Som.sum()
+        # Som *= 0.25 * dt
+        return Som
+
+    def dS(self, gradients=None, hessian=None, accelerations=None,
+           masses=None, **kwargs):
+        N, D = self.N, self.D
+        # F = -paths.get_gradients(index=np.s_[:]).reshape((D, N))
+        F = -gradients.reshape(N, D)
+        dV = -np.concatenate([F[nax, 0], F, F[nax, -1]], axis=0)
+        # H = paths.get_hessian(index=np.s_[:]).reshape((D, D, N))
+        H = hessian.reshape(N, D, D)
+        # a = paths.get_accelerations(index=np.s_[:]).reshape((D, N))
+        a = accelerations.reshape(N, D)
+        # m = paths.get_effective_mass(index=np.s_[:])
+        m = masses
+        if isinstance(m, np.ndarray):
+            m = m.reshape(D)
+        _gam = self.gam * m
+
+        notation = '...ij,...i->...j'
+        dS = (0.5 * _gam * a * self.dt) \
+            - 0.25 * (2 * dV[1:-1] - dV[2:] - dV[:-2]) \
+            + np.einsum(notation, H,
+                        0.5 * self.dt * dV[1:-1] / _gam
+                        - 0.25 * self.dt * self.dt * a)
+        # action - reaction
+        # dS[..., 1] -= dS[..., 0]
+        # dS[..., -2] -= dS[..., -1]
+        dS[[0, -1]] = 0.
+        return dS.reshape(self.shape)
+
+
 class DAO(PathFinder):
     """
     Direct action optimizer (DAO)
@@ -181,6 +300,26 @@ class DAO(PathFinder):
     action_kwargs: Dict of dict,
         {'Onsager Machlup': {'gamma': 2},
         'Total Energy restraint': ... }
+
+    Examples
+    --------
+
+    >>> from taps.finder import DAO
+    >>> from taps.projectors import Sine
+    >>> N = 300
+    >>> x = np.linspace(-0.55822365, 0.6234994, N)
+    >>> y = np.linspace(1.44172582, 0.02803776, N)
+    >>> coords = Cartesian(coords=np.array([x, y]))
+    >>> Nk = N - 270
+    >>> prj = Sine(N=N, Nk=Nk,
+    ...            init=coords.coords[..., 0].copy(),
+    ...            fin=coords.coords[..., -1].copy())
+    >>> action_kwargs = {
+    ...   'Onsager Machlup':{'gam': 1.},
+    ...   'Energy Restraint':{'muE': 1., 'Et': -0.45}}
+    >>> search_kwargs = {"method":"L-BFGS-B"}
+    >>> finder = DAO(action_kwargs=action_kwargs, search_kwargs=search_kwargs,
+    ...              prj=prj)
     """
 
     def __init__(self, action_kwargs=None, search_kwargs=None, use_grad=True,
@@ -200,7 +339,7 @@ class DAO(PathFinder):
         coords = coords or paths.coords
         pcoords = prj.x(coords)
 
-        pshap = pcoords.shap
+        pshape = pcoords.shape
         parameters = {
             'dt': coords.dt,
             'N': coords.N,
@@ -223,7 +362,7 @@ class DAO(PathFinder):
         kinetic_properties = list(kinetic_properties)
 
         def calculator(_pcoords):
-            pcoords.coords = _pcoords.reshape(*pshap, -1)
+            pcoords.coords = _pcoords.reshape(*pshape)
             paths.coords = prj.x_inv(pcoords)
 
             results = paths.get_properties(properties=static_properties,
@@ -247,7 +386,7 @@ class DAO(PathFinder):
         prj = prj or self.prj
         pcoords = prj.x(paths.coords)
 
-        pshap = pcoords.shap
+        pshape = pcoords.shape
         parameters = {
             'dt': paths.coords.dt,
             'N': paths.coords.N,
@@ -272,7 +411,7 @@ class DAO(PathFinder):
 
         # Build Calculator
         def calculator(_pcoords):
-            pcoords.coords = _pcoords.reshape((*pshap, -1))
+            pcoords.coords = _pcoords.reshape(pshape)
             paths.coords = prj.x_inv(pcoords)
 
             results = paths.get_properties(properties=static_properties,
