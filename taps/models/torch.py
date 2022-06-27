@@ -4,44 +4,14 @@ import torch as tc
 import numpy as np
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
+# from torch.autograd import grad
+from torch.autograd.functional import jacobian, hessian
 from torch.autograd import grad
-from torch.autograd.functional import hessian
 from taps.ml.regressions import Regression
-from taps.projectors import Projector
 from collections import Counter
-
-
-class TensorProjector:
-    """
-    Accept Numpy and return Tensor
-    """
-    def __init__(self, device=None, **kwargs):
-        self.device = device or "cuda" if tc.cuda.is_available() else "cpu"
-        super().__init__(**kwargs)
-
-    def x(self, coords):
-        tensor = tc.from_numpy(coords.coords.T).to(device=self.device)
-        tensor.requires_grad = True
-        return tensor
-
-    def _x(self, coords):
-        tensor = tc.from_numpy(coords.T).to(device=self.device)
-        tensor.requires_grad = True
-        return tensor
-
-    def x_inv(self, tensor):
-        return tensor.detach().numpy().T
-
-    def _x_inv(self, tensor):
-        return tensor.detach().numpy().T
-
-    def V(self, potential):
-        tensorV = tc.from_numpy(potential).to(device=self.device)
-        tensorV.requires_grad = True
-        return tensorV
-
-    def V_inv(self, potential):
-        return potential.flatten().detach().numpy()
+from taps.models import Model
+from taps.coords import Coordinate
+from taps.utils.calculus import get_finite_hessian, get_finite_gradients
 
 
 class ImgDataset(tc.utils.data.Dataset):
@@ -63,163 +33,289 @@ class ImgDataset(tc.utils.data.Dataset):
 
 class ImageDatabaseDataset(tc.utils.data.Dataset):
 
-    def __init__(self, database):
-        data = database.read_all(entries={'coord': 'blob',
-                                          'potential': 'blob'})
+    def __init__(self, database, ids=None):
+        entries = dict(coord='blob', pcoord='blob',
+                       potential='blob', gradients='blob', pgradients='blob')
+        if ids is None:
+            data = database.read_all(entries=entries)
+        else:
+            data = database.read(ids=ids, entries=entries)
         N = len(data)
-        D = len(data[0]['coord'].flatten())
-        self.x = tc.empty(N, D).double()
+        shap = data[0]['coord'].shape
+        pshap = data[0]['pcoord'].shape
+        self.x = tc.empty(N, *shap).double()
+        self.px = tc.empty(N, *pshap).double()
         self.y = tc.empty(N).double()
+        self.dy = tc.empty(N, *shap).double()
+        self.pdy = tc.empty(N, *pshap).double()
         for n in range(N):
             self.x[n] = tc.from_numpy(data[n]['coord'].copy()).double()
+            self.px[n] = tc.from_numpy(data[n]['pcoord'].copy()).double()
             self.y[n] = data[n]['potential'][0]
+            self.dy[n] = tc.from_numpy(data[n]['gradients'].copy()).double()
+            self.pdy[n] = tc.from_numpy(
+                          data[n]['pgradients'].copy()).double()
 
     def __len__(self):
         return len(self.y)
 
     def __getitem__(self, idx):
-        return self.x[idx], self.y[idx]
+        return (self.x[idx], self.px[idx], self.y[idx], self.dy[idx],
+                self.pdy[idx])
 
 
-class PyTorchKernel(nn.Module, Model):
+class NeuralNetwork(nn.Module, Model):
     """
     >>>
-    sequence = nn.Sequential(
-    nn.Linear(2, 10).double(),
-    nn.SiLU().double(),
-    nn.Linear(10, 10).double(),
-    nn.SiLU().double(),
-    nn.Linear(10, 1).double()
-)
+    >>> import numpy as np
+    >>> import torch
+    >>> from torch import nn
+    >>> from taps.models.torch import NeuralNetwork
+    >>> from taps.models import MullerBrown
+    >>> from taps.coords import Cartesian
+    >>> N = 100
+    >>> x = np.linspace(-0.55822365, 0.6234994, N)
+    >>> y = np.linspace(1.44172582, 0.02803776, N)
+    >>> coords = Cartesian(coords=np.array([x, y]))
+    >>> sequential = nn.Sequential(
+    ...     nn.Linear(2, 10).double(),
+    ...     nn.SiLU().double(),
+    ...     nn.Linear(10, 10).double(),
+    ...     nn.SiLU().double(),
+    ...     nn.Linear(10, 1).double()
+    ... )
     >>> device = "cuda" if torch.cuda.is_available() else "cpu"
-    >>> sequence = nn.Sequential(
-    >>>     nn.Linear(inshape, 512),
-    >>>     nn.ReLU(),
-    >>>     nn.Linear(512, 512),
-    >>>     nn.ReLU(),
-    >>>     nn.Linear(512, outshape)
-    >>> )
-    >>> kernel = PyTorchKernel(sequential=sequence, device=device)
+    >>> real_model = MullerBrown()
+    >>> model = NeuralNetwork(sequential=sequential,
+    ... real_model=real_model).to(device)
+    >>> model.get_potential(coords=coords).shape
+    >>> # model(coords).shape
+    ... torch.Size([100, 1])
+
     """
-    def __init__(self, sequential=None, prj=None):
-        super(PyTorchKernel, self).__init__()
+    implemented_properties = {'potential', 'gradients', 'hessian',
+                              'covariance'}
+
+    def __init__(self, sequential=None, **kwargs):
+        super(NeuralNetwork, self).__init__()
         self.sequential = sequential
-        self.prj = prj or TensorProjector()
+        Model.__init__(self, **kwargs)
+
+    def __call__(self, coords):
+        if isinstance(coords, Coordinate):
+            coords = tc.from_numpy(coords.coords.T).double()
+            return nn.Module.__call__(self, coords).detach().numpy().flatten()
+        elif isinstance(coords, np.ndarray):
+            coords = tc.from_numpy(coords.T).double()
+            return nn.Module.__call__(self, coords).detach().numpy().flatten()
+
+        return nn.Module.__call__(self, coords)
+
+    def __getattr__(self, key):
+        if key == 'real_model':
+            return self
+        else:
+            return super().__getattr__(key)
 
     def forward(self, tensor):
-        # tensor = self.flatten(tensor)
-        logits = self.sequential(tensor)
-        return logits
+        res = self.sequential(tensor)
+        return res
 
-    def get_potential(self, coords):
-        self.eval()
-        tensor = self.prj.x(coords)
-        V = self.forward(tensor)
-        return self.prj.V_inv(V)
-
-    def get_gradients(self, coords):
-        self.eval()
-        tensor = self.prj.x(coords)
-        V = self.forward(tensor)
-        return grad(tc.sum(V), tensor, create_graph=True)[0]
-
-    def get_hessian(self, coords):
+    def calculate(self, coords, properties=None, **kwargs):
+        # self.eval()
         D, N = coords.D, coords.N
-        self.eval()
-        tensor = self.prj.x(coords)
-        H = np.zeros((D, D, N))
-        for n in range(N):
-            H[..., n] = hessian(self.forward, tensor[n]).detach().numpy()
-
-        return H
+        tensor = tc.from_numpy(
+            coords.coords.reshape(D, N).T).double()
+        V = self.forward(tensor)
+        if 'potential' in properties:
+            self.results['potential'] = V.detach().numpy()[..., 0]
+        if 'gradients' in properties:
+            dV = tc.zeros((N, D))
+            for n in range(N):
+                dV[n] = jacobian(self.forward, tensor[n])
+            self.results['gradients'] = dV.detach().numpy().T
+        if 'hessian' in properties:
+            H = tc.zeros((N, D, D))
+            for n in range(N):
+                H[n] = hessian(self.forward, tensor[n])
+            self.results['hessian'] = H.detach().numpy().T
+        if 'covariance' in properties:
+            self.results['covariance'] = tc.zeros(N).detach().numpy()
 
     def save_hyperparameters(self, filename):
-        torch.save(self.state_dict(), filename)
+        tc.save(self.state_dict(), filename)
 
     def load_hyperparameters(self, filename):
-        self.load_state_dict(torch.load(filename))
+        self.load_state_dict(tc.load(filename))
 
 
-class AtomCenteredPyTorchKernel(nn.Module):
+class AtomicNeuralNetwork(nn.Module, Model):
     """
-    in_channel: Dimension of the descriptor
-    out_channel: number of nodes in a hidden layer.
-    groups: Number of species
-    'H2O' 예제의 경우 -> H O
-    if ns is even:
-        # a = nn.Conv1d(in_channels=4, out_channels=6, kernel_size=1, groups=ns, stride=2)
-    else:
-        self.layers = nn.Sequential(
-        nn.Conv1d(in_channels=2, out_channels=6, kernel_size=1, groups=2),
-        nn.Conv1d(in_channels=6, out_channels=3, kernel_size=1, groups=3))
-    self.shared_weight = nn.Parameters(tc.rand(10, 10))
-            index = [1, 3, 5, 7, 9]
-    #self.fc1.weight = self.shared_weights
-    #self.fc2.weight = self.fc2_base_weights.clone()
-    #self.fc2.weight[:, index] = self.shared_weights
+
+    atomic_numbers = coords.species.numbers
+    sequendict = {}
+    moduledict = nn.ModuleDict()
+    for an in atomic_numbers:
+        if sequendict.get(an) is None:
+            sequendict[an] = nn.Sequential(
+                nn.Linear(39, 50).double(),
+                nn.SiLU().double(),
+                nn.Linear(50, 50).double(),
+                nn.SiLU().double(),
+                nn.Linear(50, 1).double()
+            )
+        moduledict.append(sequendict[an])
+
+    model = PerAtomicNeuralNetwork(moduledict=moduledict, prj=prj, desc=desc)
+    #moduledict[1](tc.from_numpy(dcrds.coords[:, a, np.newaxis]).double())[..., 0, 0].shape
+    print(model.get_potential(coords=coords).shape,
+          model.get_gradients(coords=coords).shape,
+          model.get_hessian(coords=coords).shape)
 
     """
-    def __init__(self, symbols=None, Nd=None, prj=None, **kwargs):
-        """
-        Nd: Int
-            Size of descriptor
-        """
-        super(AtomCenteredPyTorchKernel, self).__init__(**kwargs)
-        self.symbols = symbols
-        self.counter = Counter(symbols)
-        self.species, self.count = zip(*self.counter.items())
+    implemented_properties = {'potential', 'gradients', 'hessian',
+                              'covariance'}
 
-        self.Nd, self.Na, self.Ns = Nd, len(self.symbols), len(self.species)
-        self.partition = tc.cumsum(tc.Tensor([0, *self.count]),
-                                   dim=0, dtype=int) * self.Nd
-        self.prj = prj
+    def __init__(self, moduledict=None, desc=None, numbers=None, **kwargs):
+        super(AtomicNeuralNetwork, self).__init__()
+        self.moduledict = moduledict
+        self.desc = desc
+        self.numbers = numbers
+        Model.__init__(self, **kwargs)
 
-        self.layers = []
-        for sym, count in self.counter.items():
-            self.layers.append(nn.Sequential(
-                nn.Conv1d(self.Nd, 120, 1).double(),
-                nn.ReLU().double(),
-                nn.Conv1d(120, 120, 1).double(),
-                nn.ReLU().double(),
-                nn.Conv1d(120, 1, 1).double()
-            ))
+    def __call__(self, coords):
+        if isinstance(coords, Coordinate):
+            coords = tc.from_numpy(coords.coords).double()
+            return nn.Module.__call__(self, coords).detach().numpy()
+        elif isinstance(coords, np.ndarray):
+            coords = tc.from_numpy(coords).double()
+            return nn.Module.__call__(self, coords).detach().numpy()
+
+        return nn.Module.__call__(self, coords).sum()
+
+    def __getattr__(self, key):
+        if key == 'real_model':
+            return self
+        else:
+            return super().__getattr__(key)
 
     def forward(self, tensor):
+        desc = self.desc(tensor)
+        # temp = tc.zeros(N, self.A)
+        temp = []
+        for n, spe in enumerate(self.numbers):
+            temp.append(self.moduledict[str(spe)](desc[:, n]))
+
+        res = tc.cat(temp, axis=1)
+        return res
+        # return tc.sum(res, axis=1)
+
+    def V(self, x):
+        return tc.sum(self.forward(x), axis=1)
+
+    def dV(self, tensor, V):
+        # dV = grad(tc.sum(V), tensor, create_graph=True)[0]
+        dV = grad(tc.sum(V), tensor, create_graph=True, allow_unused=True)[0]
+        return dV
+
+    def calculate(self, coords, properties=['potential'], vectorize=True,
+                  **kwargs):
         """
-        tensor: Tensor of shape (Batch, in_channel)
+        coords: N x A x G
         """
-        B, C = tensor.shape
-        E = 0.
-        for i in range(self.Ns):
-            init, fin = self.partition[i:i+2]
-            E += tc.sum(self.layers[i](tensor[:, init:fin].view(B, self.Nd, -1)))
+        # self.eval()
+        N, A, D = coords.N, coords.A, coords.D
+        tensor = coords.coords
 
-        return E
+        results = {}
+        potentials = self.forward(tensor)
+        # print(potentials)
+        potential = tc.sum(potentials, axis=1)
 
-    def get_potential(self, coords):
-        self.eval()
-        tensor = self.prj.x(coords)
-        V = self.forward(tensor)
-        return self.prj.V_inv(V)
+        if 'gradients' in properties or 'hessian' in properties:
+            gradients = grad(tc.sum(potential), tensor, create_graph=True,
+                             allow_unused=True)[0]
+            results['gradients'] = gradients.detach().numpy()
 
-    def get_gradients(self, coords):
-        self.eval()
-        tensor = self.prj.x(coords)
-        V = self.forward(tensor)
-        return grad(tc.sum(V), tensor, create_graph=True)[0]
+        # if 'hessian' in properties:
+        #     H = tc.zeros((N, A, 3, A, 3), dtype=tensor.dtype,
+        #                  device=tensor.device)
+        #     for n in range(N):
+        #         H[n] = hessian(self.V, tensor[None, n],
+        #                        vectorize=vectorize)[:, :, 0, :, :]
+        #     results['hessian'] = H.detach().numpy().reshape(N, D, D)
 
-    def get_hessian(self, coords):
-        D, N = coords.D, coords.N
-        self.eval()
-        tensor = self.prj.x(coords)
-        H = np.zeros((D, D, N))
-        for n in range(N):
-            H[..., n] = hessian(self.forward, tensor[n]).detach().numpy()
+        if 'hessian' in properties:
+            # x = tensor.clone().requires_grad_()
+            H = tc.zeros((N, A, 3, A, 3), dtype=tensor.dtype,
+                          device=tensor.device)
+            for n in range(N):
+                x = tensor[n].view(-1)
+                z = gradients[n].view(-1)
+                print(x.shape, z.shape, z.nelement())
+                j = []
+                hv, = torch.autograd.grad(g, x, grad_outputs=v, allow_unused=True)
+                for i in range(z.nelement()):
+                    x.grad = None
+                    v = tc.zeros_like(x)
+                    print(v.shape, i)
+                    v[i] = 1.
+                    z.backward(v, retain_graph=True)
+                    j.append(x.grad)
+                H[n] = tc.stack(j)
 
-        return H
+            results['hessian'] = H.detach().numpy().reshape(N, D, D)
+
+        if 'potentials' in properties:
+            results['potentials'] = potentials.detach().numpy()
+
+        if 'potential' in properties:
+            results['potential'] = potential.detach().numpy()
+
+        if 'covariance' in properties:
+            self.results['covariance'] = tc.zeros(N).detach().numpy()
+
+        self.results = results
 
     def save_hyperparameters(self, filename):
-        torch.save(self.state_dict(), filename)
+        tc.save(self.state_dict(), filename)
 
     def load_hyperparameters(self, filename):
-        self.load_state_dict(torch.load(filename))
+        self.load_state_dict(tc.load(filename))
+
+    def get_finite_hessian(self, coords=None, paths=None, eps=1e-2, **kwargs):
+        """
+        coords : NxAx3
+        newcoords:
+        """
+        if coords is None:
+            coords = paths.coords
+
+        pcoords = self.prj.x(coords)
+
+        def func(x):
+            x0 = pcoords.similar(coords=x)
+            self.calculate(coords=x0, properties=['potential'], **kwargs)
+            return tc.from_numpy(self.results['potential'].copy())
+        with tc.no_grad():
+            hess = get_finite_hessian(func, pcoords.coords, eps=eps)
+        return hess
+
+    def get_finite_gradients(self, coords=None, paths=None, eps=1e-2,
+                             **kwargs):
+        """
+        coords : NxAx3
+        newcoords:
+        """
+        if coords is None:
+            coords = paths.coords
+
+        pcoords = self.prj.x(coords)
+
+        def func(x):
+            x0 = pcoords.similar(coords=x)
+            self.calculate(coords=x0, properties=['potential'], **kwargs)
+            return tc.from_numpy(self.results['potential'].copy())
+        with tc.no_grad():
+            grad = get_finite_gradients(func, pcoords.coords, eps=eps)
+        return grad
