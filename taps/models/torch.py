@@ -1,14 +1,11 @@
-import sys
+import time
 import torch
 import torch as tc
 import numpy as np
 from torch import nn
-from torch.utils.data import DataLoader, Dataset
 # from torch.autograd import grad
 from torch.autograd.functional import jacobian, hessian
 from torch.autograd import grad
-from taps.ml.regressions import Regression
-from collections import Counter
 from taps.models import Model
 from taps.coords import Coordinate
 from taps.utils.calculus import get_finite_hessian, get_finite_gradients
@@ -176,11 +173,13 @@ class AtomicNeuralNetwork(nn.Module, Model):
     implemented_properties = {'potential', 'gradients', 'hessian',
                               'covariance'}
 
-    def __init__(self, moduledict=None, desc=None, numbers=None, **kwargs):
+    def __init__(self, moduledict=None, desc=None, numbers=None, timestamps={},
+                 **kwargs):
         super(AtomicNeuralNetwork, self).__init__()
         self.moduledict = moduledict
         self.desc = desc
         self.numbers = numbers
+        self.timestamps = timestamps
         Model.__init__(self, **kwargs)
 
     def __call__(self, coords):
@@ -200,13 +199,20 @@ class AtomicNeuralNetwork(nn.Module, Model):
             return super().__getattr__(key)
 
     def forward(self, tensor):
+        # Calculation of descriptor
+        a = time.time()
         desc = self.desc(tensor)
+        b = time.time()
+        self.timestamps['descriptor'] = b - a
+
         # temp = tc.zeros(N, self.A)
+        a = time.time()
         temp = []
         for n, spe in enumerate(self.numbers):
             temp.append(self.moduledict[str(spe)](desc[:, n]))
-
+        b = time.time()
         res = tc.cat(temp, axis=1)
+        self.timestamps['moduledict'] = b - a
         return res
         # return tc.sum(res, axis=1)
 
@@ -230,12 +236,22 @@ class AtomicNeuralNetwork(nn.Module, Model):
         results = {}
         potentials = self.forward(tensor)
         # print(potentials)
+
+        a = time.time()
         potential = tc.sum(potentials, axis=1)
+        b = time.time()
+        self.timestamps['potential'] = b - a
 
         if 'gradients' in properties or 'hessian' in properties:
+            a = time.time()
             gradients = grad(tc.sum(potential), tensor, create_graph=True,
                              allow_unused=True)[0]
+            b = time.time()
+            self.timestamps['gradients'] = b - a
+            a = time.time()
             results['gradients'] = gradients.cpu().detach().numpy()
+            b = time.time()
+            self.timestamps['gradients.numpy()'] = b - a
 
         # if 'hessian' in properties:
         #     H = tc.zeros((N, A, 3, A, 3), dtype=tensor.dtype,
@@ -247,24 +263,28 @@ class AtomicNeuralNetwork(nn.Module, Model):
 
         if 'hessian' in properties:
             # x = tensor.clone().requires_grad_()
+            a = time.time()
             H = tc.zeros((N, A, 3, A, 3), dtype=tensor.dtype,
                           device=tensor.device)
             for n in range(N):
                 x = tensor[n].view(-1)
                 z = gradients[n].view(-1)
-                print(x.shape, z.shape, z.nelement())
                 j = []
                 hv, = torch.autograd.grad(g, x, grad_outputs=v, allow_unused=True)
                 for i in range(z.nelement()):
                     x.grad = None
                     v = tc.zeros_like(x)
-                    print(v.shape, i)
                     v[i] = 1.
                     z.backward(v, retain_graph=True)
                     j.append(x.grad)
                 H[n] = tc.stack(j)
+            b = time.time()
+            self.timestamps['hessian'] = b - a
 
+            a = time.time()
             results['hessian'] = H.cpu().detach().numpy().reshape(N, D, D)
+            b = time.time()
+            self.timestamps['hessian'] = b - a
 
         if 'potentials' in properties:
             results['potentials'] = potentials.cpu().detach().numpy()
