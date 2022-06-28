@@ -3,6 +3,7 @@ import pickle
 import numpy as np
 
 
+
 class Paths:
     """ Paths class infterfacing other modules
 
