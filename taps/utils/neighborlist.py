@@ -47,14 +47,14 @@ def wrap_positions(positions, cell, pbc=True, center=(0.5, 0.5, 0.5),
         center = (center,) * 3
 
     # pbc = pbc2pbc(pbc)
-    shift = tc.Tensor(center).long() - 0.5 - eps
+    shift = tc.Tensor(center).long().to(device=cell.device) - 0.5 - eps
 
     # Don't change coordinates when pbc is False
     shift[tc.logical_not(pbc)] = 0.0
 
-    assert np.asarray(cell)[np.asarray(pbc)].any(axis=1).all(), (cell, pbc)
+    # assert np.asarray(cell)[np.asarray(pbc)].any(axis=1).all(), (cell, pbc)
 
-    cell = tc.Tensor(complete_cell(cell)).double()
+    cell = tc.Tensor(complete_cell(cell.cpu())).double().to(device=cell.device)
     fractional = tc.linalg.solve(cell.T, positions.T).T - shift
 
     if pretty_translation:
@@ -452,7 +452,8 @@ class PrimitiveNeighborList:
     """
     def __init__(self, cutoffs, skin=0.3, sorted=False, self_interaction=True,
                  bothways=False, use_scaled_positions=False):
-        self.cutoffs = tc.Tensor(cutoffs).long() + skin
+        self.device = 'cuda' if tc.cuda.is_available() else 'cpu'
+        self.cutoffs = tc.Tensor(cutoffs).long().to(device=self.device) + skin
         self.skin = skin
         self.sorted = sorted
         self.self_interaction = self_interaction
@@ -512,24 +513,24 @@ class PrimitiveNeighborList:
         natoms = len(positions)
         self.nneighbors = 0
         self.npbcneighbors = 0
-        self.neighbors = [tc.empty(0).long() for a in range(natoms)]
-        self.displacements = [tc.empty(0, 3).long() for a in range(natoms)]
+        self.neighbors = [tc.empty(0).long().to(device=self.device) for a in range(natoms)]
+        self.displacements = [tc.empty(0, 3).long().to(device=self.device) for a in range(natoms)]
         self.nupdates += 1
         if natoms == 0:
             return
 
         N = []
-        ircell = np.linalg.pinv(rcell)
+        ircell = tc.linalg.pinv(rcell)
         for i in range(3):
             if self.pbc[i]:
                 v = ircell[:, i]
-                h = 1 / np.linalg.norm(v)
+                h = 1 / tc.linalg.norm(v)
                 n = int(2 * rcmax / h) + 1
             else:
                 n = 0
             N.append(n)
 
-        tree = cKDTree(positions.detach().numpy(), copy_data=True)
+        tree = cKDTree(positions.detach().cpu().numpy(), copy_data=True)
         # offsets = cell.scaled_positions(positions - positions0)
         offsets = tc.linalg.solve(cell.T, (positions-positions0).T).T
         offsets = offsets.round().long()
@@ -540,16 +541,16 @@ class PrimitiveNeighborList:
             if n1 == 0 and (n2 < 0 or n2 == 0 and n3 < 0):
                 continue
 
-            displacement = tc.Tensor([n1, n2, n3]).double() @ rcell
+            displacement = tc.Tensor([n1, n2, n3]).double().to(device=cell.device) @ rcell
             for a in range(natoms):
 
                 pos = positions[a] - displacement
-                indices = tree.query_ball_point(pos.detach().numpy(),
-                                                r=self.cutoffs[a] + rcmax)
+                indices = tree.query_ball_point(pos.detach().cpu().numpy(),
+                                                r=(self.cutoffs[a] + rcmax).detach().cpu().numpy())
                 if not len(indices):
                     continue
 
-                indices = tc.Tensor(indices).long()
+                indices = tc.Tensor(indices).long().to(device=cell.device)
                 delta = positions[indices] + displacement - positions[a]
                 cutoffs = self.cutoffs[indices] + self.cutoffs[a]
                 i = indices[tc.linalg.norm(delta, axis=1) < cutoffs]
@@ -562,8 +563,8 @@ class PrimitiveNeighborList:
                 self.nneighbors += len(i)
                 self.neighbors[a] = tc.cat([self.neighbors[a], i])
 
-                n123 = tc.Tensor([n1, n2, n3]).long()
-                disp = n123 @ op + offsets[i] - offsets[a]
+                n123 = tc.Tensor([n1, n2, n3]).long().to(device=cell.device)
+                disp = n123.double() @ op.double() + offsets[i] - offsets[a]
                 self.npbcneighbors += disp.any(1).sum()
                 self.displacements[a] = tc.cat([self.displacements[a], disp])
 
@@ -577,7 +578,7 @@ class PrimitiveNeighborList:
             for a in range(natoms):
                 if len(neighbors2[a]) == 0:
                     continue
-                nbs = tc.cat([self.neighbors[a], tc.Tensor(neighbors2[a]).long()])
+                nbs = tc.cat([self.neighbors[a], tc.Tensor(neighbors2[a]).long().to(device=self.device)])
                 disp = tc.cat([self.displacements[a], tc.vstack(displacements2[a])])
                 # Force correct type and shape for case of no neighbors:
                 self.neighbors[a] = nbs.long()

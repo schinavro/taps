@@ -183,7 +183,7 @@ def is_minkowski_reduced(cell, pbc=True):
 
         A = np.array([[0, 1, 0],
              [1, -1, 0],
-             [1, 1, 0]], dtype=float)
+             [1, 1, 0]], dtype=float).to(device=cell.device)
         lhs = np.linalg.norm(A @ cell, axis=1)
         norms = np.linalg.norm(cell, axis=1)
         rhs = norms[[0, 1, 1]]
@@ -237,7 +237,7 @@ def minkowski_reduce(cell, pbc=True):
 
     pbc = pbc2pbc(pbc)
     dim = pbc.sum()
-    op = np.eye(3, dtype=int)
+    op = np.eye(3, dtype=int).to(device=cell.device)
     if is_minkowski_reduced(cell, pbc):
         return cell, op
 
@@ -283,4 +283,4 @@ def minkowski_reduce(cell, pbc=True):
     norms2 = np.sort(np.linalg.norm(op.double() @ cell, axis=1))[0]
     if (norms2 > norms1 + TOL).any():
         raise RuntimeError("Minkowski reduction failed")
-    return op.double() @ cell, op
+    return op.double() @ cell, op.double()

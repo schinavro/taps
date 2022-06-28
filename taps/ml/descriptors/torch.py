@@ -140,15 +140,16 @@ def get_neighbors_info(pnl=None, positions=None, cell=None, pbc=None,
     if isinstance(positions, np.ndarray):
         return iidx, pnl.neighbors, np.array(disp), np.array(dist)
     else:
-        return tc.Tensor(iidx).long(), jidx, disp, dist
+        return tc.Tensor(iidx).long().to(device=cell.device), jidx, disp, dist
 
 
 def sort_atomic_numbers(numbers):
-    species = list(set(numbers))
+    device = numbers.device
+    species = list(set(numbers.tolist()))
     sorter = dict([(spe, i) for i, spe in enumerate(species)])
-    srtd_n = [sorter[n] for n in numbers]
+    srtd_n = [sorter[n] for n in numbers.tolist()]
     srtd_s = [sorter[s] for s in species]
-    return species, srtd_s, srtd_n
+    return tc.tensor(species, device=device), tc.tensor(srtd_s, device=device), tc.tensor(srtd_n, device=device)
 
 
 def cutoff(dist, rcut):
@@ -280,7 +281,7 @@ class REANN(nn.Module):
         super(REANN, self).__init__()
 
         self.pnl = pnl or self.primitive_neighbor_list(cutoffs)
-        self.pbc = tc.tensor(pbc)
+        self.pbc = tc.tensor(pbc).to(device=cell.device)
         self.cell = cell
         # self.cutoff = cutoff
         self.numbers = numbers
@@ -300,20 +301,20 @@ class REANN(nn.Module):
         for i in range(lmax):
             self.Oidx.extend([i] * (2*i + 1))
 
-        self.α = -(tc.rand(self.NS, nmax) + 0.2)
-        self.rs = tc.rand(self.NS, nmax)
+        self.α = -(tc.rand(self.NS, nmax, device=cell.device) + 0.2)
+        self.rs = tc.rand(self.NS, nmax, device=cell.device)
         # NS x nmax
-        self.species_params = tc.rand(self.NS, self.nmax)
+        self.species_params = tc.rand(self.NS, self.nmax, device=cell.device)
         # Loop x NO x nmax x NO
-        self.orbital_params = tc.rand(self.nmax, self.NO)[None, None].repeat(
+        self.orbital_params = tc.rand(self.nmax, self.NO, device=cell.device)[None, None].repeat(
                                       loop, lmax, 1, 1)
 
         layers = (
-                 nn.Linear(self.NO, int(1.2 * self.NO)).double(),
+                 nn.Linear(self.NO, int(1.2 * self.NO), device=cell.device).double(),
                  nn.Tanh().double(),
-                 nn.Linear(int(1.2 * self.NO), int(1.2 * nmax)).double(),
+                 nn.Linear(int(1.2 * self.NO), int(1.2 * nmax), device=cell.device).double(),
                  nn.Tanh().double(),
-                 nn.Linear(int(1.2 * nmax), nmax).double()
+                 nn.Linear(int(1.2 * nmax), nmax, device=cell.device).double()
                  )
 
         moduledict = nn.ModuleDict()
@@ -335,7 +336,7 @@ class REANN(nn.Module):
             iidx, jidx, disp, dist = get_neighbors_info(pnl=self.pnl, pbc=self.pbc,
                                 cell=self.cell, positions=positions)
             # iidx = tc.Tensor(iidx).long()
-            jatn = tc.Tensor([self.sorted_numbers[j] for j in jidx]).long()
+            jatn = tc.Tensor([self.sorted_numbers[j] for j in jidx]).long().to(device=device)
 
             # disp = positions[iidx] - positions[jidx] @ shift
             # dist = tc.linalg.norm(disp, axis=2)

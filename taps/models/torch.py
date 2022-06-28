@@ -235,7 +235,7 @@ class AtomicNeuralNetwork(nn.Module, Model):
         if 'gradients' in properties or 'hessian' in properties:
             gradients = grad(tc.sum(potential), tensor, create_graph=True,
                              allow_unused=True)[0]
-            results['gradients'] = gradients.detach().numpy()
+            results['gradients'] = gradients.cpu().detach().numpy()
 
         # if 'hessian' in properties:
         #     H = tc.zeros((N, A, 3, A, 3), dtype=tensor.dtype,
@@ -264,13 +264,13 @@ class AtomicNeuralNetwork(nn.Module, Model):
                     j.append(x.grad)
                 H[n] = tc.stack(j)
 
-            results['hessian'] = H.detach().numpy().reshape(N, D, D)
+            results['hessian'] = H.cpu().detach().numpy().reshape(N, D, D)
 
         if 'potentials' in properties:
-            results['potentials'] = potentials.detach().numpy()
+            results['potentials'] = potentials.cpu().detach().numpy()
 
         if 'potential' in properties:
-            results['potential'] = potential.detach().numpy()
+            results['potential'] = potential.cpu().detach().numpy()
 
         if 'covariance' in properties:
             self.results['covariance'] = tc.zeros(N).detach().numpy()
