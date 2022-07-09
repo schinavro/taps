@@ -1,4 +1,4 @@
-
+import time
 import torch as tc
 from torch import nn
 
@@ -141,6 +141,56 @@ def get_neighbors_info(pnl=None, positions=None, cell=None, pbc=None,
         return iidx, pnl.neighbors, np.array(disp), np.array(dist)
     else:
         return tc.Tensor(iidx).long().to(device=cell.device), jidx, disp, dist
+
+import itertools
+def get_super(pbc, cell, positions, cutoff):
+    """
+    
+    """
+#    cell = cell.cpu()
+    device = cell.device
+    N = len(positions)
+    A = positions.shape[1]
+    
+    icell = tc.linalg.pinv(cell)
+
+    grid = tc.zeros(3).long().to(device=device)
+    grid[pbc] = ((2 * cutoff * tc.linalg.norm(icell, axis=0)).long() + 1)[pbc]
+
+    SC = tc.prod(grid*2 + 1)
+    cells = tc.Tensor(SC, 3).double().to(device=device)
+    i = 0
+    for n1, n2, n3 in itertools.product(range(0, grid[0] + 1),
+                                        range(-grid[1], grid[1] + 1),
+                                        range(-grid[2], grid[2] + 1)):
+        
+        if n1 == 0 and (n2 < 0 or n2 == 0 and n3 < 0):
+            continue
+        if n1 == 0 and n2 == 0 and n3 ==0:
+            continue
+        # SC x 3
+        cells[i] = tc.Tensor([n1, n2, n3]).double().to(device=device) @ cell
+        i += 1
+    
+#    cells = cells.to('cuda')
+    # N x 1 x A x 3 - 1 x SC x 1 x 3 -> N x SC*A x 3
+    supercell = (positions[:, None] - cells[None, :, None]).reshape(N, SC*A, 3)
+    return supercell
+
+def get_neighbors_info2(pbc, cell, positions, cutoff=6.):
+    """
+    positions: N x A x 3
+    """
+    A = positions.shape[1]
+    supercell = get_super(pbc, cell, positions, cutoff)
+    
+    # NxAx1x3 - Nx1xSCAx3 -> NxAxSCAx3
+    disps = positions[:, :, None] - supercell[:, None]
+    # NxAxSCA
+    dists = tc.linalg.norm(disps, axis=-1)
+    mask = (dists < cutoff).nonzero(as_tuple=True)
+    nidxs, iidxs, jjidxs = mask
+    return nidxs, iidxs, jjidxs % A, disps[mask], dists[mask]
 
 
 def sort_atomic_numbers(numbers):
@@ -326,15 +376,25 @@ class REANN(nn.Module):
         self.gj = nn.ModuleList(a)
 
     def forward(self, tensor):
+        """
+        tensor: NNxNAx3
+        NN: Total number of tensor
+        """
         dtype, device = tensor.dtype, tensor.device
         NA, NO, NN = self.NA, self.NO, len(tensor)
         nmax, lmax, rcut = self.nmax, self.lmax, self.rcut
         params = (device, dtype, NA, NO, nmax)
         ans = tc.zeros((NN, NA, NO),
                        dtype=dtype, device=device)
+        nidxs, iidxs, jjidxs, disps, dists = get_neighbors_info2(self.pbc, self.cell, tensor)
         for n, positions in enumerate(tensor):
-            iidx, jidx, disp, dist = get_neighbors_info(pnl=self.pnl, pbc=self.pbc,
-                                cell=self.cell, positions=positions)
+            aa = time.time()
+            # iidx, jidx, disp, dist = get_neighbors_info(pnl=self.pnl, pbc=self.pbc,
+            #                     cell=self.cell, positions=positions)
+            nmask = nidxs == n
+            iidx, jidx, disp, dist = iidxs[nmask], jjidxs[nmask], disps[nmask], dists[nmask]
+            
+            bb = time.time()
             # iidx = tc.Tensor(iidx).long()
             jatn = tc.Tensor([self.sorted_numbers[j] for j in jidx]).long().to(device=device)
 
@@ -342,19 +402,32 @@ class REANN(nn.Module):
             # dist = tc.linalg.norm(disp, axis=2)
 
             # NN
+            aa = time.time()
             fcut = self.cutoff(dist, rcut)
+            bb = time.time()
             # NN x nmax
+            aa = time.time()
             radial = gauss(dist, jatn, self.α, self.rs)
+            bb = time.time()
             # NN x NO
+            aa = time.time()
             angle = angular(disp, lmax, NO, dtype, device)
+            bb = time.time()
             # NNxNOx1 x NNx1xnmax -> NNxNOxnmax
+            aa = time.time()
             Fxyz = (fcut[..., None, None] * angle[..., None] * radial[:, None])
+            bb = time.time()
             # Sxnmax -> NA x nmax
+            aa = time.time()
             Csn = self.species_params[self.sorted_numbers]
+            bb = time.time()
             # Loop x lmax x nmax x O -> O x nmax x O
+            aa = time.time()
             Wln = self.orbital_params[0, self.Oidx]
+            bb = time.time()
             # NA x O
             ρ = get_density(Wln, Csn, Fxyz, iidx, jidx, *params)
+            bb = time.time()
             for i in range(1, self.loop):
                 # NAxO -> NAxnmax
                 Csn = Csn + self.gj[i-1](ρ)
