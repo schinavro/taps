@@ -379,6 +379,129 @@ class REANN(nn.Module):
         return PrimitiveNeighborList(cutoff, bothways=True,
                                      self_interaction=False)
 
+class REANN2(nn.Module):
+    """
+    Examples
+    --------
+    from torch import nn
+    from taps.ml.descriptors.torch import REANN
+    A = len(init)
+    pbc = [True, True, True]
+    cutoffs = [6.] * A
+
+    desc = REANN(pbc=pbc, cell=cell, cutoffs=cutoffs, numbers=numbers)
+    from ase.neighborlist import PrimitiveNeighborList
+        pnl = PrimitiveNeighborList(cutoffs=[6]*len(init),
+                                    self_interaction=False, bothways=True)
+        pnl.build(pbc, init.cell, init.positions)
+    """
+    def __init__(self, pnl=None, pbc=None, device=None, cutoffs=None,
+                 numbers=None,
+                 rcut=6., lmax=2, nmax=2,
+                 loop=1, **kwargs):
+        super(REANN, self).__init__()
+
+        self.pnl = pnl or self.primitive_neighbor_list(cutoffs)
+        self.pbc = tc.tensor(pbc).to(device=device)
+        self.device = device
+        # self.cutoff = cutoff
+        self.numbers = numbers
+        _, __, ___ = sort_atomic_numbers(numbers)
+        self.species = _
+        self.sorted_species = __
+        self.sorted_numbers = ___
+        self.rcut = rcut
+        self.nmax = nmax
+        self.lmax = lmax
+        self.loop = loop
+
+        self.NA = len(numbers)
+        self.NS = len(self.species)
+        self.NO = int((3 ** lmax - 1) / 2)
+        self.Oidx = []
+        for i in range(lmax):
+            self.Oidx.extend([i] * (2*i + 1))
+
+        self.α = -(tc.rand(self.NS, nmax, device=device) + 0.2)
+        self.rs = tc.rand(self.NS, nmax, device=device)
+        # NS x nmax
+        self.species_params = tc.rand(self.NS, self.nmax, device=device)
+        # Loop x NO x nmax x NO
+        self.orbital_params = tc.rand(self.nmax, self.NO, device=device)[None, None].repeat(
+                                      loop, lmax, 1, 1)
+
+        layers = (
+                 nn.Linear(self.NO, int(1.2 * self.NO), device=device).double(),
+                 nn.Tanh().double(),
+                 nn.Linear(int(1.2 * self.NO), int(1.2 * nmax), device=device).double(),
+                 nn.Tanh().double(),
+                 nn.Linear(int(1.2 * nmax), nmax, device=device).double()
+                 )
+
+        moduledict = nn.ModuleDict()
+        for spe in self.numbers:
+            moduledict[str(spe)] = nn.Sequential(*layers)
+
+        gjkwargs = dict(numbers=self.numbers, nmax=nmax)
+        a = [Gj(moduledict, **gjkwargs) for j in range(self.loop)]
+        self.gj = nn.ModuleList(a)
+
+    def forward(self, tensor, cells):
+        dtype, device = tensor.dtype, self.device
+        NA, NO, NN = self.NA, self.NO, len(tensor)
+        nmax, lmax, rcut = self.nmax, self.lmax, self.rcut
+        params = (device, dtype, NA, NO, nmax)
+        ans = tc.zeros((NN, NA, NO),
+                       dtype=dtype, device=device)
+        for n, positions in enumerate(tensor):
+            cell = cells[n]
+            iidx, jidx, disp, dist = get_neighbors_info(pnl=self.pnl, pbc=self.pbc,
+                                cell=cell, positions=positions)
+            # iidx = tc.Tensor(iidx).long()
+            jatn = tc.Tensor([self.sorted_numbers[j] for j in jidx]).long().to(device=device)
+
+            # disp = positions[iidx] - positions[jidx] @ shift
+            # dist = tc.linalg.norm(disp, axis=2)
+
+            # NN
+            fcut = self.cutoff(dist, rcut)
+            # NN x nmax
+            radial = gauss(dist, jatn, self.α, self.rs)
+            # NN x NO
+            angle = angular(disp, lmax, NO, dtype, device)
+            # NNxNOx1 x NNx1xnmax -> NNxNOxnmax
+            Fxyz = (fcut[..., None, None] * angle[..., None] * radial[:, None])
+            # Sxnmax -> NA x nmax
+            Csn = self.species_params[self.sorted_numbers]
+            # Loop x lmax x nmax x O -> O x nmax x O
+            Wln = self.orbital_params[0, self.Oidx]
+            # NA x O
+            ρ = get_density(Wln, Csn, Fxyz, iidx, jidx, *params)
+            for i in range(1, self.loop):
+                # NAxO -> NAxnmax
+                Csn = Csn + self.gj[i-1](ρ)
+                # Loop x lmax x nmax x O -> O x nmax x O
+                Wln = self.orbital_params[i, self.Oidx]
+                # NA x O
+                ρ = get_density(Wln, Csn, Fxyz, iidx, jidx, *params)
+            ans[n] = ρ
+        return ans
+
+    def cutoff(self, dist, rcut):
+        """
+        dist: NNTot arr
+        rcut: float
+        return NNTot arr
+        """
+        # return tc.ones(dist.shape, dtype=dist.dtype, device=dist.device)
+        return 0.25 * (tc.cos(dist * np.pi/rcut)+1)**2
+
+    def primitive_neighbor_list(self, cutoff):
+        from taps.utils.neighborlist import PrimitiveNeighborList
+        return PrimitiveNeighborList(cutoff, bothways=True,
+                                     self_interaction=False)
+
+
 
 class MLIP:
     None

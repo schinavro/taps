@@ -198,10 +198,10 @@ class AtomicNeuralNetwork(nn.Module, Model):
         else:
             return super().__getattr__(key)
 
-    def forward(self, tensor):
+    def forward(self, tensor, cells):
         # Calculation of descriptor
         a = time.time()
-        desc = self.desc(tensor)
+        desc = self.desc(tensor, cells)
         b = time.time()
         self.timestamps['descriptor'] = b - a
 
