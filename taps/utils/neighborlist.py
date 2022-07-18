@@ -1,3 +1,4 @@
+import time
 import numpy as np
 import torch as tc
 from scipy.spatial import KDTree as cKDTree
@@ -530,10 +531,16 @@ class PrimitiveNeighborList:
                 n = 0
             N.append(n)
 
+        aa = time.time()
+
         tree = cKDTree(positions.detach().cpu().numpy(), copy_data=True)
+        bb = time.time()
+        print('Const', bb-aa)
         # offsets = cell.scaled_positions(positions - positions0)
         offsets = tc.linalg.solve(cell.T, (positions-positions0).T).T
         offsets = offsets.round().long()
+
+        querytime, othertime = 0., 0.
 
         for n1, n2, n3 in itertools.product(range(0, N[0] + 1),
                                             range(-N[1], N[1] + 1),
@@ -545,11 +552,16 @@ class PrimitiveNeighborList:
             for a in range(natoms):
 
                 pos = positions[a] - displacement
+                
+                aa = time.time()
                 indices = tree.query_ball_point(pos.detach().cpu().numpy(),
                                                 r=(self.cutoffs[a] + rcmax).detach().cpu().numpy())
+                bb = time.time()
                 if not len(indices):
                     continue
+                querytime += bb-aa
 
+                aa = time.time()
                 indices = tc.Tensor(indices).long().to(device=cell.device)
                 delta = positions[indices] + displacement - positions[a]
                 cutoffs = self.cutoffs[indices] + self.cutoffs[a]
@@ -567,6 +579,11 @@ class PrimitiveNeighborList:
                 disp = n123.double() @ op.double() + offsets[i] - offsets[a]
                 self.npbcneighbors += disp.any(1).sum()
                 self.displacements[a] = tc.cat([self.displacements[a], disp])
+                bb = time.time()
+                othertime += bb-aa
+        
+        print('query', querytime)
+        print('other', othertime)
 
         if self.bothways:
             neighbors2 = [[] for a in range(natoms)]
@@ -605,7 +622,7 @@ class PrimitiveNeighborList:
         calculated like this::
 
           indices, offsets = nl.get_neighbors(42)
-          for i, offset in zip(indices, offsets):
+          for i, offset in zip(in.cpu()dices, offsets):
               print(atoms.positions[i] + offset @ atoms.get_cell())
 
         Notice that if get_neighbors(a) gives atom b as a neighbor,
