@@ -1,6 +1,8 @@
 import time
+import itertools
 import torch as tc
 from torch import nn
+from torch.nn.parameter import Parameter
 
 import numpy as np
 from ase import Atoms
@@ -95,486 +97,396 @@ class Naive(nn.Module):
         return self.forward(tensor)
 
 
-def get_neighbors_info(pnl=None, positions=None, cell=None, pbc=None,
-                       cutoff=None):
-    """
-    Get neighbors info
+def compress_symbols(symbols):
+    """Make each unqiue atomic symbols into consecutive symbols
+     This makes coding easier by creating dense matrix.
 
-    Parameters
-    ----------
+    Example
+    -------
 
-    positions: tensor array
-      Atomic positions
-    cell: tensor (3, 3)
-      Periodic boundary
-    pbc: Tuple of bool
-      Periodic boundary condition
+    >>> compress_symbols([1, 1, 1, 1, 6])
+    ... ({0: 1, 1: 6}, [0, 1])
+
+    Paramers
+    --------
+     symbols: List
 
     Return
     ------
+     decompressor: Dict{Int, Int}
+     sorted_symbols: List{Int}
 
-    (iidx, jidx, disp, dist)
-    iidx: tensor of long int (NM, ) index of i
-    jidx: tensor of long int (NM, ) index of j
-    disp: tneosr of float (NM, 3) displacements rj - ri
-    dist: norm of disp (NM, )
     """
-    if pnl is None:
-        # from ase.neighborlist import primitive_neighbor_list
-        from taps.utils.neighborlist import primitive_neighbor_list
-        nl = primitive_neighbor_list(pbc=pbc, cell=cell,
-                                     positions=positions,
-                                     cutoff=cutoff,
-                                     self_interaction=False, quantities="ijDd")
-        return nl
-    pnl.update(pbc, cell, positions)
+    species = list(set(symbols))
+    encoder = dict([(spe, i) for i, spe in enumerate(species)])
+    decoder = dict([(i, spe) for i, spe in enumerate(species)])
+    srtd_n = [encoder[n] for n in symbols]
+    return encoder, decoder, srtd_n
 
-    iidx = []
-    for i in range(len(positions)):
-        iidx.extend([i] * len(pnl.neighbors[i]))
 
-    jidx = tc.cat(pnl.neighbors)
-    disp = (positions[jidx] + tc.vstack(pnl.displacements).double() @ cell) - positions[iidx]
-    dist = tc.linalg.norm(disp, axis=1)
+def get_nn(symbols, positions, cell, pbc, cutoff=6., device='cpu'):
+    """From pbc, symbols, cell, positions info, returns
 
-    if isinstance(positions, np.ndarray):
-        return iidx, pnl.neighbors, np.array(disp), np.array(dist)
-    else:
-        return tc.Tensor(iidx).long().to(device=cell.device), jidx, disp, dist
+    Parameters
+    ----------
+     symbols: NTA Tensor{list of symbols
+     positions: NTAx3 Tensor{Double}
+     cell: 3x3 Tensor{Double}
+     pbc: 3 Tensor{Bool}
+         Periodic boundary condition
+     cutoff:  Tensor{Double} or float
 
-import itertools
-def get_super(pbc, cell, positions, cutoff):
+    Returns
+    -------
+    nidxs, iidxs, jidxs, disps, dists
+
     """
-    
-    """
-#    cell = cell.cpu()
-    device = cell.device
-    N = len(positions)
-    A = positions.shape[1]
-    
+    A = len(positions)
     icell = tc.linalg.pinv(cell)
-
     grid = tc.zeros(3).long().to(device=device)
     grid[pbc] = ((2 * cutoff * tc.linalg.norm(icell, axis=0)).long() + 1)[pbc]
 
-    SC = tc.prod(grid*2 + 1)
-    cells = tc.Tensor(SC, 3).double().to(device=device)
-    i = 0
+    iidxs, jidxs, disps, dists, isymb, jsymb = [], [], [], [], [], []
     for n1, n2, n3 in itertools.product(range(0, grid[0] + 1),
                                         range(-grid[1], grid[1] + 1),
                                         range(-grid[2], grid[2] + 1)):
-        
+        # Skip symmetric displacement
+
         if n1 == 0 and (n2 < 0 or n2 == 0 and n3 < 0):
+
             continue
-        if n1 == 0 and n2 == 0 and n3 ==0:
-            continue
-        # SC x 3
-        cells[i] = tc.Tensor([n1, n2, n3]).double().to(device=device) @ cell
-        i += 1
-    
-#    cells = cells.to('cuda')
-    # N x 1 x A x 3 - 1 x SC x 1 x 3 -> N x SC*A x 3
-    supercell = (positions[:, None] - cells[None, :, None]).reshape(N, SC*A, 3)
-    return supercell
 
-def get_neighbors_info2(pbc, cell, positions, cutoff=6.):
+        # Calculate the cell jumping
+        jumpidx = tc.Tensor([n1, n2, n3]).double().to(device=device)
+        # 3
+        displacement = jumpidx @ cell
+
+        # Brute force searchingb
+
+        # Ax3 - 3
+        jpositions = positions + displacement
+        kpositions = positions - displacement
+        # Ax1x3 - 1xAx3 -> AxAx3
+        disp1 = jpositions[:, None] - positions[None]
+        disp2 = kpositions[:, None] - positions[None]
+        # AxA
+        dist1 = tc.linalg.norm(disp1, axis=2)
+        dist2 = tc.linalg.norm(disp2, axis=2)
+        # AxA
+        if n1 == 0 and n2 == 0 and n3 == 0:
+            mask1 = (dist1 < cutoff) * (dist1 > 1e-8)
+            mask2 = (dist2 < cutoff) * (dist2 > 1e-8)
+        else:
+            mask1 = dist1 < cutoff
+            mask2 = dist2 < cutoff
+        # Get all True idx
+        iidx1, jidx1 = mask1.nonzero(as_tuple=True)
+        iidx2, jidx2 = mask2.nonzero(as_tuple=True)
+        # Appending
+        iidxs.append(iidx1)
+        jidxs.append(jidx1)
+        isymb.append(symbols[iidx1])
+        jsymb.append(symbols[jidx1])
+        disps.append(disp1[mask1])
+        dists.append(dist1[mask1])
+
+        # Symmetric side appending
+        iidxs.append(iidx2)
+        jidxs.append(jidx2)
+        isymb.append(symbols[iidx2])
+        jsymb.append(symbols[jidx2])
+        disps.append(disp2[mask2])
+        dists.append(dist2[mask2])
+
+    return tc.cat(iidxs), tc.cat(jidxs), tc.cat(isymb), tc.cat(jsymb), tc.cat(disps), tc.cat(dists)
+
+
+def get_neighbors_info(symbols, positions, cells, crystalidx, pbcs, cutoff=None):
     """
-    positions: N x A x 3
-    """
-    A = positions.shape[1]
-    supercell = get_super(pbc, cell, positions, cutoff)
-    
-    # NxAx1x3 - Nx1xSCAx3 -> NxAxSCAx3
-    disps = positions[:, :, None] - supercell[:, None]
-    # NxAxSCA
-    dists = tc.linalg.norm(disps, axis=-1)
-    mask = (dists < cutoff).nonzero(as_tuple=True)
-    nidxs, iidxs, jjidxs = mask
-    return nidxs, iidxs, jjidxs % A, disps[mask], dists[mask]
+    Parameters
+    ----------
+        symbols: NTA tensor
+          Element of atoms corresponds to positions
+        positions: NTAx3 tensor
+          Atomic positions
+        cells: NCx3x3 tensor
+          Cell of each crystal
+        crystalidx: NTA
+          Crystal index corresponds to positions
+        pbcs: NCx3 tensor
+          Periodic boundary condition of each crystal
 
-
-def sort_atomic_numbers(numbers):
-    device = numbers.device
-    species = list(set(numbers.tolist()))
-    sorter = dict([(spe, i) for i, spe in enumerate(species)])
-    srtd_n = [sorter[n] for n in numbers.tolist()]
-    srtd_s = [sorter[s] for s in species]
-    return tc.tensor(species, device=device), tc.tensor(srtd_s, device=device), tc.tensor(srtd_n, device=device)
-
-
-def cutoff(dist, rcut):
-    """
-    dist: NNTot arr
-    rcut: float
-    return NNTot arr
-    """
-    # return tc.ones(dist.shape, dtype=dist.dtype, device=dist.device)
-    return 0.25 * (tc.cos(dist * np.pi/rcut)+1)**2
-
-
-def gauss(dist, jatn, alpha, rs):
-    """
-    dist : NN
-    sig : S x nmax
-    rs : S x nmax
-    return : NN x nmax
+    Returns
+    -------
+     iidx: NN tensor{Int}
+     jidx: NN tensor{Int}
+     isym: NN tensor{Int}
+     jsym: NN tensor{Int}
+     disp: NNx3 Tensor{Double}
+     disp: NN Tensor{Double}
     """
 
-    """
-    NN = len(dist)
-    dtype, device = dist.dtype, dist.device
-    gauss = tc.empty((NN, nmax), dtype=dtype, device=device)
-    for i, spe in enumerate(species):
-        # nmax
-        Sig, Rs = sigma[i], rs[i]
-        mask = (numbers == spe)
-        # NN x nmax
-        tmp = np.exp(Sig * (dist[mask, None] - Rs)**2)
-        # NN x 1
-        gauss.masked_scatter_(mask[:, None], tmp)
-    return gauss
-    """
-    Rs = rs[jatn]
-    alp = alpha[jatn]
-    return tc.exp(alp * (dist[:, None] - Rs)**2)
+    cryset = tc.unique(crystalidx)
+    totalidx = tc.arange(len(symbols))
 
+    iidx, jidx, isym, jsym, cidx, disp, dist = [], [], [], [], [], [], []
+    for c, cidx in enumerate(cryset):
+        cmask = crystalidx == cidx
+        position = positions[cmask]
+        symbol = symbols[cmask]
+        crystali = totalidx[cmask]
+        pbc, cell = pbcs[c], cells[c]
+        # NN, NN, NNx3, NN
+        idx, jdx, isy, jsy, dsp, dst = get_nn(symbol, position, cell, pbc)
+        iidx.append(crystali[idx])
+        # iidx.append(idx)
+        isym.append(isy)
+        jsym.append(jsy)
 
-def angular(disp, lmax, NO, dtype, device):
-    """
-    unit : NN x 3
-    disp : NN x 3
-    fcut : NN
-    lmax : int
-    return : NN x O
-       where NN is number of neighbor
-              O is number of orbitals
+        jidx.append(crystali[jdx])
+        # jidx.append(jdx)
+        disp.append(dsp)
+        dist.append(dst)
 
-    Only 1, 2 support.
-    """
-    NN = len(disp)                     # Number of Neighboribng images
-
-    angular = tc.ones(NN, NO, dtype=dtype, device=device)
-    if lmax > 1:
-        # NNx1 * NNx3 -> NNx3
-        angular[:, 1:4] = disp
-    if lmax > 2:
-        pass
-        """
-        for l in range(2, lmax+1):
-            for m in range(l):
-                Tlm = chebyshev(l, m)
-                for pqr in mulinomial(m):
-                    p, q, r = pqr
-        """
-    return angular
-
-
-def get_density(Wln, Csn, Fxyz, iidx, jidx, device, dtype, NA, NO, nmax):
-    """
-    Wln: O x nmax x O
-    Csn: NA x nmax
-    Fxyz: NNxNOxnmax
-    Return NA x O
-    """
-    # NAxnmax -> NNxnmax
-    cj = Csn[jidx]
-    # NNx1xnmax x NNxNOxnmax -> NNxNOxnmax
-    cjFxyz = cj[:, None] * Fxyz
-
-    # NN x NO x nmax -> NA x NO x nmax
-    bnl = tc.zeros((NA, NO, nmax), device=device, dtype=dtype).index_add(
-                                            0, iidx, cjFxyz)
-
-    # NOx(nmax)xNO * NAxNOx(nmax)x1, -> NA x NO x nmax x NO -> NAxOxO -> NAxO
-    return tc.sum(tc.sum(Wln * bnl[..., None], axis=2) ** 2, axis=1)
+    return tc.cat(iidx), tc.cat(jidx), tc.cat(isym), tc.cat(jsym), tc.cat(disp), tc.cat(dist)
 
 
 class Gj(nn.Module):
-    def __init__(self, moduledict, numbers=None, nmax=None):
+    def __init__(self, moduledict, species=None, nmax=None):
         super(Gj, self).__init__()
+
         self.moduledict = moduledict
-        self.numbers = numbers
-        self.NA = len(numbers)
+        self.species = species
         self.nmax = nmax
 
-    def forward(self, ρ):
+    def forward(self, ρ, symbols):
+        """  Returns the
+
+        Parameters
+        ----------
+
+        ρ : NTA x O
+        symbols : NTA number index
+
+        Return
+        ------
+        NTA x nmax
         """
-        ρ : NA x O
-        return : NA x nmax
-        """
-        coeff = tc.zeros((self.NA, self.nmax), dtype=ρ.dtype, device=ρ.device)
-        for n, spe in enumerate(self.numbers):
-            coeff[n] = self.moduledict[str(spe)](ρ[n])
+        NTA, nmax = len(ρ), self.nmax
+        coeff = tc.zeros((NTA, nmax), dtype=ρ.dtype, device=ρ.device)
+
+        for spe in self.species:
+            mask = spe == symbols
+            coeff[mask] = self.moduledict[str(spe)](ρ[mask])
         return coeff
 
 
 class REANN(nn.Module):
-    """
-    Examples
-    --------
-    from torch import nn
-    from taps.ml.descriptors.torch import REANN
-    A = len(init)
-    pbc = [True, True, True]
-    cutoffs = [6.] * A
+    """ Recursive Embedding Atomic Neural Network
 
-    desc = REANN(pbc=pbc, cell=cell, cutoffs=cutoffs, numbers=numbers)
-    from ase.neighborlist import PrimitiveNeighborList
-        pnl = PrimitiveNeighborList(cutoffs=[6]*len(init),
-                                    self_interaction=False, bothways=True)
-        pnl.build(pbc, init.cell, init.positions)
+    Parameters
+    ----------
+
+    symbols: List
+      type of elements
+
     """
-    def __init__(self, pnl=None, pbc=None, cell=None, cutoffs=None,
-                 numbers=None,
-                 rcut=6., lmax=2, nmax=2,
-                 loop=1, **kwargs):
+    def __init__(self, species=None, rcut=6., lmax=2, nmax=2, loop=1, device='cpu',
+                 **kwargs):
         super(REANN, self).__init__()
 
-        self.pnl = pnl or self.primitive_neighbor_list(cutoffs)
-        self.pbc = tc.tensor(pbc).to(device=cell.device)
-        self.cell = cell
-        # self.cutoff = cutoff
-        self.numbers = numbers
-        _, __, ___ = sort_atomic_numbers(numbers)
-        self.species = _
-        self.sorted_species = __
-        self.sorted_numbers = ___
-        self.rcut = rcut
-        self.nmax = nmax
-        self.lmax = lmax
-        self.loop = loop
-
-        self.NA = len(numbers)
-        self.NS = len(self.species)
-        self.NO = int((3 ** lmax - 1) / 2)
-        self.Oidx = []
-        for i in range(lmax):
-            self.Oidx.extend([i] * (2*i + 1))
-
-        self.α = -(tc.rand(self.NS, nmax, device=cell.device) + 0.2)
-        self.rs = tc.rand(self.NS, nmax, device=cell.device)
-        # NS x nmax
-        self.species_params = tc.rand(self.NS, self.nmax, device=cell.device)
-        # Loop x NO x nmax x NO
-        self.orbital_params = tc.rand(self.nmax, self.NO, device=cell.device)[None, None].repeat(
-                                      loop, lmax, 1, 1)
-
-        layers = (
-                 nn.Linear(self.NO, int(1.2 * self.NO), device=cell.device).double(),
-                 nn.Tanh().double(),
-                 nn.Linear(int(1.2 * self.NO), int(1.2 * nmax), device=cell.device).double(),
-                 nn.Tanh().double(),
-                 nn.Linear(int(1.2 * nmax), nmax, device=cell.device).double()
-                 )
-
-        moduledict = nn.ModuleDict()
-        for spe in self.numbers:
-            moduledict[str(spe)] = nn.Sequential(*layers)
-
-        gjkwargs = dict(numbers=self.numbers, nmax=nmax)
-        a = [Gj(moduledict, **gjkwargs) for j in range(self.loop)]
-        self.gj = nn.ModuleList(a)
-
-    def forward(self, tensor):
-        """
-        tensor: NNxNAx3
-        NN: Total number of tensor
-        """
-        dtype, device = tensor.dtype, tensor.device
-        NA, NO, NN = self.NA, self.NO, len(tensor)
-        nmax, lmax, rcut = self.nmax, self.lmax, self.rcut
-        params = (device, dtype, NA, NO, nmax)
-        ans = tc.zeros((NN, NA, NO),
-                       dtype=dtype, device=device)
-        nidxs, iidxs, jjidxs, disps, dists = get_neighbors_info2(self.pbc, self.cell, tensor)
-        for n, positions in enumerate(tensor):
-            aa = time.time()
-            # iidx, jidx, disp, dist = get_neighbors_info(pnl=self.pnl, pbc=self.pbc,
-            #                     cell=self.cell, positions=positions)
-            nmask = nidxs == n
-            iidx, jidx, disp, dist = iidxs[nmask], jjidxs[nmask], disps[nmask], dists[nmask]
-            
-            bb = time.time()
-            # iidx = tc.Tensor(iidx).long()
-            jatn = tc.Tensor([self.sorted_numbers[j] for j in jidx]).long().to(device=device)
-
-            # disp = positions[iidx] - positions[jidx] @ shift
-            # dist = tc.linalg.norm(disp, axis=2)
-
-            # NN
-            aa = time.time()
-            fcut = self.cutoff(dist, rcut)
-            bb = time.time()
-            # NN x nmax
-            aa = time.time()
-            radial = gauss(dist, jatn, self.α, self.rs)
-            bb = time.time()
-            # NN x NO
-            aa = time.time()
-            angle = angular(disp, lmax, NO, dtype, device)
-            bb = time.time()
-            # NNxNOx1 x NNx1xnmax -> NNxNOxnmax
-            aa = time.time()
-            Fxyz = (fcut[..., None, None] * angle[..., None] * radial[:, None])
-            bb = time.time()
-            # Sxnmax -> NA x nmax
-            aa = time.time()
-            Csn = self.species_params[self.sorted_numbers]
-            bb = time.time()
-            # Loop x lmax x nmax x O -> O x nmax x O
-            aa = time.time()
-            Wln = self.orbital_params[0, self.Oidx]
-            bb = time.time()
-            # NA x O
-            ρ = get_density(Wln, Csn, Fxyz, iidx, jidx, *params)
-            bb = time.time()
-            for i in range(1, self.loop):
-                # NAxO -> NAxnmax
-                Csn = Csn + self.gj[i-1](ρ)
-                # Loop x lmax x nmax x O -> O x nmax x O
-                Wln = self.orbital_params[i, self.Oidx]
-                # NA x O
-                ρ = get_density(Wln, Csn, Fxyz, iidx, jidx, *params)
-            ans[n] = ρ
-        return ans
-
-    def cutoff(self, dist, rcut):
-        """
-        dist: NNTot arr
-        rcut: float
-        return NNTot arr
-        """
-        # return tc.ones(dist.shape, dtype=dist.dtype, device=dist.device)
-        return 0.25 * (tc.cos(dist * np.pi/rcut)+1)**2
-
-    def primitive_neighbor_list(self, cutoff):
-        from taps.utils.neighborlist import PrimitiveNeighborList
-        return PrimitiveNeighborList(cutoff, bothways=True,
-                                     self_interaction=False)
-
-class REANN2(nn.Module):
-    """
-    Examples
-    --------
-    from torch import nn
-    from taps.ml.descriptors.torch import REANN
-    A = len(init)
-    pbc = [True, True, True]
-    cutoffs = [6.] * A
-
-    desc = REANN(pbc=pbc, cell=cell, cutoffs=cutoffs, numbers=numbers)
-    from ase.neighborlist import PrimitiveNeighborList
-        pnl = PrimitiveNeighborList(cutoffs=[6]*len(init),
-                                    self_interaction=False, bothways=True)
-        pnl.build(pbc, init.cell, init.positions)
-    """
-    def __init__(self, pnl=None, pbc=None, device=None, cutoffs=None,
-                 numbers=None,
-                 rcut=6., lmax=2, nmax=2,
-                 loop=1, **kwargs):
-        super(REANN, self).__init__()
-
-        self.pnl = pnl or self.primitive_neighbor_list(cutoffs)
-        self.pbc = tc.tensor(pbc).to(device=device)
         self.device = device
-        # self.cutoff = cutoff
-        self.numbers = numbers
-        _, __, ___ = sort_atomic_numbers(numbers)
-        self.species = _
-        self.sorted_species = __
-        self.sorted_numbers = ___
-        self.rcut = rcut
+        self.species = species
         self.nmax = nmax
         self.lmax = lmax
-        self.loop = loop
+        # self.loop = loop
+        self.register_buffer('loop', tc.Tensor([loop]).long())
+        self.register_buffer('rcut', tc.Tensor([rcut]))
 
-        self.NA = len(numbers)
-        self.NS = len(self.species)
-        self.NO = int((3 ** lmax - 1) / 2)
-        self.Oidx = []
+        assert len(species) == max(species) + 1, "Use compressed expression"
+        NS = len(species)
+        NO = int((3 ** lmax - 1) / 2)
+        Oidx = []
         for i in range(lmax):
-            self.Oidx.extend([i] * (2*i + 1))
+            Oidx.extend([i] * (2*i + 1))
 
-        self.α = -(tc.rand(self.NS, nmax, device=device) + 0.2)
-        self.rs = tc.rand(self.NS, nmax, device=device)
+        self.NS = NS
+        self.NO = NO
+        self.Oidx = Oidx
+
+        self.α = Parameter(-(tc.rand(NS, nmax, device=device) + 0.2))
+        self.rs = Parameter(tc.rand(NS, nmax, device=device))
         # NS x nmax
-        self.species_params = tc.rand(self.NS, self.nmax, device=device)
+        self.species_params = Parameter(tc.rand(NS, nmax).to(device=device))
         # Loop x NO x nmax x NO
-        self.orbital_params = tc.rand(self.nmax, self.NO, device=device)[None, None].repeat(
-                                      loop, lmax, 1, 1)
+        self.orbital_params = Parameter(tc.rand(nmax, NO)[None, None].repeat(
+                                  loop, lmax, 1, 1).to(device=device))
 
         layers = (
-                 nn.Linear(self.NO, int(1.2 * self.NO), device=device).double(),
-                 nn.Tanh().double(),
-                 nn.Linear(int(1.2 * self.NO), int(1.2 * nmax), device=device).double(),
-                 nn.Tanh().double(),
-                 nn.Linear(int(1.2 * nmax), nmax, device=device).double()
+                 nn.Linear(NO, int(1.2 * NO)),
+                 nn.SiLU(),
+                 nn.Linear(int(1.2 * NO), int(1.2 * nmax)),
+                 nn.SiLU(),
+                 nn.Linear(int(1.2 * nmax), nmax)
                  )
 
-        moduledict = nn.ModuleDict()
-        for spe in self.numbers:
-            moduledict[str(spe)] = nn.Sequential(*layers)
+        moduledict = nn.ModuleDict().to(device=device)
+        for spe in species:
+            moduledict[str(spe)] = nn.Sequential(*layers).double()
 
-        gjkwargs = dict(numbers=self.numbers, nmax=nmax)
-        a = [Gj(moduledict, **gjkwargs) for j in range(self.loop)]
-        self.gj = nn.ModuleList(a)
+        gjkwargs = dict(species=species, nmax=nmax)
+        a = [Gj(moduledict, **gjkwargs) for j in range(loop)]
+        self.gj = nn.ModuleList(a).to(device=device)
 
-    def forward(self, tensor, cells):
-        dtype, device = tensor.dtype, self.device
-        NA, NO, NN = self.NA, self.NO, len(tensor)
-        nmax, lmax, rcut = self.nmax, self.lmax, self.rcut
-        params = (device, dtype, NA, NO, nmax)
-        ans = tc.zeros((NN, NA, NO),
-                       dtype=dtype, device=device)
-        for n, positions in enumerate(tensor):
-            cell = cells[n]
-            iidx, jidx, disp, dist = get_neighbors_info(pnl=self.pnl, pbc=self.pbc,
-                                cell=cell, positions=positions)
-            # iidx = tc.Tensor(iidx).long()
-            jatn = tc.Tensor([self.sorted_numbers[j] for j in jidx]).long().to(device=device)
-
-            # disp = positions[iidx] - positions[jidx] @ shift
-            # dist = tc.linalg.norm(disp, axis=2)
-
-            # NN
-            fcut = self.cutoff(dist, rcut)
-            # NN x nmax
-            radial = gauss(dist, jatn, self.α, self.rs)
-            # NN x NO
-            angle = angular(disp, lmax, NO, dtype, device)
-            # NNxNOx1 x NNx1xnmax -> NNxNOxnmax
-            Fxyz = (fcut[..., None, None] * angle[..., None] * radial[:, None])
-            # Sxnmax -> NA x nmax
-            Csn = self.species_params[self.sorted_numbers]
-            # Loop x lmax x nmax x O -> O x nmax x O
-            Wln = self.orbital_params[0, self.Oidx]
-            # NA x O
-            ρ = get_density(Wln, Csn, Fxyz, iidx, jidx, *params)
-            for i in range(1, self.loop):
-                # NAxO -> NAxnmax
-                Csn = Csn + self.gj[i-1](ρ)
-                # Loop x lmax x nmax x O -> O x nmax x O
-                Wln = self.orbital_params[i, self.Oidx]
-                # NA x O
-                ρ = get_density(Wln, Csn, Fxyz, iidx, jidx, *params)
-            ans[n] = ρ
-        return ans
-
-    def cutoff(self, dist, rcut):
+    def forward(self, symbols, positions, cells, crystalidx, pbcs):
         """
-        dist: NNTot arr
+        Parameters
+        ----------
+        symbols: NTA tensor
+          Element of atoms corresponds to positions
+        positions: NTAx3 tensor
+          Atomic positions
+        cells: NCx3x3 tensor
+          Cell of each crystal
+        crystalidx: NTA
+          Crystal index corresponds to positions
+        pbcs: NCx3 tensor
+          Periodic boundary condition of each crystal
+
+        Returns
+        -------
+        NTAx NO Tensor{Double}
+            density ρ
+        """
+
+        # Number of crystals, Number of total atoms
+        iidx, jidx, isym, jsym, disp, dist = \
+            get_neighbors_info(symbols, positions, cells, crystalidx, pbcs)
+
+        NTA = len(positions)
+        dtype, device = positions.dtype, positions.device
+        NO, Oidx = self.NO, self.Oidx
+        nmax, lmax, rcut = self.nmax, self.lmax, self.rcut
+
+        # NN -> NN
+        fcut = self.cutoff_function(dist, rcut)
+        # NN -> NN
+        radial = self.gauss(dist, jsym, self.α, self.rs)
+        # NN x NO
+        angle = self.angular(disp, lmax, NO)
+        # NNxNOx1 x NNx1xnmax -> NNxNOxnmax
+        Fxyz = (fcut[..., None, None] * angle[..., None] * radial[:, None])
+
+        # NN number of total neighbors
+        # NSxnmax -> NTA x nmax
+        Csn = self.species_params[symbols]
+        # Loop x lmax x nmax x O -> O x nmax x O
+        Wln = self.orbital_params[0, Oidx]
+
+        params = (device, dtype, NTA, NO, nmax)
+        # NTA x O
+        ρ = self.get_density(Wln, Csn, Fxyz, iidx, jidx, *params)
+        for i in range(1, self.loop):
+            # NTAxO -> NTAxnmax
+            Csn = Csn + self.gj[i-1](ρ, symbols)
+            # Loop x lmax x nmax x O -> O x nmax x O
+            Wln = self.orbital_params[i, Oidx]
+            # NTA x O
+            ρ = self.get_density(Wln, Csn, Fxyz, iidx, jidx, *params)
+        return ρ
+
+    def cutoff_function(self, dist, rcut):
+        """
+        Parameters
+        ----------
+        dist: NTA
         rcut: float
-        return NNTot arr
+
+        Return
+        ------
+        NTA arr
         """
         # return tc.ones(dist.shape, dtype=dist.dtype, device=dist.device)
-        return 0.25 * (tc.cos(dist * np.pi/rcut)+1)**2
+        return 0.25 * (tc.cos(dist * tc.pi/rcut)+1)**2
 
-    def primitive_neighbor_list(self, cutoff):
-        from taps.utils.neighborlist import PrimitiveNeighborList
-        return PrimitiveNeighborList(cutoff, bothways=True,
-                                     self_interaction=False)
+    def gauss(self, dist, jatn, alpha, rs):
+        """
+        dist : NN
+        sig : NS x nmax
+        rs : NS x nmax
+        return : NN x nmax
+        """
 
+        """
+        NN = len(dist)
+        dtype, device = dist.dtype, dist.device
+        gauss = tc.empty((NN, nmax), dtype=dtype, device=device)
+        for i, spe in enumerate(species):
+            # nmax
+            Sig, Rs = sigma[i], rs[i]
+            mask = (symbols == spe)
+            # NN x nmax
+            tmp = np.exp(Sig * (dist[mask, None] - Rs)**2)
+            # NN x 1
+            gauss.masked_scatter_(mask[:, None], tmp)
+        return gauss
+        """
+        # NSxnmax -> NNxnmax
+        Rs = rs[jatn]
+        alp = alpha[jatn]
+        # NN x nmax - NN x 1 -> NN x nmax
+        return tc.exp(alp * (dist[:, None] - Rs)**2)
 
+    def angular(self, disp, lmax, NO):
+        """
+        unit : NTA x 3
+        disp : NTA x 3
+        fcut : NTA
+        lmax : int
+        return : NTA x O
+           where NTA is number of total atoms
+                  O is number of orbitals
 
-class MLIP:
-    None
+        Only 1, 2 support.
+        """
+        NN, dtype, device = len(disp), disp.dtype, disp.device
+
+        angular = tc.ones(NN, NO, dtype=dtype, device=device)
+        if lmax > 1:
+            # NNx1 * NNx3 -> NNx3
+            angular[:, 1:4] = disp
+        if lmax > 2:
+            pass
+            """
+            for l in range(2, lmax+1):
+                for m in range(l):
+                    Tlm = chebyshev(l, m)
+                    for pqr in mulinomial(m):
+                        p, q, r = pqr
+            """
+        return angular
+
+    def get_density(self, Wln, Csn, Fxyz, iidx, jidx, device, dtype, NTA, NO, nmax):
+        """
+        Parameters
+        ----------
+
+        Wln: O x nmax x O
+        Csn: NTA x nmax
+        Fxyz: NNxNOxnmax
+
+        Returns
+        -------
+         NTA x O
+        """
+        # NTAxnmax -> NNxnmax
+        cj = Csn[jidx]
+        # NNx1xnmax x NNxNOxnmax -> NNxNOxnmax
+        cjFxyz = cj[:, None] * Fxyz
+
+        # NN x NO x nmax -> NA x NO x nmax
+        bnl = tc.zeros((NTA, NO, nmax), device=device, dtype=dtype).index_add(
+                                                0, iidx, cjFxyz)
+
+        # NOx(nmax)xNO * NAxNOx(nmax)x1, -> NA x NO x nmax x NO -> NAxOxO -> NAxO
+        return tc.sum(tc.sum(Wln * bnl[..., None], axis=2) ** 2, axis=1)

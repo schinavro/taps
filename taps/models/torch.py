@@ -173,12 +173,12 @@ class AtomicNeuralNetwork(nn.Module, Model):
     implemented_properties = {'potential', 'gradients', 'hessian',
                               'covariance'}
 
-    def __init__(self, moduledict=None, desc=None, numbers=None, timestamps={},
+    def __init__(self, moduledict=None, desc=None, species=None, timestamps={},
                  **kwargs):
         super(AtomicNeuralNetwork, self).__init__()
         self.moduledict = moduledict
         self.desc = desc
-        self.numbers = numbers
+        self.species = species
         self.timestamps = timestamps
         Model.__init__(self, **kwargs)
 
@@ -198,21 +198,34 @@ class AtomicNeuralNetwork(nn.Module, Model):
         else:
             return super().__getattr__(key)
 
-    def forward(self, tensor, cells):
-        # Calculation of descriptor
-        a = time.time()
-        desc = self.desc(tensor, cells)
-        b = time.time()
-        self.timestamps['descriptor'] = b - a
+    def forward(self, tensor, symbols, cells, pbcs, atomsidx, atomsidxset):
+        """
+        where `NTA` means a number of total atoms
+        `NL` means a number of crystals
 
-        # temp = tc.zeros(N, self.A)
-        a = time.time()
+        Parameters
+        ----------
+
+        tensor: NTA x 3 Basis tensor
+        symbols: NTA element
+        cells: NC x 3 x 3
+        pbcs: NC
+        atoms_idx: NTA integer tensor
+
+        """
+        # Calculation of descriptor
+        N = len(cells)
+        desc = []
+        for idx in atomsidxset:
+            mask = atomsidx == idx
+
+            desc = self.desc(tensor, symbols, cells, pbcs)
+
         temp = []
-        for n, spe in enumerate(self.numbers):
-            temp.append(self.moduledict[str(spe)](desc[:, n]))
-        b = time.time()
+        for spe in self.species:
+            mask = symbols == spe
+            temp.append(self.moduledict[str(spe)](desc[:, mask]))
         res = tc.cat(temp, axis=1)
-        self.timestamps['moduledict'] = b - a
         return res
         # return tc.sum(res, axis=1)
 
