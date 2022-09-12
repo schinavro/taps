@@ -98,14 +98,14 @@ class Naive(nn.Module):
 
 
 def compress_symbols(symbols):
-    """Make each unqiue atomic symbols into consecutive symbols
+    """Make each unqiue atomic symbols into consecutive numbers
      This makes coding easier by creating dense matrix.
 
     Example
     -------
 
     >>> compress_symbols([1, 1, 1, 1, 6])
-    ... ({0: 1, 1: 6}, [0, 1])
+    ... ({1:0, 6:1}, {0: 1, 1: 6}, [0, 1])
 
     Paramers
     --------
