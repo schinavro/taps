@@ -3,11 +3,10 @@ import numexpr as ne
 from numpy import identity as II
 from numpy import newaxis as nax
 from numpy import vstack
-from taps.ml.kernels import Kernel
 from taps.coords import Coordinate
 
 
-class SquaredExponential(Kernel):
+class SquaredExponential:
     """ Function like class that generate kernel matrix.
 
     Parameters
@@ -23,6 +22,10 @@ class SquaredExponential(Kernel):
     key2idx = {'sigma_f': 0, 'l^2': 1, 'sigma_n^e': 2, 'sigma_n^f': 3}
     hyperparameters = {'sigma_f': 1, 'l^2': 1, 'sigma_n^e': 0.1,
                        'sigma_n^f': 0.1}
+
+    def __init__(self, hyperparameters=None, key2idx=None):
+        self.hyperparameters = hyperparameters or self.hyperparameters
+        self.key2idx = key2idx or self.key2idx
 
     def __call__(self, Xn=None, Xm=None, orig=False, noise=False,
                  hyperparameters=None, gradient_only=False, hessian_only=False,
@@ -118,7 +121,7 @@ class SquaredExponential(Kernel):
             # DxNxM * DxNxM -> NxDxDxM
             # dc_hg_glob = np.einsum('inm, jnm -> nijm', -dc_gd, -dc_gd)
             dc_hg_glob = np.empty((D, D, N, M))
-            DC1 = -dc_gd[nax, :, :, :]
+            DC1 = -dc_gd[nax, :, :, :]  #
             DC2 = -dc_gd[:, nax, :, :]
             # 1xDxNxM * D'x1xNxM -> DxD'xNxM
             ne.evaluate("DC1 * DC2", out=dc_hg_glob)
@@ -140,7 +143,7 @@ class SquaredExponential(Kernel):
             KHG1 = Khg[nax, ...]
             dc_hd_back = np.empty((D, N, D, D, M))
             ne.evaluate("DC_GD * KHG1", out=dc_hd_back)
-            #dc_hd_back = dc_gd[:, :, nax, nax, :] * Khg[nax, ...]
+            # dc_hd_back = dc_gd[:, :, nax, nax, :] * Khg[nax, ...]
             # Diagonal term : DxNxDxDxM * 1xNxDxDxM -> DxNxDxDxM
             dc_hd_diag = np.zeros((D, N, D, D, M))
             # Global term :
@@ -185,3 +188,20 @@ class SquaredExponential(Kernel):
             I1 = II((D + 1) * N)
             return ne.evaluate("Kext + noise * I1")
         return Kext
+
+    def set_hyperparameters(self, hyperparameters=None):
+        for key, idx in self.key2idx.items():
+            self.hyperparameters[key] = hyperparameters[idx]
+
+    def get_hyperparameters(self):
+        hyperparameters = [None] * len(self.hyperparameters)
+        for key, idx in self.key2idx.items():
+            hyperparameters[idx] = self.hyperparameters[key]
+        return hyperparameters
+
+    def __repr__(self):
+        return self.__class__.__name__
+
+    def __str__(self):
+        # [(k, v) for k,v in self.hyperparameters.items()]
+        return ''

@@ -1,8 +1,8 @@
 import numpy as np
 from numpy.linalg import inv
 from taps.models import Model
-from taps.ml.kernels import Kernel
-from taps.ml.means import Mean
+from taps.ml.kernels import SquaredExponential
+from taps.models.toys import Mean
 from taps.projectors import Projector
 from taps.coords import Cartesian
 
@@ -81,7 +81,7 @@ class Gaussian(Model):
         data array
         """
         self.real_model = real_model or self
-        self.kernel = kernel or Kernel()
+        self.kernel = kernel or SquaredExponential()
         self.mean = mean or Mean()
 
         super().__init__(**kwargs)

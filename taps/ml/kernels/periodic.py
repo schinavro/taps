@@ -4,10 +4,8 @@ from numpy import identity as II
 from numpy import newaxis as nax
 from numpy import vstack, cos, sin
 
-from taps.ml.kernels import Kernel
 
-
-class PeriodicKernel(Kernel):
+class PeriodicKernel:
     """
     period : NxD array
     """
